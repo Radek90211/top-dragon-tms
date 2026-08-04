@@ -14,10 +14,10 @@ function escapeHtml(value) {
 
 function renderLogin(message = '') {
   app.innerHTML = `
-    <main class="shell">
-      <section class="card">
+    <main class="login-shell">
+      <section class="login-card">
         <h1>Top Dragon TMS</h1>
-        <p>Logowanie do środowiska testowego.</p>
+        <p>Zaloguj się, aby przejść do systemu.</p>
         <form id="login-form">
           <label>E-mail
             <input id="email" type="email" autocomplete="username" required />
@@ -53,7 +53,7 @@ async function renderDashboard(user) {
     .maybeSingle()
 
   if (error) {
-    app.innerHTML = `<main class="shell"><section class="card"><div class="error">Nie udało się pobrać profilu użytkownika.</div></section></main>`
+    app.innerHTML = '<main class="login-shell"><section class="login-card"><div class="error">Nie udało się pobrać profilu użytkownika.</div></section></main>'
     return
   }
 
@@ -63,25 +63,29 @@ async function renderDashboard(user) {
     return
   }
 
+  const userName = profile.display_name || user.email
+  const branchName = profile.branch?.name || 'Brak oddziału'
+
   app.innerHTML = `
-    <main class="shell">
-      <section class="card">
-        <div class="row">
-          <div>
-            <h1>Środowisko gotowe</h1>
-            <p class="small">Etap 1 wdrożenia produkcyjnego.</p>
-          </div>
-          <button id="logout" class="secondary">Wyloguj</button>
+    <main class="workspace">
+      <header class="workspace-bar">
+        <div class="workspace-brand">
+          <strong>Top Dragon TMS</strong>
+          <span>${escapeHtml(userName)} · ${escapeHtml(profile.role)} · ${escapeHtml(branchName)}</span>
         </div>
-        <div class="success">Bezpieczne logowanie Supabase działa.</div>
-        <p><strong>Użytkownik:</strong> ${escapeHtml(profile.display_name || user.email)}</p>
-        <p><strong>Rola:</strong> ${escapeHtml(profile.role)}</p>
-        <p><strong>Oddział:</strong> ${escapeHtml(profile.branch?.name || 'Brak')}</p>
-      </section>
+        <button id="logout" class="secondary" type="button">Wyloguj</button>
+      </header>
+      <iframe
+        class="tms-frame"
+        src="/tms.html"
+        title="Top Dragon TMS"
+      ></iframe>
     </main>
   `
 
-  document.querySelector('#logout').addEventListener('click', () => supabase.auth.signOut())
+  document.querySelector('#logout').addEventListener('click', async () => {
+    await supabase.auth.signOut()
+  })
 }
 
 supabase.auth.onAuthStateChange((_event, session) => {

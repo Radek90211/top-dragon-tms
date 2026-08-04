@@ -1,55 +1,29 @@
-# Top Dragon TMS — starter produkcyjny
+# Top Dragon TMS — wersja z prototypem po logowaniu
 
-To jest **Etap 1** migracji: bezpieczne logowanie, profile, role, oddziały i szkielet audytu.
-Nie zawiera jeszcze funkcjonalnego planu kierowców ani migracji danych z prototypu.
+Projekt zawiera:
 
-## 1. Wymagania
+- logowanie Supabase,
+- profile, role i oddziały,
+- oczyszczony prototyp TMS uruchamiany po poprawnym logowaniu,
+- brak startowych danych demonstracyjnych kierowców, pojazdów i klientów.
 
-- Node.js LTS
-- prywatne repozytorium GitHub
-- projekt testowy Supabase
+## Ważne
 
-## 2. Supabase
+Interfejs TMS jest na tym etapie osadzony jako `public/tms.html` i nadal przechowuje ręcznie dodawane dane w `localStorage` przeglądarki. Jest to etap przejściowy. Kolejnym etapem jest przeniesienie danych i operacji do tabel Supabase.
 
-1. Utwórz projekt testowy.
-2. Otwórz SQL Editor.
-3. Uruchom `supabase/migrations/001_auth_profiles_audit.sql`.
-4. W Authentication > Users utwórz pierwszego użytkownika przez zaproszenie e-mail.
-5. Po rejestracji ustaw konto jako administratora:
-
-```sql
-update public.profiles
-set role = 'admin', active = true, display_name = 'Administrator'
-where id = (select id from auth.users where email = 'TWOJ_EMAIL');
-```
-
-6. Z Connect skopiuj Project URL i Publishable key.
-
-## 3. Uruchomienie lokalne
+## Uruchomienie
 
 ```bash
 cp .env.example .env.local
-# Uzupełnij .env.local
 npm install
 npm run dev
 ```
 
-## 4. GitHub
-
-```bash
-git init
-git add .
-git commit -m "Etap 1: Supabase Auth i profile"
-git branch -M main
-git remote add origin ADRES_PRYWATNEGO_REPOZYTORIUM
-git push -u origin main
-```
-
-## 5. Vercel — dopiero po teście logowania
-
-Zaimportuj repozytorium i ustaw dwie zmienne środowiskowe:
+Wymagane zmienne:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-Najpierw wdrażaj jako Preview. Produkcję uruchomimy po migracji danych i polityk RLS.
+## Wdrożenie Vercel
+
+Repozytorium powinno zachować istniejące zmienne środowiskowe projektu Vercel. Po wysłaniu zmian do gałęzi `main` Vercel utworzy nowe wdrożenie automatycznie.
