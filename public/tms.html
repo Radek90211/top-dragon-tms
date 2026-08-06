@@ -71074,6 +71074,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <div class="header-view-nav" aria-label="Widok aplikacji">
                   <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
                   <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
+                  ${["spedytor","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
                   <span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">
@@ -82264,6 +82265,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       window.isAdminUser = isAdminUser;
 
+      window.openFleetManagement = function() {
+        if (!state.user || !["spedytor","admin"].includes(state.user.role)) return;
+        state.appView = "plan";
+        state.commercialPanelOpen = true;
+        state.commercialView = "fleet";
+        render();
+        requestAnimationFrame(() => {
+          document.getElementById("commercial-intelligence")?.scrollIntoView?.({
+            behavior: "smooth",
+            block: "start"
+          });
+          document.getElementById("fleet-driver-name")?.focus?.();
+        });
+      };
+
       if (!USERS.some(user => user.login === "ADMIN")) {
         USERS.push({ login:"ADMIN", role:"admin", category:"administracja", branch:"Wszystkie oddziały", name:"Administrator" });
       }
@@ -82395,7 +82411,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           .slice().sort((a,b) => String(a.dispatcher).localeCompare(String(b.dispatcher),"pl") || String(a.driver).localeCompare(String(b.driver),"pl"));
         return `<div class="fleet-management">
           <div class="fleet-form-card">
-            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;"><div><b>Dodaj pojazd, kierowcę i przewoźnika</b><div class="small">Nowy zestaw od razu pojawi się w Planie kierowców i filtrach mapy.</div></div>${isAdminUser() ? `<span class="theme-pill">Administrator: wszystkie oddziały</span>` : ""}</div>
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;"><div><b>Dodaj kierowcę / pojazd</b><div class="small">Nowy zestaw od razu pojawi się w Planie kierowców i filtrach mapy.</div></div>${isAdminUser() ? `<span class="theme-pill">Administrator: wszystkie oddziały</span>` : `<span class="theme-pill">Przypisanie do: ${esc(state.user.login)}</span>`}</div>
             <form class="fleet-form-grid" onsubmit="addFleetDriver(event)">
               ${renderFleetDispatcherField()}
               <div class="wide"><label class="field-label" style="margin-top:0;">Przewoźnik</label><input id="fleet-carrier" class="input" required placeholder="np. Trans ABC" /></div>
@@ -82567,7 +82583,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       renderCommercialIntelligence = function() {
         const tabs = [["rates","Historia"],["region","Klienci i ładunki w rejonie"],["requests","Zapytania o ładunek"]];
-        if (["spedytor","admin"].includes(state.user?.role)) tabs.push(["fleet","Flota"]);
+        if (["spedytor","admin"].includes(state.user?.role)) tabs.push(["fleet","Kierowcy i pojazdy"]);
         if (isAdminUser()) tabs.push(["audit","Historia operacji"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
         return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
