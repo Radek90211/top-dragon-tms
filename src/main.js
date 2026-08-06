@@ -14,6 +14,27 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;')
 }
 
+function renderFatalError(error) {
+  const message = error instanceof Error ? error.message : String(error || 'Nieznany błąd')
+  if (!app) return
+
+  app.innerHTML = `
+    <main class="login-shell">
+      <section class="login-card">
+        <img class="login-logo" src="/top-dragon-logo.jpg" alt="Top Dragon" />
+        <h1>Nie udało się uruchomić aplikacji</h1>
+        <div class="error">
+          ${escapeHtml(message)}
+        </div>
+        <p style="color:#64748b;line-height:1.5">
+          Odśwież stronę skrótem Ctrl + F5. Jeżeli błąd pozostanie,
+          sprawdź najnowsze wdrożenie w Vercel.
+        </p>
+      </section>
+    </main>
+  `
+}
+
 function renderLogin(message = '') {
   app.innerHTML = `
     <main class="login-shell">
@@ -34,16 +55,23 @@ function renderLogin(message = '') {
     </main>
   `
 
-  document.querySelector('#login-form').addEventListener('submit', async (event) => {
+  document.querySelector('#login-form')?.addEventListener('submit', async (event) => {
     event.preventDefault()
-    const email = document.querySelector('#email').value.trim()
-    const password = document.querySelector('#password').value
+    const email = document.querySelector('#email')?.value.trim() || ''
+    const password = document.querySelector('#password')?.value || ''
     const button = event.submitter
-    button.disabled = true
-    button.textContent = 'Logowanie…'
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) renderLogin('Nieprawidłowy e-mail lub hasło.')
+    if (button) {
+      button.disabled = true
+      button.textContent = 'Logowanie…'
+    }
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) renderLogin('Nieprawidłowy e-mail lub hasło.')
+    } catch (error) {
+      renderFatalError(error)
+    }
   })
 }
 
@@ -55,8 +83,7 @@ async function renderDashboard(user) {
     .maybeSingle()
 
   if (error) {
-    app.innerHTML = '<main class="login-shell"><section class="login-card"><div class="error">Nie udało się pobrać profilu użytkownika.</div></section></main>'
-    return
+    throw new Error(`Nie udało się pobrać profilu użytkownika: ${error.message}`)
   }
 
   if (!profile?.active) {
@@ -77,7 +104,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1"
+        src="/tms.html?embedded=1&build=clean-demo-v4"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -104,34 +131,39 @@ async function renderDashboard(user) {
   sendIdentityToTms()
 }
 
-window.addEventListener('message', async (event) => {
-  if (event.origin !== window.location.origin) return
+async function bootstrap() {
+  if (!app) throw new Error('Brak elementu #app w pliku index.html.')
 
-  if (event.data?.type === 'top-dragon-ready') {
-    activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
-    return
-  }
+  window.addEventListener('message', async (event) => {
+    if (event.origin !== window.location.origin) return
 
-  if (event.data?.type === 'top-dragon-auth-applied') {
-    document.querySelector('#tms-frame')?.classList.remove('is-loading')
-    document.querySelector('#tms-loading')?.remove()
-    return
-  }
+    if (event.data?.type === 'top-dragon-ready') {
+      activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+      return
+    }
 
-  if (event.data?.type === 'top-dragon-request-signout') {
-    await supabase.auth.signOut()
-  }
-})
+    if (event.data?.type === 'top-dragon-auth-applied') {
+      document.querySelector('#tms-frame')?.classList.remove('is-loading')
+      document.querySelector('#tms-loading')?.remove()
+      return
+    }
 
-supabase.auth.onAuthStateChange((_event, session) => {
-  if (session?.user) renderDashboard(session.user)
-  else {
-    activeTmsFrame = null
-    activeAuthMessage = null
-    renderLogin()
-  }
-})
+    if (event.data?.type === 'top-dragon-request-signout') {
+      await supabase.auth.signOut()
+    }
+  })
 
-const { data: { session } } = await supabase.auth.getSession()
-if (session?.user) renderDashboard(session.user)
-else renderLogin()
+  supabase.auth.onAuthStateChange((_event, session) => {
+    Promise.resolve(
+      session?.user ? renderDashboard(session.user) : renderLogin()
+    ).catch(renderFatalError)
+  })
+
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+
+  if (data.session?.user) await renderDashboard(data.session.user)
+  else renderLogin()
+}
+
+bootstrap().catch(renderFatalError)
