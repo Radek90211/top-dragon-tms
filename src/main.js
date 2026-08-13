@@ -193,9 +193,358 @@ function branchOptions(branches, selectedId = '') {
     .join('')
 }
 
-async function renderAdminPanel(message = '', messageType = 'success') {
+let adminCache = null
+let adminPanelBusy = false
+
+function updateAdminCacheBranch(branch) {
+  if (!adminCache) return
+  const index = adminCache.branches.findIndex((item) => item.id === branch.id)
+  if (index >= 0) adminCache.branches[index] = { ...adminCache.branches[index], ...branch }
+  else adminCache.branches.push(branch)
+  adminCache.branches.sort((a, b) => String(a.name).localeCompare(String(b.name), 'pl'))
+}
+
+function updateAdminCacheUser(user) {
+  if (!adminCache) return
+  const index = adminCache.users.findIndex((item) => item.id === user.id)
+  if (index >= 0) adminCache.users[index] = { ...adminCache.users[index], ...user }
+  else adminCache.users.push(user)
+  adminCache.users.sort((a, b) => String(a.display_name).localeCompare(String(b.display_name), 'pl'))
+}
+
+function showAdminMessage(message = '', messageType = 'success') {
+  const box = document.querySelector('#admin-message-box')
+  if (!box) return
+
+  if (!message) {
+    box.innerHTML = ''
+    box.hidden = true
+    return
+  }
+
+  box.hidden = false
+  box.className = `${messageType === 'error' ? 'error' : 'success'} admin-message`
+  box.textContent = message
+}
+
+function setAdminBusy(busy) {
+  adminPanelBusy = busy
+  document.querySelectorAll(
+    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, .user-save, #admin-refresh'
+  ).forEach((button) => {
+    button.disabled = busy || button.dataset.locked === 'true'
+  })
+}
+
+function renderAdminPanelFromCache(message = '', messageType = 'success') {
+  if (!adminCache) return
+
+  const branches = adminCache.branches || []
+  const users = adminCache.users || []
+  const activeBranches = branches.filter((branch) => branch.active)
+
+  app.innerHTML = `
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <div class="admin-eyebrow">Top Dragon TMS</div>
+          <h1>Administracja</h1>
+          <p class="muted">Zalogowany: ${escapeHtml(currentProfile.display_name || currentUser.email)}</p>
+        </div>
+        <div class="admin-header-actions">
+          <button id="admin-refresh" class="secondary">Odśwież dane</button>
+          <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
+        </div>
+      </header>
+
+      <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
+
+      <div class="admin-grid">
+        <section class="admin-card">
+          <div class="section-heading">
+            <div>
+              <h2>Oddziały</h2>
+              <p class="muted">Nieaktywny oddział zachowuje całą historię. Trwałe usunięcie jest możliwe tylko dla oddziału, który nigdy nie był używany.</p>
+            </div>
+          </div>
+
+          <form id="branch-create-form" class="compact-form">
+            <label>Nazwa nowego oddziału
+              <input id="branch-name" type="text" placeholder="np. Oddział Łódź" required minlength="2" />
+            </label>
+            <button class="primary compact-primary" type="submit">+ Dodaj oddział</button>
+          </form>
+
+          <div class="admin-list">
+            ${branches.length ? branches.map((branch) => `
+              <article class="admin-row ${branch.active ? '' : 'is-inactive'}" data-branch-id="${escapeHtml(branch.id)}">
+                <div class="admin-row-main">
+                  <strong>${escapeHtml(branch.name)}</strong>
+                  <span class="status-pill ${branch.active ? 'active' : 'inactive'}">${branch.active ? 'Aktywny' : 'Nieaktywny'}</span>
+                </div>
+                <div class="row-actions">
+                  <button type="button" class="secondary branch-rename">Zmień nazwę</button>
+                  <button type="button" class="secondary branch-toggle">${branch.active ? 'Dezaktywuj' : 'Aktywuj'}</button>
+                  <button type="button" class="danger-button branch-delete">Usuń</button>
+                </div>
+              </article>
+            `).join('') : '<p class="muted">Brak oddziałów.</p>'}
+          </div>
+        </section>
+
+        <section class="admin-card">
+          <div class="section-heading">
+            <div>
+              <h2>Dodaj użytkownika</h2>
+              <p class="muted">Pracownik otrzyma e-mail z linkiem do ustawienia własnego hasła.</p>
+            </div>
+          </div>
+
+          <form id="user-invite-form" class="compact-form two-columns">
+            <label>Nazwa wyświetlana
+              <input id="invite-display-name" type="text" placeholder="np. Tomasz" required minlength="2" />
+            </label>
+            <label>E-mail
+              <input id="invite-email" type="email" placeholder="tomasz@firma.pl" required />
+            </label>
+            <label>Rola
+              <select id="invite-role" required>
+                <option value="dispatcher">Spedytor</option>
+                <option value="branch_manager">Kierownik oddziału</option>
+                <option value="accounting">Rozliczenia</option>
+              </select>
+            </label>
+            <label>Oddział
+              <select id="invite-branch" required>
+                <option value="">Wybierz oddział</option>
+                ${branchOptions(activeBranches)}
+              </select>
+            </label>
+            <button class="primary compact-primary wide" type="submit" ${activeBranches.length ? '' : 'disabled'}>
+              Wyślij zaproszenie
+            </button>
+          </form>
+          ${activeBranches.length ? '' : '<div class="warning">Najpierw utwórz aktywny oddział.</div>'}
+        </section>
+      </div>
+
+      <section class="admin-card users-card">
+        <div class="section-heading">
+          <div>
+            <h2>Użytkownicy</h2>
+            <p class="muted">Zmiana statusu na nieaktywny zachowuje użytkownika i jego historię.</p>
+          </div>
+          <span class="count-pill">${users.length}</span>
+        </div>
+
+        <div class="user-list">
+          ${users.length ? users.map((item) => {
+            const lockedAdmin = item.role === 'admin'
+            return `
+              <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
+                <div class="user-identity">
+                  <strong>${escapeHtml(item.display_name)}</strong>
+                  <span>${escapeHtml(item.email || 'Brak e-mail')}</span>
+                </div>
+                <label>Nazwa
+                  <input class="user-display-name" value="${escapeHtml(item.display_name)}" ${lockedAdmin ? 'disabled' : ''} />
+                </label>
+                <label>Rola
+                  <select class="user-role" ${lockedAdmin ? 'disabled' : ''}>
+                    <option value="dispatcher" ${item.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
+                    <option value="branch_manager" ${item.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
+                    <option value="accounting" ${item.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
+                    ${lockedAdmin ? '<option value="admin" selected>Administrator</option>' : ''}
+                  </select>
+                </label>
+                <label>Oddział
+                  <select class="user-branch" ${lockedAdmin ? 'disabled' : ''}>
+                    <option value="">Brak</option>
+                    ${branchOptions(branches, item.branch_id || '')}
+                  </select>
+                </label>
+                <label class="active-check">
+                  <span>Aktywny</span>
+                  <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
+                </label>
+                <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled data-locked="true"' : ''}>Zapisz</button>
+              </article>
+            `
+          }).join('') : '<p class="muted">Brak użytkowników.</p>'}
+        </div>
+      </section>
+    </main>
+  `
+
+  document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
+
+  document.querySelector('#admin-refresh')?.addEventListener('click', async () => {
+    if (adminPanelBusy) return
+    setAdminBusy(true)
+    try {
+      adminCache = await loadAdminData()
+      renderAdminPanelFromCache('Dane zostały odświeżone.')
+    } catch (error) {
+      showAdminMessage(error.message, 'error')
+      setAdminBusy(false)
+    }
+  })
+
+  document.querySelector('#branch-create-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    if (adminPanelBusy) return
+
+    const name = document.querySelector('#branch-name')?.value.trim() || ''
+    setAdminBusy(true)
+
+    try {
+      const result = await adminApi('/api/admin/branches', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      })
+      updateAdminCacheBranch(result.branch)
+      renderAdminPanelFromCache('Oddział został dodany.')
+    } catch (error) {
+      showAdminMessage(error.message, 'error')
+      setAdminBusy(false)
+    }
+  })
+
+  document.querySelectorAll('.admin-row').forEach((row) => {
+    const id = row.dataset.branchId
+    const branch = branches.find((item) => item.id === id)
+    if (!branch) return
+
+    row.querySelector('.branch-rename')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+      const name = window.prompt('Nowa nazwa oddziału:', branch.name)
+      if (!name || name.trim() === branch.name) return
+
+      setAdminBusy(true)
+      try {
+        const result = await adminApi('/api/admin/branches', {
+          method: 'PATCH',
+          body: JSON.stringify({ id, name: name.trim() }),
+        })
+        updateAdminCacheBranch(result.branch)
+        renderAdminPanelFromCache('Nazwa oddziału została zmieniona.')
+      } catch (error) {
+        showAdminMessage(error.message, 'error')
+        setAdminBusy(false)
+      }
+    })
+
+    row.querySelector('.branch-toggle')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+      const action = branch.active ? 'dezaktywować' : 'aktywować'
+      if (!window.confirm(`Czy na pewno ${action} oddział „${branch.name}”?`)) return
+
+      setAdminBusy(true)
+      try {
+        const result = await adminApi('/api/admin/branches', {
+          method: 'PATCH',
+          body: JSON.stringify({ id, active: !branch.active }),
+        })
+        updateAdminCacheBranch(result.branch)
+        renderAdminPanelFromCache(`Oddział został ${branch.active ? 'dezaktywowany' : 'aktywowany'}.`)
+      } catch (error) {
+        showAdminMessage(error.message, 'error')
+        setAdminBusy(false)
+      }
+    })
+
+    row.querySelector('.branch-delete')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+      if (!window.confirm(
+        `Trwale usunąć oddział „${branch.name}”?\n\nUsunięcie będzie możliwe tylko wtedy, gdy oddział nie ma żadnych użytkowników, kierowców, pojazdów, przewoźników, zestawów ani historii relacji.`
+      )) return
+
+      setAdminBusy(true)
+      try {
+        const result = await adminApi('/api/admin/branches', {
+          method: 'DELETE',
+          body: JSON.stringify({ id }),
+        })
+        adminCache.branches = adminCache.branches.filter((item) => item.id !== id)
+        renderAdminPanelFromCache(result.message || 'Oddział został usunięty.')
+      } catch (error) {
+        showAdminMessage(error.message, 'error')
+        setAdminBusy(false)
+      }
+    })
+  })
+
+  document.querySelector('#user-invite-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    if (adminPanelBusy) return
+
+    const button = event.submitter
+    setAdminBusy(true)
+    if (button) button.textContent = 'Wysyłanie…'
+
+    try {
+      const result = await adminApi('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          displayName: document.querySelector('#invite-display-name')?.value.trim(),
+          email: document.querySelector('#invite-email')?.value.trim(),
+          role: document.querySelector('#invite-role')?.value,
+          branchId: document.querySelector('#invite-branch')?.value,
+        }),
+      })
+      updateAdminCacheUser(result.user)
+      renderAdminPanelFromCache(result.message || 'Zaproszenie zostało wysłane.')
+    } catch (error) {
+      showAdminMessage(error.message, 'error')
+      setAdminBusy(false)
+      if (button) button.textContent = 'Wyślij zaproszenie'
+    }
+  })
+
+  document.querySelectorAll('.user-row').forEach((row) => {
+    row.querySelector('.user-save')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+
+      const userId = row.dataset.userId
+      const existing = users.find((item) => item.id === userId)
+      setAdminBusy(true)
+
+      try {
+        const result = await adminApi('/api/admin/users', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            userId,
+            displayName: row.querySelector('.user-display-name')?.value.trim(),
+            role: row.querySelector('.user-role')?.value,
+            branchId: row.querySelector('.user-branch')?.value,
+            active: Boolean(row.querySelector('.user-active')?.checked),
+          }),
+        })
+
+        updateAdminCacheUser({
+          ...existing,
+          ...result.user,
+          email: existing?.email || '',
+        })
+        renderAdminPanelFromCache('Dane użytkownika zostały zapisane.')
+      } catch (error) {
+        showAdminMessage(error.message, 'error')
+        setAdminBusy(false)
+      }
+    })
+  })
+
+  setAdminBusy(false)
+}
+
+async function renderAdminPanel(message = '', messageType = 'success', forceReload = false) {
   if (!currentUser || currentProfile?.role !== 'admin') {
     await renderDashboard(currentUser)
+    return
+  }
+
+  if (adminCache && !forceReload) {
+    renderAdminPanelFromCache(message, messageType)
     return
   }
 
@@ -216,232 +565,8 @@ async function renderAdminPanel(message = '', messageType = 'success') {
   document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
 
   try {
-    const { branches, users } = await loadAdminData()
-    const activeBranches = branches.filter((branch) => branch.active)
-
-    app.innerHTML = `
-      <main class="admin-shell">
-        <header class="admin-header">
-          <div>
-            <div class="admin-eyebrow">Top Dragon TMS</div>
-            <h1>Administracja</h1>
-            <p class="muted">Zalogowany: ${escapeHtml(currentProfile.display_name || currentUser.email)}</p>
-          </div>
-          <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
-        </header>
-
-        ${message ? `<div class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>` : ''}
-
-        <div class="admin-grid">
-          <section class="admin-card">
-            <div class="section-heading">
-              <div>
-                <h2>Oddziały</h2>
-                <p class="muted">Twórz oddziały i zarządzaj ich aktywnością.</p>
-              </div>
-            </div>
-
-            <form id="branch-create-form" class="compact-form">
-              <label>Nazwa nowego oddziału
-                <input id="branch-name" type="text" placeholder="np. Oddział Łódź" required minlength="2" />
-              </label>
-              <button class="primary compact-primary" type="submit">+ Dodaj oddział</button>
-            </form>
-
-            <div class="admin-list">
-              ${branches.length ? branches.map((branch) => `
-                <article class="admin-row ${branch.active ? '' : 'is-inactive'}" data-branch-id="${escapeHtml(branch.id)}">
-                  <div class="admin-row-main">
-                    <strong>${escapeHtml(branch.name)}</strong>
-                    <span class="status-pill ${branch.active ? 'active' : 'inactive'}">${branch.active ? 'Aktywny' : 'Nieaktywny'}</span>
-                  </div>
-                  <div class="row-actions">
-                    <button type="button" class="secondary branch-rename">Zmień nazwę</button>
-                    <button type="button" class="secondary branch-toggle">${branch.active ? 'Dezaktywuj' : 'Aktywuj'}</button>
-                  </div>
-                </article>
-              `).join('') : '<p class="muted">Brak oddziałów.</p>'}
-            </div>
-          </section>
-
-          <section class="admin-card">
-            <div class="section-heading">
-              <div>
-                <h2>Dodaj użytkownika</h2>
-                <p class="muted">Pracownik otrzyma e-mail z linkiem do ustawienia własnego hasła.</p>
-              </div>
-            </div>
-
-            <form id="user-invite-form" class="compact-form two-columns">
-              <label>Nazwa wyświetlana
-                <input id="invite-display-name" type="text" placeholder="np. Tomasz" required minlength="2" />
-              </label>
-              <label>E-mail
-                <input id="invite-email" type="email" placeholder="tomasz@firma.pl" required />
-              </label>
-              <label>Rola
-                <select id="invite-role" required>
-                  <option value="dispatcher">Spedytor</option>
-                  <option value="branch_manager">Kierownik oddziału</option>
-                  <option value="accounting">Rozliczenia</option>
-                </select>
-              </label>
-              <label>Oddział
-                <select id="invite-branch" required>
-                  <option value="">Wybierz oddział</option>
-                  ${branchOptions(activeBranches)}
-                </select>
-              </label>
-              <button class="primary compact-primary wide" type="submit" ${activeBranches.length ? '' : 'disabled'}>
-                Wyślij zaproszenie
-              </button>
-            </form>
-            ${activeBranches.length ? '' : '<div class="warning">Najpierw utwórz aktywny oddział.</div>'}
-          </section>
-        </div>
-
-        <section class="admin-card users-card">
-          <div class="section-heading">
-            <div>
-              <h2>Użytkownicy</h2>
-              <p class="muted">Zmiana statusu na nieaktywny zachowuje użytkownika i jego historię.</p>
-            </div>
-            <span class="count-pill">${users.length}</span>
-          </div>
-
-          <div class="user-list">
-            ${users.length ? users.map((item) => {
-              const lockedAdmin = item.role === 'admin'
-              return `
-                <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
-                  <div class="user-identity">
-                    <strong>${escapeHtml(item.display_name)}</strong>
-                    <span>${escapeHtml(item.email || 'Brak e-mail')}</span>
-                  </div>
-                  <label>Nazwa
-                    <input class="user-display-name" value="${escapeHtml(item.display_name)}" ${lockedAdmin ? 'disabled' : ''} />
-                  </label>
-                  <label>Rola
-                    <select class="user-role" ${lockedAdmin ? 'disabled' : ''}>
-                      <option value="dispatcher" ${item.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
-                      <option value="branch_manager" ${item.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
-                      <option value="accounting" ${item.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
-                      ${lockedAdmin ? '<option value="admin" selected>Administrator</option>' : ''}
-                    </select>
-                  </label>
-                  <label>Oddział
-                    <select class="user-branch" ${lockedAdmin ? 'disabled' : ''}>
-                      <option value="">Brak</option>
-                      ${branchOptions(branches, item.branch_id || '')}
-                    </select>
-                  </label>
-                  <label class="active-check">
-                    <span>Aktywny</span>
-                    <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
-                  </label>
-                  <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled' : ''}>Zapisz</button>
-                </article>
-              `
-            }).join('') : '<p class="muted">Brak użytkowników.</p>'}
-          </div>
-        </section>
-      </main>
-    `
-
-    document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
-
-    document.querySelector('#branch-create-form')?.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      const name = document.querySelector('#branch-name')?.value.trim() || ''
-      try {
-        await adminApi('/api/admin/branches', {
-          method: 'POST',
-          body: JSON.stringify({ name }),
-        })
-        await renderAdminPanel('Oddział został dodany.')
-      } catch (error) {
-        await renderAdminPanel(error.message, 'error')
-      }
-    })
-
-    document.querySelectorAll('.admin-row').forEach((row) => {
-      const id = row.dataset.branchId
-      const branch = branches.find((item) => item.id === id)
-      if (!branch) return
-
-      row.querySelector('.branch-rename')?.addEventListener('click', async () => {
-        const name = window.prompt('Nowa nazwa oddziału:', branch.name)
-        if (!name || name.trim() === branch.name) return
-        try {
-          await adminApi('/api/admin/branches', {
-            method: 'PATCH',
-            body: JSON.stringify({ id, name: name.trim() }),
-          })
-          await renderAdminPanel('Nazwa oddziału została zmieniona.')
-        } catch (error) {
-          await renderAdminPanel(error.message, 'error')
-        }
-      })
-
-      row.querySelector('.branch-toggle')?.addEventListener('click', async () => {
-        const action = branch.active ? 'dezaktywować' : 'aktywować'
-        if (!window.confirm(`Czy na pewno ${action} oddział „${branch.name}”?`)) return
-        try {
-          await adminApi('/api/admin/branches', {
-            method: 'PATCH',
-            body: JSON.stringify({ id, active: !branch.active }),
-          })
-          await renderAdminPanel(`Oddział został ${branch.active ? 'dezaktywowany' : 'aktywowany'}.`)
-        } catch (error) {
-          await renderAdminPanel(error.message, 'error')
-        }
-      })
-    })
-
-    document.querySelector('#user-invite-form')?.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      const button = event.submitter
-      if (button) {
-        button.disabled = true
-        button.textContent = 'Wysyłanie…'
-      }
-
-      try {
-        const result = await adminApi('/api/admin/users', {
-          method: 'POST',
-          body: JSON.stringify({
-            displayName: document.querySelector('#invite-display-name')?.value.trim(),
-            email: document.querySelector('#invite-email')?.value.trim(),
-            role: document.querySelector('#invite-role')?.value,
-            branchId: document.querySelector('#invite-branch')?.value,
-          }),
-        })
-        await renderAdminPanel(result.message || 'Zaproszenie zostało wysłane.')
-      } catch (error) {
-        await renderAdminPanel(error.message, 'error')
-      }
-    })
-
-    document.querySelectorAll('.user-row').forEach((row) => {
-      row.querySelector('.user-save')?.addEventListener('click', async () => {
-        const userId = row.dataset.userId
-        try {
-          await adminApi('/api/admin/users', {
-            method: 'PATCH',
-            body: JSON.stringify({
-              userId,
-              displayName: row.querySelector('.user-display-name')?.value.trim(),
-              role: row.querySelector('.user-role')?.value,
-              branchId: row.querySelector('.user-branch')?.value,
-              active: Boolean(row.querySelector('.user-active')?.checked),
-            }),
-          })
-          await renderAdminPanel('Dane użytkownika zostały zapisane.')
-        } catch (error) {
-          await renderAdminPanel(error.message, 'error')
-        }
-      })
-    })
+    adminCache = await loadAdminData()
+    renderAdminPanelFromCache(message, messageType)
   } catch (error) {
     app.innerHTML = `
       <main class="admin-shell">

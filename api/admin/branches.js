@@ -129,6 +129,76 @@ export default async function handler(request, response) {
       return response.status(200).json({ ok: true, branch: data })
     }
 
+
+    if (request.method === 'DELETE') {
+      const body = parseJsonBody(request)
+      const id = normalizeText(body.id)
+
+      if (!id) {
+        return response.status(400).json({ ok: false, message: 'Brak identyfikatora oddziału.' })
+      }
+
+      const { data: oldBranch, error: oldError } = await admin
+        .from('branches')
+        .select('id, name, active, created_at')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (oldError) {
+        return response.status(500).json({ ok: false, message: oldError.message })
+      }
+      if (!oldBranch) {
+        return response.status(404).json({ ok: false, message: 'Nie znaleziono oddziału.' })
+      }
+
+      const referenceTables = [
+        ['profiles', 'użytkownicy'],
+        ['carriers', 'przewoźnicy'],
+        ['drivers', 'kierowcy'],
+        ['vehicles', 'pojazdy'],
+        ['trailers', 'naczepy'],
+        ['fleet_assignments', 'zestawy'],
+        ['fleet_relation_usage', 'historia relacji'],
+      ]
+
+      const referenceChecks = await Promise.all(
+        referenceTables.map(async ([table, label]) => {
+          const { count, error } = await admin
+            .from(table)
+            .select('*', { count: 'exact', head: true })
+            .eq('branch_id', id)
+
+          if (error) throw error
+          return { table, label, count: count || 0 }
+        })
+      )
+
+      const usedBy = referenceChecks.filter((item) => item.count > 0)
+
+      if (usedBy.length) {
+        return response.status(409).json({
+          ok: false,
+          message: `Nie można usunąć oddziału „${oldBranch.name}”, ponieważ jest już używany (${usedBy.map((item) => `${item.label}: ${item.count}`).join(', ')}). Użyj opcji „Dezaktywuj”, aby zachować historię.`,
+        })
+      }
+
+      const { error: deleteError } = await admin
+        .from('branches')
+        .delete()
+        .eq('id', id)
+
+      if (deleteError) {
+        return response.status(500).json({ ok: false, message: deleteError.message })
+      }
+
+      await writeAudit(admin, user.id, 'delete', 'branch', id, oldBranch, null)
+      return response.status(200).json({
+        ok: true,
+        message: `Oddział „${oldBranch.name}” został trwale usunięty.`,
+        id,
+      })
+    }
+
     return response.status(405).json({ ok: false, message: 'Method not allowed' })
   } catch (error) {
     return response.status(500).json({
