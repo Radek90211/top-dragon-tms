@@ -71075,6 +71075,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
                   <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
                   ${["spedytor","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
+                  ${state.user.role === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
                   <span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">
@@ -82278,6 +82279,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           });
           document.getElementById("fleet-driver-name")?.focus?.();
         });
+      };
+
+      window.openAdministrationPanel = function() {
+        if (!state.user || state.user.role !== "admin") return;
+        window.parent?.postMessage(
+          { type: "top-dragon-open-admin" },
+          window.location.origin
+        );
       };
 
       if (!USERS.some(user => user.login === "ADMIN")) {

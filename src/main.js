@@ -609,7 +609,6 @@ async function renderDashboard(user) {
 
   app.innerHTML = `
     <main class="workspace">
-      ${profile.role === 'admin' ? '<button id="open-admin" class="admin-launcher">Administracja</button>' : ''}
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <img src="/top-dragon-logo.jpg" alt="Top Dragon" />
         <span>Uruchamianie panelu…</span>
@@ -617,13 +616,11 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=admin-panel-v1"
+        src="/tms.html?embedded=1&build=admin-header-button-v2"
         title="Top Dragon TMS"
       ></iframe>
     </main>
   `
-
-  document.querySelector('#open-admin')?.addEventListener('click', () => renderAdminPanel())
 
   const frame = document.querySelector('#tms-frame')
   activeTmsFrame = frame
@@ -675,6 +672,13 @@ async function bootstrap() {
     if (event.data?.type === 'top-dragon-auth-applied') {
       document.querySelector('#tms-frame')?.classList.remove('is-loading')
       document.querySelector('#tms-loading')?.remove()
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-open-admin') {
+      if (currentProfile?.role === 'admin') {
+        await renderAdminPanel()
+      }
       return
     }
 
