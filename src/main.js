@@ -7,8 +7,11 @@ let activeAuthMessage = null
 let activeUserDirectoryMessage = null
 let activeFleetMessage = null
 let activeRelationsMessage = null
+let activeClientsMessage = null
 let relationsChannel = null
 let relationsReloadTimer = null
+let clientsChannel = null
+let clientsReloadTimer = null
 let currentUser = null
 let currentProfile = null
 
@@ -63,6 +66,7 @@ function renderLogin(message = '') {
   activeUserDirectoryMessage = null
   activeFleetMessage = null
   activeRelationsMessage = null
+  activeClientsMessage = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -70,6 +74,14 @@ function renderLogin(message = '') {
   if (relationsChannel) {
     supabase.removeChannel(relationsChannel)
     relationsChannel = null
+  }
+  if (clientsReloadTimer) {
+    clearTimeout(clientsReloadTimer)
+    clientsReloadTimer = null
+  }
+  if (clientsChannel) {
+    supabase.removeChannel(clientsChannel)
+    clientsChannel = null
   }
 
   app.innerHTML = `
@@ -887,6 +899,148 @@ async function archiveCentralRelationFromTms(message) {
   }
 }
 
+
+
+async function loadCentralClients() {
+  if (!currentProfile) return []
+
+  let query = supabase
+    .from('tms_clients_central')
+    .select('branch_id, client_ref, payload, updated_at')
+    .eq('active', true)
+    .order('updated_at', { ascending: true })
+
+  if (currentProfile.role !== 'admin') {
+    if (!currentProfile.branch_id) return []
+    query = query.eq('branch_id', currentProfile.branch_id)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    throw new Error(`Nie udało się pobrać klientów: ${error.message}`)
+  }
+
+  return (data || [])
+    .filter((row) => row?.payload && row?.client_ref)
+    .map((row) => ({
+      id: String(row.client_ref || ''),
+      branchId: String(row.branch_id || ''),
+      payload: row.payload,
+      updatedAt: String(row.updated_at || ''),
+    }))
+}
+
+async function syncCentralClientsToTms() {
+  const rows = await loadCentralClients()
+  activeClientsMessage = {
+    type: 'top-dragon-clients-data',
+    rows,
+  }
+
+  activeTmsFrame?.contentWindow?.postMessage(
+    activeClientsMessage,
+    window.location.origin
+  )
+}
+
+function scheduleCentralClientsReload(delay = 120) {
+  if (clientsReloadTimer) clearTimeout(clientsReloadTimer)
+  clientsReloadTimer = setTimeout(() => {
+    clientsReloadTimer = null
+    syncCentralClientsToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć centralnych klientów:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralClients() {
+  if (clientsChannel) {
+    supabase.removeChannel(clientsChannel)
+    clientsChannel = null
+  }
+
+  if (!currentProfile) return
+
+  const channelName = `tms-clients-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  clientsChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'tms_clients_central' },
+      () => scheduleCentralClientsReload(90)
+    )
+    .subscribe()
+}
+
+function sendClientOperationResult(requestId, ok, action, clientId, branchId, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-client-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    clientId: String(clientId || ''),
+    branchId: String(branchId || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function upsertCentralClientFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const client = message?.client
+  const clientId = String(client?.id || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!clientId || !branchId || !client || typeof client !== 'object') {
+    sendClientOperationResult(requestId, false, 'upsert', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('upsert_tms_client', {
+      p_branch_id: branchId,
+      p_client: client,
+    })
+    if (error) throw error
+
+    sendClientOperationResult(requestId, true, 'upsert', clientId, branchId, 'Klient został zapisany w Supabase.')
+    await syncCentralClientsToTms()
+  } catch (error) {
+    sendClientOperationResult(requestId, false, 'upsert', clientId, branchId, error?.message || 'Nie udało się zapisać klienta.')
+  }
+}
+
+async function archiveCentralClientFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const clientId = String(message?.clientId || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!clientId || !branchId) {
+    sendClientOperationResult(requestId, false, 'archive', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('archive_tms_client', {
+      p_branch_id: branchId,
+      p_client_ref: clientId,
+    })
+    if (error) throw error
+
+    sendClientOperationResult(requestId, true, 'archive', clientId, branchId, 'Klient został usunięty z aktywnej bazy.')
+    await syncCentralClientsToTms()
+  } catch (error) {
+    sendClientOperationResult(requestId, false, 'archive', clientId, branchId, error?.message || 'Nie udało się usunąć klienta z aktywnej bazy.')
+  }
+}
+
 function sendFleetOperationResult(requestId, ok, action, message) {
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-fleet-operation-result',
@@ -1041,7 +1195,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-relations-v7"
+        src="/tms.html?embedded=1&build=central-clients-v8"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1081,6 +1235,11 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować relacji z TMS:', error)
   })
   subscribeCentralRelations()
+
+  syncCentralClientsToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować klientów z TMS:', error)
+  })
+  subscribeCentralClients()
 }
 
 async function routeSession(session) {
@@ -1113,6 +1272,9 @@ async function bootstrap() {
       }
       if (activeRelationsMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeRelationsMessage, window.location.origin)
+      }
+      if (activeClientsMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeClientsMessage, window.location.origin)
       }
       return
     }
@@ -1165,6 +1327,25 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-relation-archive') {
       await archiveCentralRelationFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-clients-request') {
+      try {
+        await syncCentralClientsToTms()
+      } catch (error) {
+        sendClientOperationResult(event.data?.requestId, false, 'load', '', '', error?.message || 'Nie udało się pobrać klientów.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-client-upsert') {
+      await upsertCentralClientFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-client-archive') {
+      await archiveCentralClientFromTms(event.data)
       return
     }
 
