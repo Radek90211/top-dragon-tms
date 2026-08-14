@@ -68686,6 +68686,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     let CENTRAL_RELATION_SYNC_TIMER = null;
     let CENTRAL_RELATION_ERROR_AT = 0;
 
+    // ETAP 3H: centralna baza klientów w Supabase.
+    let CENTRAL_CLIENTS_READY = false;
+    const CENTRAL_CLIENT_BASELINE = new Map();
+    const CENTRAL_CLIENT_PENDING_UPSERT = new Set();
+    const CENTRAL_CLIENT_PENDING_DELETE = new Set();
+    let CENTRAL_CLIENT_SYNC_TIMER = null;
+    let CENTRAL_CLIENT_ERROR_AT = 0;
+
     const state = {
       user: null,
       routes: cloneData(INITIAL_ROUTES),
@@ -76703,6 +76711,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             if (end <= start) return "";
             const left = (start / maxHour) * 100;
             const width = Math.max(1.5, ((end - start) / maxHour) * 100);
+            // Kafelek relacji renderujemy o 30% szerzej, aby nazwa była czytelna
+            // od razu po dodaniu. Nie zmienia to godzin ani czasu trwania relacji.
+            const displayWidth = Math.max(1.95, width * 1.3);
             const hasOverlap = routes.some(other => routesActuallyOverlap(route, other));
             const hasPauseConflict = false;
 
@@ -76717,7 +76728,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
                 ${canEditThisRoute ? `onpointerdown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" onmousedown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" ondragstart="startRouteDrag(event, '${attr(route.id)}')"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
-                style="left:${left}%;width:${Math.min(width, 100 - left)}%;"
+                style="left:${left}%;width:${Math.min(displayWidth, 100 - left)}%;"
               >
                 ${canEditThisRoute ? `<span
                   class="time-resize time-resize-left"
@@ -78522,7 +78533,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         CENTRAL_RELATIONS_READY = false;
+        CENTRAL_CLIENTS_READY = false;
         setTimeout(requestCentralRelations, 0);
+        setTimeout(requestCentralClients, 20);
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
       setTimeout(deliverPendingClientOwnerAlerts, 160);
@@ -82147,6 +82160,207 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
 
+
+    function centralClientBranchId(client) {
+      const own = String(client?._centralBranchId || "").trim();
+      if (own) return own;
+      const userBranch = String(state.user?.branchId || "").trim();
+      if (userBranch) return userBranch;
+      const dispatcher = String(client?.dispatcher || "").trim();
+      const dispatcherUser = dispatcher ? USERS.find(user => String(user?.login || "").trim() === dispatcher) : null;
+      return String(dispatcherUser?.branchId || "").trim();
+    }
+
+    function centralClientKey(branchId, clientId) {
+      return `${String(branchId || "").trim()}::${String(clientId || "").trim()}`;
+    }
+
+    function centralSerializableClient(client) {
+      if (!client || typeof client !== "object") return null;
+      try {
+        return JSON.parse(JSON.stringify(client, (key, value) => key.startsWith("_central") ? undefined : value));
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function centralClientFingerprint(client) {
+      const payload = centralSerializableClient(client);
+      return payload ? JSON.stringify(payload) : "";
+    }
+
+    function requestCentralClients() {
+      if (!EMBEDDED_MODE || !state.user) return;
+      window.parent?.postMessage({
+        type: "top-dragon-clients-request",
+        requestId: `clients-load-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      }, window.location.origin);
+    }
+
+    function applyCentralClientsData(message) {
+      const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const wasReady = CENTRAL_CLIENTS_READY;
+      const currentByKey = new Map();
+      const looseLocal = [];
+
+      (state.clients || []).forEach(client => {
+        const branchId = centralClientBranchId(client);
+        const id = String(client?.id || "").trim();
+        if (branchId && id) currentByKey.set(centralClientKey(branchId, id), client);
+        else if (client && id) looseLocal.push(client);
+      });
+
+      const merged = [];
+      const remoteKeys = new Set();
+
+      rows.forEach(row => {
+        const branchId = String(row?.branchId || "").trim();
+        const rawPayload = row?.payload && typeof row.payload === "object" ? cloneData(row.payload) : null;
+        const clientId = String(rawPayload?.id || row?.id || "").trim();
+        if (!branchId || !clientId || !rawPayload) return;
+
+        const payload = normalizeStoredClient({ ...rawPayload, id: clientId });
+        if (!payload) return;
+        const key = centralClientKey(branchId, clientId);
+        remoteKeys.add(key);
+
+        if (CENTRAL_CLIENT_PENDING_DELETE.has(key)) return;
+
+        const localPending = CENTRAL_CLIENT_PENDING_UPSERT.has(key) ? currentByKey.get(key) : null;
+        const client = localPending || payload;
+        try {
+          Object.defineProperty(client, "_centralBranchId", {
+            value: branchId,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (error) {
+          client._centralBranchId = branchId;
+        }
+        merged.push(client);
+
+        if (!CENTRAL_CLIENT_PENDING_UPSERT.has(key)) {
+          CENTRAL_CLIENT_BASELINE.set(key, centralClientFingerprint(payload));
+        }
+      });
+
+      if (!wasReady) {
+        // Pierwsze uruchomienie zachowuje klientów istniejących lokalnie i
+        // po chwili przenosi ich do centralnego Supabase zamiast ich usuwać.
+        currentByKey.forEach((client, key) => {
+          if (!remoteKeys.has(key) && !CENTRAL_CLIENT_PENDING_DELETE.has(key)) merged.push(client);
+        });
+        looseLocal.forEach(client => merged.push(client));
+      } else {
+        for (const key of CENTRAL_CLIENT_PENDING_UPSERT) {
+          if (remoteKeys.has(key)) continue;
+          const local = currentByKey.get(key);
+          if (local) merged.push(local);
+        }
+        looseLocal.forEach(client => merged.push(client));
+      }
+
+      for (const key of Array.from(CENTRAL_CLIENT_BASELINE.keys())) {
+        if (!remoteKeys.has(key) && !CENTRAL_CLIENT_PENDING_UPSERT.has(key) && !CENTRAL_CLIENT_PENDING_DELETE.has(key)) {
+          CENTRAL_CLIENT_BASELINE.delete(key);
+        }
+      }
+
+      state.clients = merged;
+      CENTRAL_CLIENTS_READY = true;
+      saveClientDatabaseToStorage();
+      state.clientValidationReport = null;
+      syncClientDatabaseSection();
+      if (!state.unloadPanelCollapsed) syncUnloadMapCard();
+      scheduleCentralClientsDiff(120);
+    }
+
+    function syncCentralClientsDiff() {
+      if (!EMBEDDED_MODE || !state.user || !CENTRAL_CLIENTS_READY) return;
+      if (String(state.user?.supabaseRole || "") === "accounting") return;
+
+      const currentKeys = new Set();
+      (state.clients || []).forEach(client => {
+        if (!client || client.sample) return;
+        const clientId = String(client.id || "").trim();
+        const branchId = centralClientBranchId(client);
+        if (!clientId || !branchId) return;
+
+        const key = centralClientKey(branchId, clientId);
+        currentKeys.add(key);
+        if (CENTRAL_CLIENT_PENDING_DELETE.has(key)) return;
+
+        const fingerprint = centralClientFingerprint(client);
+        if (!fingerprint || CENTRAL_CLIENT_BASELINE.get(key) === fingerprint || CENTRAL_CLIENT_PENDING_UPSERT.has(key)) return;
+
+        const payload = centralSerializableClient(client);
+        if (!payload) return;
+        const requestId = `client-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        CENTRAL_CLIENT_PENDING_UPSERT.add(key);
+        CENTRAL_CLIENT_BASELINE.set(key, fingerprint);
+
+        window.parent?.postMessage({
+          type: "top-dragon-client-upsert",
+          requestId,
+          client: payload,
+          clientId,
+          branchId
+        }, window.location.origin);
+      });
+
+      for (const key of Array.from(CENTRAL_CLIENT_BASELINE.keys())) {
+        if (currentKeys.has(key) || CENTRAL_CLIENT_PENDING_DELETE.has(key) || CENTRAL_CLIENT_PENDING_UPSERT.has(key)) continue;
+        const separator = key.indexOf("::");
+        const branchId = separator >= 0 ? key.slice(0, separator) : "";
+        const clientId = separator >= 0 ? key.slice(separator + 2) : key;
+        if (!branchId || !clientId) continue;
+
+        const requestId = `client-archive-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        CENTRAL_CLIENT_PENDING_DELETE.add(key);
+        CENTRAL_CLIENT_BASELINE.delete(key);
+
+        window.parent?.postMessage({
+          type: "top-dragon-client-archive",
+          requestId,
+          clientId,
+          branchId
+        }, window.location.origin);
+      }
+    }
+
+    function scheduleCentralClientsDiff(delay = 80) {
+      clearTimeout(CENTRAL_CLIENT_SYNC_TIMER);
+      CENTRAL_CLIENT_SYNC_TIMER = setTimeout(syncCentralClientsDiff, Math.max(0, Number(delay) || 0));
+    }
+
+    window.handleCentralClientOperationResult = function(message) {
+      const clientId = String(message?.clientId || "").trim();
+      const branchId = String(message?.branchId || "").trim();
+      const key = centralClientKey(branchId, clientId);
+
+      if (message?.action === "archive") CENTRAL_CLIENT_PENDING_DELETE.delete(key);
+      else if (message?.action === "upsert") CENTRAL_CLIENT_PENDING_UPSERT.delete(key);
+
+      if (message?.ok) return;
+
+      if (message?.action === "upsert") CENTRAL_CLIENT_BASELINE.delete(key);
+      const now = Date.now();
+      if (now - CENTRAL_CLIENT_ERROR_AT > 12000) {
+        CENTRAL_CLIENT_ERROR_AT = now;
+        showAppMessage(
+          "Nie udało się zsynchronizować klienta",
+          String(message?.message || "Spróbuj ponownie za chwilę."),
+          "error"
+        );
+      }
+      setTimeout(requestCentralClients, 1200);
+    };
+
+    if (!window.__topDragonCentralClientsTicker) {
+      window.__topDragonCentralClientsTicker = setInterval(syncCentralClientsDiff, 800);
+    }
+
     function centralRouteBranchId(route) {
       const own = String(route?._centralBranchId || "").trim();
       if (own) return own;
@@ -82382,6 +82596,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         applyCentralRelationsData(message);
       } else if (message.type === "top-dragon-relation-operation-result") {
         window.handleCentralRelationOperationResult?.(message);
+      } else if (message.type === "top-dragon-clients-data") {
+        applyCentralClientsData(message);
+      } else if (message.type === "top-dragon-client-operation-result") {
+        window.handleCentralClientOperationResult?.(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
         window.handleFleetOperationResult?.(message);
       } else if (message.type === "top-dragon-relation-usage-result") {
@@ -82396,6 +82614,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_RELATION_BASELINE.clear();
         CENTRAL_RELATION_PENDING_UPSERT.clear();
         CENTRAL_RELATION_PENDING_DELETE.clear();
+        CENTRAL_CLIENTS_READY = false;
+        CENTRAL_CLIENT_BASELINE.clear();
+        CENTRAL_CLIENT_PENDING_UPSERT.clear();
+        CENTRAL_CLIENT_PENDING_DELETE.clear();
         render();
       }
     });
