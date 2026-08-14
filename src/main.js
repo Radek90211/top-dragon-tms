@@ -864,8 +864,11 @@ async function upsertCentralRelationFromTms(message) {
     })
     if (error) throw error
 
-    sendRelationOperationResult(requestId, true, 'upsert', relationId, branchId, 'Relacja została zapisana w Supabase.')
+    // Najpierw odsyłamy aktualny snapshot z bazy, kiedy iframe nadal traktuje
+    // relację jako pending. Dopiero potem zwalniamy pending wynikiem operacji.
+    // Dzięki temu starszy echo-snapshot nie nadpisuje nowszej pozycji kursora.
     await syncCentralRelationsToTms()
+    sendRelationOperationResult(requestId, true, 'upsert', relationId, branchId, 'Relacja została zapisana w Supabase.')
   } catch (error) {
     sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, error?.message || 'Nie udało się zapisać relacji.')
   }
@@ -1195,7 +1198,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-clients-v9-drag-precision"
+        src="/tms.html?embedded=1&build=central-clients-v10-resize-anchor"
         title="Top Dragon TMS"
       ></iframe>
     </main>
