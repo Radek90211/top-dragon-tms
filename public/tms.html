@@ -68678,6 +68678,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
 
+    // ETAP 3G: centralne relacje / Plan kierowców w Supabase.
+    let CENTRAL_RELATIONS_READY = false;
+    const CENTRAL_RELATION_BASELINE = new Map();
+    const CENTRAL_RELATION_PENDING_UPSERT = new Set();
+    const CENTRAL_RELATION_PENDING_DELETE = new Set();
+    let CENTRAL_RELATION_SYNC_TIMER = null;
+    let CENTRAL_RELATION_ERROR_AT = 0;
+
     const state = {
       user: null,
       routes: cloneData(INITIAL_ROUTES),
@@ -69298,6 +69306,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const now = new Date().toISOString();
       if (!route.createdAt) route.createdAt = now;
       route.addedToBoardAt = now;
+      scheduleCentralRelationsDiff(80);
       return route;
     }
 
@@ -70220,6 +70229,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderKeepingScroll() {
+      scheduleCentralRelationsDiff(120);
       const scrollState = captureScrollState();
       render();
       restoreScrollState(scrollState);
@@ -70687,6 +70697,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function scheduleUiSync(tasks = {}) {
+      scheduleCentralRelationsDiff(100);
       state.pendingUiSyncTasks = { ...(state.pendingUiSyncTasks || {}), ...(tasks || {}) };
       if (state.uiSyncRaf) return;
       state.uiSyncRaf = requestAnimationFrame(() => {
@@ -74802,6 +74813,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       restoreProposedLoadFromRoute(route);
       state.routes = state.routes.filter(item => item.id !== routeId);
+      scheduleCentralRelationsDiff(60);
       removeLeafletMarker(routeId);
       if (state.selectedRouteId === routeId) {
         state.selectedRouteId = null;
@@ -78509,6 +78521,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       render();
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
+        CENTRAL_RELATIONS_READY = false;
+        setTimeout(requestCentralRelations, 0);
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
       setTimeout(deliverPendingClientOwnerAlerts, 160);
@@ -82132,6 +82146,189 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+
+    function centralRouteBranchId(route) {
+      const own = String(route?._centralBranchId || "").trim();
+      if (own) return own;
+      const userBranch = String(state.user?.branchId || "").trim();
+      if (userBranch) return userBranch;
+      const driver = driverById(route?.driverId);
+      return String(driver?.branchId || "").trim();
+    }
+
+    function centralRelationKey(branchId, relationId) {
+      return `${String(branchId || "").trim()}::${String(relationId || "").trim()}`;
+    }
+
+    function centralSerializableRoute(route) {
+      if (!route || typeof route !== "object") return null;
+      try {
+        return JSON.parse(JSON.stringify(route, (key, value) => key.startsWith("_central") ? undefined : value));
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function centralRouteFingerprint(route) {
+      const payload = centralSerializableRoute(route);
+      return payload ? JSON.stringify(payload) : "";
+    }
+
+    function requestCentralRelations() {
+      if (!EMBEDDED_MODE || !state.user) return;
+      window.parent?.postMessage({
+        type: "top-dragon-relations-request",
+        requestId: `relations-load-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      }, window.location.origin);
+    }
+
+    function applyCentralRelationsData(message) {
+      const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const currentByKey = new Map();
+      (state.routes || []).forEach(route => {
+        const branchId = centralRouteBranchId(route);
+        const id = String(route?.id || "").trim();
+        if (branchId && id) currentByKey.set(centralRelationKey(branchId, id), route);
+      });
+
+      const merged = [];
+      const remoteKeys = new Set();
+
+      rows.forEach(row => {
+        const branchId = String(row?.branchId || "").trim();
+        const payload = row?.payload && typeof row.payload === "object" ? cloneData(row.payload) : null;
+        const relationId = String(payload?.id || row?.id || "").trim();
+        if (!branchId || !relationId || !payload) return;
+        payload.id = relationId;
+        const key = centralRelationKey(branchId, relationId);
+        remoteKeys.add(key);
+
+        if (CENTRAL_RELATION_PENDING_DELETE.has(key)) return;
+
+        const localPending = CENTRAL_RELATION_PENDING_UPSERT.has(key) ? currentByKey.get(key) : null;
+        const route = localPending || payload;
+        try {
+          Object.defineProperty(route, "_centralBranchId", {
+            value: branchId,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (error) {
+          route._centralBranchId = branchId;
+        }
+        merged.push(route);
+
+        if (!CENTRAL_RELATION_PENDING_UPSERT.has(key)) {
+          CENTRAL_RELATION_BASELINE.set(key, centralRouteFingerprint(payload));
+        }
+      });
+
+      for (const key of CENTRAL_RELATION_PENDING_UPSERT) {
+        if (remoteKeys.has(key)) continue;
+        const local = currentByKey.get(key);
+        if (local) merged.push(local);
+      }
+
+      for (const key of Array.from(CENTRAL_RELATION_BASELINE.keys())) {
+        if (!remoteKeys.has(key) && !CENTRAL_RELATION_PENDING_UPSERT.has(key) && !CENTRAL_RELATION_PENDING_DELETE.has(key)) {
+          CENTRAL_RELATION_BASELINE.delete(key);
+        }
+      }
+
+      state.routes = merged;
+      CENTRAL_RELATIONS_READY = true;
+      boardRenderCache = null;
+      invalidateCombinedClientHistoryCache();
+      renderKeepingScroll();
+      scheduleCentralRelationsDiff(120);
+    }
+
+    function syncCentralRelationsDiff() {
+      if (!EMBEDDED_MODE || !state.user || !CENTRAL_RELATIONS_READY) return;
+      if (String(state.user?.supabaseRole || "") === "accounting") return;
+
+      const currentKeys = new Set();
+      (state.routes || []).forEach(route => {
+        if (!route || route.futureQueue || route.proposedLoad) return;
+        const relationId = String(route.id || "").trim();
+        const branchId = centralRouteBranchId(route);
+        if (!relationId || !branchId) return;
+
+        const key = centralRelationKey(branchId, relationId);
+        currentKeys.add(key);
+        if (CENTRAL_RELATION_PENDING_DELETE.has(key)) return;
+
+        const fingerprint = centralRouteFingerprint(route);
+        if (!fingerprint || CENTRAL_RELATION_BASELINE.get(key) === fingerprint || CENTRAL_RELATION_PENDING_UPSERT.has(key)) return;
+
+        const payload = centralSerializableRoute(route);
+        if (!payload) return;
+        const requestId = `relation-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        CENTRAL_RELATION_PENDING_UPSERT.add(key);
+        CENTRAL_RELATION_BASELINE.set(key, fingerprint);
+
+        window.parent?.postMessage({
+          type: "top-dragon-relation-upsert",
+          requestId,
+          relation: payload,
+          relationId,
+          branchId
+        }, window.location.origin);
+      });
+
+      for (const key of Array.from(CENTRAL_RELATION_BASELINE.keys())) {
+        if (currentKeys.has(key) || CENTRAL_RELATION_PENDING_DELETE.has(key) || CENTRAL_RELATION_PENDING_UPSERT.has(key)) continue;
+        const separator = key.indexOf("::");
+        const branchId = separator >= 0 ? key.slice(0, separator) : "";
+        const relationId = separator >= 0 ? key.slice(separator + 2) : key;
+        if (!branchId || !relationId) continue;
+
+        const requestId = `relation-archive-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        CENTRAL_RELATION_PENDING_DELETE.add(key);
+        CENTRAL_RELATION_BASELINE.delete(key);
+
+        window.parent?.postMessage({
+          type: "top-dragon-relation-archive",
+          requestId,
+          relationId,
+          branchId
+        }, window.location.origin);
+      }
+    }
+
+    function scheduleCentralRelationsDiff(delay = 80) {
+      clearTimeout(CENTRAL_RELATION_SYNC_TIMER);
+      CENTRAL_RELATION_SYNC_TIMER = setTimeout(syncCentralRelationsDiff, Math.max(0, Number(delay) || 0));
+    }
+
+    window.handleCentralRelationOperationResult = function(message) {
+      const relationId = String(message?.relationId || "").trim();
+      const branchId = String(message?.branchId || "").trim();
+      const key = centralRelationKey(branchId, relationId);
+
+      if (message?.action === "archive") CENTRAL_RELATION_PENDING_DELETE.delete(key);
+      else if (message?.action === "upsert") CENTRAL_RELATION_PENDING_UPSERT.delete(key);
+
+      if (message?.ok) return;
+
+      if (message?.action === "upsert") CENTRAL_RELATION_BASELINE.delete(key);
+      const now = Date.now();
+      if (now - CENTRAL_RELATION_ERROR_AT > 12000) {
+        CENTRAL_RELATION_ERROR_AT = now;
+        showAppMessage(
+          "Nie udało się zsynchronizować relacji",
+          String(message?.message || "Spróbuj ponownie za chwilę."),
+          "error"
+        );
+      }
+      setTimeout(requestCentralRelations, 1200);
+    };
+
+    if (!window.__topDragonCentralRelationsTicker) {
+      window.__topDragonCentralRelationsTicker = setInterval(syncCentralRelationsDiff, 800);
+    }
+
     window.addEventListener("message", event => {
       if (event.origin !== window.location.origin) return;
       const message = event.data || {};
@@ -82181,6 +82378,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       } else if (message.type === "top-dragon-fleet-data") {
         window.__topDragonLastFleetRows = Array.isArray(message.rows) ? message.rows : [];
         window.applySupabaseFleetRows?.(window.__topDragonLastFleetRows);
+      } else if (message.type === "top-dragon-relations-data") {
+        applyCentralRelationsData(message);
+      } else if (message.type === "top-dragon-relation-operation-result") {
+        window.handleCentralRelationOperationResult?.(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
         window.handleFleetOperationResult?.(message);
       } else if (message.type === "top-dragon-relation-usage-result") {
@@ -82191,6 +82392,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.__topDragonLastFleetRows = [];
         CENTRAL_RELATION_USAGE_SYNCED.clear();
         CENTRAL_RELATION_USAGE_PENDING.clear();
+        CENTRAL_RELATIONS_READY = false;
+        CENTRAL_RELATION_BASELINE.clear();
+        CENTRAL_RELATION_PENDING_UPSERT.clear();
+        CENTRAL_RELATION_PENDING_DELETE.clear();
         render();
       }
     });
