@@ -1887,7 +1887,7 @@
     .time-resize {
       position: absolute;
       top: 0;
-      width: 10px;
+      width: 14px;
       height: 100%;
       border: 0;
       background: rgba(15, 23, 42, 0.055);
@@ -1899,7 +1899,7 @@
     }
 
     .time-route.can-resize {
-      --resize-edge-size: 10px;
+      --resize-edge-size: 14px;
     }
 
     .time-route.can-resize:hover .time-resize {
@@ -1934,11 +1934,11 @@
     }
 
     .time-resize-left:after {
-      left: 3px;
+      left: 5px;
     }
 
     .time-resize-right:after {
-      right: 3px;
+      right: 5px;
     }
 
     .time-route-sub {
@@ -76743,10 +76743,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const end = Math.min(maxHour, rawEnd);
             if (end <= start) return "";
             const left = (start / maxHour) * 100;
-            const width = Math.max(1.5, ((end - start) / maxHour) * 100);
-            // Kafelek relacji renderujemy o 30% szerzej, aby nazwa była czytelna
-            // od razu po dodaniu. Nie zmienia to godzin ani czasu trwania relacji.
-            const displayWidth = Math.max(1.95, width * 1.3);
+            const exactWidth = Math.max(0.01, ((end - start) / maxHour) * 100);
+            // Nowo dodany kafelek pozostaje ok. 30% szerszy dla czytelności nazwy.
+            // Po pierwszej ręcznej zmianie szerokości przechodzimy w tryb manualny:
+            // wtedy widoczne krawędzie odpowiadają dokładnie pozycji wybranej kursorem.
+            const manualTimelineWidth = route.timelineWidthMode === "manual";
+            const displayWidth = manualTimelineWidth
+              ? exactWidth
+              : Math.max(1.95, Math.max(1.5, exactWidth) * 1.3);
             const hasOverlap = routes.some(other => routesActuallyOverlap(route, other));
             const hasPauseConflict = false;
 
@@ -76759,7 +76763,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
                 ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
-                ${canEditThisRoute ? `onpointerdown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" onmousedown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
+                ${canEditThisRoute ? `ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
                 style="left:${left}%;width:${Math.min(displayWidth, 100 - left)}%;"
               >
@@ -76770,8 +76774,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   draggable="false"
                   onclick="event.stopPropagation(); event.preventDefault();"
                   ondragstart="event.preventDefault(); event.stopPropagation();"
-                  onpointerdown="startRouteResize(event, '${attr(route.id)}', 'left')"
-                  onmousedown="startRouteResize(event, '${attr(route.id)}', 'left')"
+
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}${routeDispatcherChip(route, driver)}<span class="route-unload-label">${esc(routeUnloadBoardLabel(route))}</span></span>
                 ${renderRouteLoadSub(route)}
@@ -76782,8 +76785,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   draggable="false"
                   onclick="event.stopPropagation(); event.preventDefault();"
                   ondragstart="event.preventDefault(); event.stopPropagation();"
-                  onpointerdown="startRouteResize(event, '${attr(route.id)}', 'right')"
-                  onmousedown="startRouteResize(event, '${attr(route.id)}', 'right')"
+
                 ></span>` : ""}
                 ${hasOverlap ? `<span class="time-overlap-warning" style="right:16px;bottom:3px;" title="Kierowca ma już ładunek w tym terminie" aria-label="Kierowca ma już ładunek w tym terminie"></span>` : ""}
                 ${hasPauseConflict ? `<span class="pause-conflict-badge" title="Relacja nachodzi na minimalną przerwę kierowcy">!</span>` : ""}
@@ -79583,31 +79585,44 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       scrollState: null,
       changed: false,
       frame: null,
-      eventMode: "mouse",
+      eventMode: "pointer",
       pointerId: null,
       element: null,
-      route: null
+      route: null,
+      timelineRect: null,
+      timelineHours: 0,
+      fixedOppositeGlobal: null,
+      startClientX: null,
+      pendingClientX: null,
+      movementStarted: false,
+      initialStart: null,
+      initialEnd: null,
+      initialWidthMode: null
     };
 
     function routeButtonElement(routeId) {
       return document.querySelector(`.time-route[data-route-id="${routeId}"]`);
     }
 
-    function updateRouteResizePreview(route) {
-      const element = routeButtonElement(route.id);
+    function routeTimelineDisplayGeometry(route) {
+      const maxHour = Math.max(0.25, timelineMaxHour());
+      const start = Math.max(0, Math.min(maxHour, routeGlobalStart(route)));
+      const end = Math.max(start + 0.25, Math.min(maxHour, routeGlobalEnd(route)));
+      const left = (start / maxHour) * 100;
+      const exactWidth = Math.max(0.01, ((end - start) / maxHour) * 100);
+      const manualTimelineWidth = route?.timelineWidthMode === "manual";
+      const width = manualTimelineWidth
+        ? exactWidth
+        : Math.max(1.95, Math.max(1.5, exactWidth) * 1.3);
+      return { left, width: Math.min(width, Math.max(0.01, 100 - left)) };
+    }
+
+    function updateRouteResizePreview(route, forcedElement = null) {
+      const element = forcedElement || routeButtonElement(route.id);
       if (!element) return;
-
-      const start = Math.max(0, Math.min(timelineMaxHour(), routeGlobalStart(route)));
-      const end = Math.max(start + 0.25, Math.min(timelineMaxHour(), routeGlobalEnd(route)));
-      const left = (start / timelineMaxHour()) * 100;
-      const width = Math.max(1.5, ((end - start) / timelineMaxHour()) * 100);
-      // Ustalenie projektu: kafelek relacji jest wizualnie o 30% szerszy.
-      // Ten sam przelicznik musi działać także podczas przeciągania i resize.
-      const displayWidth = Math.max(1.95, width * 1.3);
-
-      element.style.left = `${left}%`;
-      element.style.width = `${Math.min(displayWidth, 100 - left)}%`;
-      // Brak podglądu przerw na tablicy.
+      const geometry = routeTimelineDisplayGeometry(route);
+      element.style.left = `${geometry.left}%`;
+      element.style.width = `${geometry.width}%`;
     }
 
     function syncResizedRouteDom(route, scrollState = null) {
@@ -79635,21 +79650,66 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // Przerwy nie są już renderowane na tablicy, więc podgląd nie wymaga aktualizacji.
     }
 
-    function scheduleRouteResizePreview(route) {
-      if (routeResize.frame) return;
+    function routeResizeGlobalFromClientX(clientX) {
+      const rect = routeResize.timelineRect;
+      const maxHour = Math.max(0.25, Number(routeResize.timelineHours || timelineMaxHour()));
+      if (!rect || !Number.isFinite(clientX)) return 0;
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      return clampTimelineHour(ratio * maxHour);
+    }
 
-      const requestFrame = window.requestAnimationFrame || function(callback) { return setTimeout(callback, 16); };
-      routeResize.frame = requestFrame(() => {
-        routeResize.frame = null;
-        updateRouteResizePreview(route);
-      });
+    function applyRouteResizeFrame() {
+      routeResize.frame = null;
+      if (!routeResize.active || !routeResize.route || routeResize.pendingClientX === null) return;
+
+      const route = routeResize.route;
+      const clientX = Number(routeResize.pendingClientX);
+      routeResize.pendingClientX = null;
+
+      if (!routeResize.movementStarted) {
+        if (Math.abs(clientX - Number(routeResize.startClientX || clientX)) < 2) return;
+        routeResize.movementStarted = true;
+      }
+
+      const pointerGlobal = routeResizeGlobalFromClientX(clientX);
+      const maxHour = Math.max(0.25, Number(routeResize.timelineHours || timelineMaxHour()));
+      let nextStart;
+      let nextEnd;
+
+      if (routeResize.side === "left") {
+        nextEnd = clampTimelineHour(routeResize.fixedOppositeGlobal, 0.25, maxHour);
+        nextStart = clampTimelineHour(pointerGlobal, 0, Math.max(0, nextEnd - 0.25));
+      } else {
+        nextStart = clampTimelineHour(routeResize.fixedOppositeGlobal, 0, Math.max(0, maxHour - 0.25));
+        nextEnd = clampTimelineHour(pointerGlobal, Math.min(maxHour, nextStart + 0.25), maxHour);
+      }
+
+      // Od pierwszego faktycznego ruchu szerokość jest manualna. Dzięki temu
+      // po puszczeniu kursora kafelek nie wraca do sztucznego minimum ani +30%.
+      route.timelineWidthMode = "manual";
+      setRouteGlobalStart(route, nextStart);
+      setRouteGlobalEnd(route, nextEnd);
+
+      routeResize.changed = routeResize.changed
+        || routeResize.initialStart !== routeGlobalStart(route)
+        || routeResize.initialEnd !== routeGlobalEnd(route)
+        || routeResize.initialWidthMode !== route.timelineWidthMode;
+
+      // Aktualizujemy wyłącznie jeden kafelek, bez renderowania całej tablicy.
+      updateRouteResizePreview(route, routeResize.element);
+    }
+
+    function scheduleRouteResizePreview(clientX) {
+      routeResize.pendingClientX = clientX;
+      if (routeResize.frame) return;
+      routeResize.frame = requestAnimationFrame(applyRouteResizeFrame);
     }
 
     function routeResizeSideFromPoint(event, routeElement) {
       if (!event || !routeElement || typeof routeElement.getBoundingClientRect !== "function") return null;
       const rect = routeElement.getBoundingClientRect();
       if (!rect || rect.width <= 0) return null;
-      const edge = Math.min(28, Math.max(16, rect.width * 0.28));
+      const edge = Math.min(18, Math.max(12, Number.parseFloat(getComputedStyle(routeElement).getPropertyValue("--resize-edge-size")) || 14));
       const x = event.clientX - rect.left;
       if (x >= 0 && x <= edge) return "left";
       if (x >= rect.width - edge && x <= rect.width) return "right";
@@ -79659,8 +79719,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function maybeStartRouteResizeFromRoute(event, routeId) {
       if (!event || routeResize.active) return;
       if (event.button !== undefined && event.button !== 0) return;
-      const originalTarget = event.target;
-      if (originalTarget?.closest && originalTarget.closest(".time-resize")) return;
       const routeElement = event.currentTarget?.closest ? event.currentTarget.closest(".time-route") : routeButtonElement(routeId);
       if (!routeElement || routeElement.dataset.canResize !== "1") return;
       const side = routeResizeSideFromPoint(event, routeElement);
@@ -79673,9 +79731,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const targetRouteId = routeId || handle?.dataset?.routeId || handle?.closest(".time-route")?.dataset?.routeId;
       const targetSide = side || (handle?.classList?.contains("time-resize-left") ? "left" : "right");
 
-      event.stopPropagation();
-      event.preventDefault();
-
       if (routeResize.active) return;
 
       const route = state.routes.find(item => item.id === targetRouteId);
@@ -79683,15 +79738,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const routeElement = handle?.closest(".time-route") || event.currentTarget?.closest?.(".time-route") || routeButtonElement(route.id);
       const cell = handle?.closest(".timeline-row") || routeElement?.closest(".timeline-row");
-      if (!cell) return;
+      if (!cell || !routeElement) return;
+
+      event.stopPropagation();
+      event.preventDefault();
+
+      const timelineRect = cell.getBoundingClientRect();
+      const routeRect = routeElement.getBoundingClientRect();
+      const maxHour = Math.max(0.25, timelineMaxHour());
+      const rectToGlobal = (x) => clampTimelineHour(((x - timelineRect.left) / Math.max(1, timelineRect.width)) * maxHour);
+      const displayLeftGlobal = rectToGlobal(routeRect.left);
+      const displayRightGlobal = rectToGlobal(routeRect.right);
 
       document.body.classList.add("no-select");
-      if (routeElement) {
-        routeElement.classList.add("is-resizing");
-        routeElement.setAttribute("draggable", "false");
-      }
+      routeElement.classList.add("is-resizing");
+      routeElement.setAttribute("draggable", "false");
 
-      const isPointerEvent = event.type === "pointerdown";
       routeResize = {
         active: true,
         routeId: targetRouteId,
@@ -79700,63 +79762,60 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         scrollState: captureScrollState(),
         changed: false,
         frame: null,
-        eventMode: isPointerEvent ? "pointer" : "mouse",
-        pointerId: isPointerEvent ? event.pointerId : null,
-        element: routeElement || null,
-        route
+        eventMode: "pointer",
+        pointerId: event.pointerId ?? null,
+        element: routeElement,
+        route,
+        timelineRect: { left: timelineRect.left, width: timelineRect.width },
+        timelineHours: maxHour,
+        // Krawędź przeciwna do tej trzymanej kursorem pozostaje nieruchoma.
+        fixedOppositeGlobal: targetSide === "left" ? displayRightGlobal : displayLeftGlobal,
+        startClientX: Number(event.clientX),
+        pendingClientX: null,
+        movementStarted: false,
+        initialStart: routeGlobalStart(route),
+        initialEnd: routeGlobalEnd(route),
+        initialWidthMode: route.timelineWidthMode || ""
       };
 
-      const captureTarget = handle || routeElement || event.currentTarget;
-      if (isPointerEvent && captureTarget?.setPointerCapture) {
+      const captureTarget = handle || routeElement;
+      if (captureTarget?.setPointerCapture && event.pointerId !== undefined) {
         try { captureTarget.setPointerCapture(event.pointerId); } catch (error) {}
       }
 
-      if (isPointerEvent) {
-        document.addEventListener("pointermove", moveRouteResize);
-        document.addEventListener("pointerup", endRouteResize);
-        document.addEventListener("pointercancel", endRouteResize);
-      } else {
-        document.addEventListener("mousemove", moveRouteResize);
-        document.addEventListener("mouseup", endRouteResize);
-      }
+      document.addEventListener("pointermove", moveRouteResize, { passive: false });
+      document.addEventListener("pointerup", endRouteResize);
+      document.addEventListener("pointercancel", endRouteResize);
     }
 
     function moveRouteResize(event) {
-      if (!routeResize.active || !routeResize.cell) return;
-      if (routeResize.eventMode === "pointer" && routeResize.pointerId !== null && event.pointerId !== routeResize.pointerId) return;
+      if (!routeResize.active) return;
+      if (routeResize.pointerId !== null && event.pointerId !== routeResize.pointerId) return;
       event.preventDefault();
-      const route = routeResize.route || state.routes.find(item => item.id === routeResize.routeId);
-      if (!route) return;
-      if (!canEditBoardRoute(route)) return;
-
-      const previousStart = routeGlobalStart(route);
-      const previousEnd = routeGlobalEnd(route);
-
-      const snappedGlobal = routeResize.cell && routeResize.cell.classList && routeResize.cell.classList.contains("timeline-row")
-        ? snapGlobalHourFromTimeline(event, routeResize.cell)
-        : snapGlobalHourFromCell(event, routeResize.cell);
-
-      if (routeResize.side === "left") {
-        const safeStart = Math.max(0, Math.min(routeGlobalEnd(route) - 0.25, snappedGlobal));
-        setRouteGlobalStart(route, safeStart);
-      } else {
-        const safeEnd = Math.max(routeGlobalStart(route) + 0.25, Math.min(timelineMaxHour(), snappedGlobal));
-        setRouteGlobalEnd(route, safeEnd);
-      }
-
-      routeResize.changed = routeResize.changed || previousStart !== routeGlobalStart(route) || previousEnd !== routeGlobalEnd(route);
-      scheduleRouteResizePreview(route);
+      scheduleRouteResizePreview(Number(event.clientX));
     }
 
-    function endRouteResize() {
+    function endRouteResize(event) {
+      if (!routeResize.active) return;
+      if (routeResize.pointerId !== null && event?.pointerId !== undefined && event.pointerId !== routeResize.pointerId) return;
+
+      // Używamy dokładnej końcowej pozycji kursora także wtedy, gdy pointerup
+      // nastąpi pomiędzy dwiema klatkami requestAnimationFrame.
+      if (event?.clientX !== undefined) {
+        routeResize.pendingClientX = Number(event.clientX);
+        applyRouteResizeFrame();
+      }
+
       document.body.classList.remove("no-select");
+      document.removeEventListener("pointermove", moveRouteResize);
+      document.removeEventListener("pointerup", endRouteResize);
+      document.removeEventListener("pointercancel", endRouteResize);
 
       const scrollState = routeResize.scrollState || captureScrollState();
       const changed = routeResize.changed;
-
-      const eventMode = routeResize.eventMode;
       const resizedElement = routeResize.element;
       const resizedRoute = routeResize.route || state.routes.find(item => item.id === routeResize.routeId);
+
       if (resizedElement) {
         resizedElement.classList.remove("is-resizing");
         resizedElement.setAttribute("draggable", resizedRoute && canEditBoardRoute(resizedRoute) ? "true" : "false");
@@ -79769,22 +79828,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       routeResize.scrollState = null;
       routeResize.changed = false;
       routeResize.frame = null;
-      routeResize.eventMode = "mouse";
       routeResize.pointerId = null;
       routeResize.element = null;
       routeResize.route = null;
+      routeResize.timelineRect = null;
+      routeResize.timelineHours = 0;
+      routeResize.fixedOppositeGlobal = null;
+      routeResize.startClientX = null;
+      routeResize.pendingClientX = null;
+      routeResize.movementStarted = false;
+      routeResize.initialStart = null;
+      routeResize.initialEnd = null;
+      routeResize.initialWidthMode = null;
 
-      if (eventMode === "pointer") {
-        document.removeEventListener("pointermove", moveRouteResize);
-        document.removeEventListener("pointerup", endRouteResize);
-        document.removeEventListener("pointercancel", endRouteResize);
-      } else {
-        document.removeEventListener("mousemove", moveRouteResize);
-        document.removeEventListener("mouseup", endRouteResize);
-      }
-
-      if (changed) {
+      if (changed && resizedRoute) {
         syncResizedRouteDom(resizedRoute, scrollState);
+        boardRenderCache = null;
+        invalidateCombinedClientHistoryCache();
+        // Zapis dopiero po puszczeniu kursora: brak zapytań Supabase w trakcie resize.
+        scheduleCentralRelationsDiff(0);
+        scheduleRouteMoveBoardReconcile(180);
+        scheduleUiSync({ unload: true, details: state.detailsOpen });
       } else {
         restoreScrollState(scrollState);
       }
@@ -79792,6 +79856,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function handleRouteResizePointerDown(event) {
       if (routeResize.active) return;
+      if (event.button !== undefined && event.button !== 0) return;
       const target = event.target;
       const handle = target?.closest ? target.closest(".time-resize") : null;
       if (handle) {
@@ -79814,7 +79879,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__tmsRouteResizeDelegationAttached = true;
       document.addEventListener("pointerdown", handleRouteResizePointerDown, true);
     }
-
 
 
     function routePlannerSizeClass(size) {
@@ -82566,8 +82630,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         if (CENTRAL_RELATION_PENDING_DELETE.has(key)) return;
 
-        const localPending = CENTRAL_RELATION_PENDING_UPSERT.has(key) ? currentByKey.get(key) : null;
-        const route = localPending || payload;
+        const localRoute = currentByKey.get(key) || null;
+        const localFingerprint = localRoute ? centralRouteFingerprint(localRoute) : "";
+        const baselineFingerprint = CENTRAL_RELATION_BASELINE.get(key);
+        const localDirty = Boolean(localRoute) && (baselineFingerprint === undefined || localFingerprint !== baselineFingerprint);
+        const localPending = CENTRAL_RELATION_PENDING_UPSERT.has(key);
+        // Nie nadpisujemy świeżej pozycji/szerokości starszą odpowiedzią z Supabase.
+        const route = (localPending || localDirty) && localRoute ? localRoute : payload;
         try {
           Object.defineProperty(route, "_centralBranchId", {
             value: branchId,
@@ -82580,7 +82649,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         merged.push(route);
 
-        if (!CENTRAL_RELATION_PENDING_UPSERT.has(key)) {
+        if (!CENTRAL_RELATION_PENDING_UPSERT.has(key) && !localDirty) {
           CENTRAL_RELATION_BASELINE.set(key, centralRouteFingerprint(payload));
         }
       });
@@ -82615,6 +82684,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncCentralRelationsDiff() {
       if (!EMBEDDED_MODE || !state.user || !CENTRAL_RELATIONS_READY) return;
       if (String(state.user?.supabaseRole || "") === "accounting") return;
+      if (routeResize?.active) {
+        scheduleCentralRelationsDiff(120);
+        return;
+      }
 
       const currentKeys = new Set();
       (state.routes || []).forEach(route => {
@@ -82678,7 +82751,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (message?.action === "archive") CENTRAL_RELATION_PENDING_DELETE.delete(key);
       else if (message?.action === "upsert") CENTRAL_RELATION_PENDING_UPSERT.delete(key);
 
-      if (message?.ok) return;
+      if (message?.ok) {
+        if (message?.action === "upsert") scheduleCentralRelationsDiff(0);
+        return;
+      }
 
       if (message?.action === "upsert") CENTRAL_RELATION_BASELINE.delete(key);
       const now = Date.now();
