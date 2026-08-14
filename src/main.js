@@ -6,6 +6,9 @@ let activeTmsFrame = null
 let activeAuthMessage = null
 let activeUserDirectoryMessage = null
 let activeFleetMessage = null
+let activeRelationsMessage = null
+let relationsChannel = null
+let relationsReloadTimer = null
 let currentUser = null
 let currentProfile = null
 
@@ -59,6 +62,15 @@ function renderLogin(message = '') {
   activeAuthMessage = null
   activeUserDirectoryMessage = null
   activeFleetMessage = null
+  activeRelationsMessage = null
+  if (relationsReloadTimer) {
+    clearTimeout(relationsReloadTimer)
+    relationsReloadTimer = null
+  }
+  if (relationsChannel) {
+    supabase.removeChannel(relationsChannel)
+    relationsChannel = null
+  }
 
   app.innerHTML = `
     <main class="login-shell">
@@ -734,6 +746,147 @@ async function syncFleetDataToTms() {
   )
 }
 
+
+async function loadCentralRelations() {
+  if (!currentProfile) return []
+
+  let query = supabase
+    .from('tms_relations')
+    .select('branch_id, relation_ref, payload, updated_at')
+    .eq('active', true)
+    .order('updated_at', { ascending: true })
+
+  if (currentProfile.role !== 'admin') {
+    if (!currentProfile.branch_id) return []
+    query = query.eq('branch_id', currentProfile.branch_id)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    throw new Error(`Nie udało się pobrać relacji: ${error.message}`)
+  }
+
+  return (data || [])
+    .filter((row) => row?.payload && row?.relation_ref)
+    .map((row) => ({
+      id: String(row.relation_ref || ''),
+      branchId: String(row.branch_id || ''),
+      payload: row.payload,
+      updatedAt: String(row.updated_at || ''),
+    }))
+}
+
+async function syncCentralRelationsToTms() {
+  const rows = await loadCentralRelations()
+  activeRelationsMessage = {
+    type: 'top-dragon-relations-data',
+    rows,
+  }
+
+  activeTmsFrame?.contentWindow?.postMessage(
+    activeRelationsMessage,
+    window.location.origin
+  )
+}
+
+function scheduleCentralRelationsReload(delay = 120) {
+  if (relationsReloadTimer) clearTimeout(relationsReloadTimer)
+  relationsReloadTimer = setTimeout(() => {
+    relationsReloadTimer = null
+    syncCentralRelationsToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć centralnych relacji:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralRelations() {
+  if (relationsChannel) {
+    supabase.removeChannel(relationsChannel)
+    relationsChannel = null
+  }
+
+  if (!currentProfile) return
+
+  const channelName = `tms-relations-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  relationsChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'tms_relations' },
+      () => scheduleCentralRelationsReload(90)
+    )
+    .subscribe()
+}
+
+function sendRelationOperationResult(requestId, ok, action, relationId, branchId, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-relation-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    relationId: String(relationId || ''),
+    branchId: String(branchId || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function upsertCentralRelationFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const relation = message?.relation
+  const relationId = String(relation?.id || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!relationId || !branchId || !relation || typeof relation !== 'object') {
+    sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Brak identyfikatora relacji lub oddziału.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('upsert_tms_relation', {
+      p_branch_id: branchId,
+      p_relation: relation,
+    })
+    if (error) throw error
+
+    sendRelationOperationResult(requestId, true, 'upsert', relationId, branchId, 'Relacja została zapisana w Supabase.')
+    await syncCentralRelationsToTms()
+  } catch (error) {
+    sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, error?.message || 'Nie udało się zapisać relacji.')
+  }
+}
+
+async function archiveCentralRelationFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const relationId = String(message?.relationId || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!relationId || !branchId) {
+    sendRelationOperationResult(requestId, false, 'archive', relationId, branchId, 'Brak identyfikatora relacji lub oddziału.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('archive_tms_relation', {
+      p_branch_id: branchId,
+      p_relation_ref: relationId,
+    })
+    if (error) throw error
+
+    sendRelationOperationResult(requestId, true, 'archive', relationId, branchId, 'Relacja została usunięta z aktywnego planu.')
+    await syncCentralRelationsToTms()
+  } catch (error) {
+    sendRelationOperationResult(requestId, false, 'archive', relationId, branchId, error?.message || 'Nie udało się usunąć relacji z aktywnego planu.')
+  }
+}
+
 function sendFleetOperationResult(requestId, ok, action, message) {
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-fleet-operation-result',
@@ -888,7 +1041,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=relation-history-v6"
+        src="/tms.html?embedded=1&build=central-relations-v7"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -923,6 +1076,11 @@ async function renderDashboard(user) {
   syncFleetDataToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować floty z TMS:', error)
   })
+
+  syncCentralRelationsToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować relacji z TMS:', error)
+  })
+  subscribeCentralRelations()
 }
 
 async function routeSession(session) {
@@ -952,6 +1110,9 @@ async function bootstrap() {
       }
       if (activeFleetMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeFleetMessage, window.location.origin)
+      }
+      if (activeRelationsMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeRelationsMessage, window.location.origin)
       }
       return
     }
@@ -985,6 +1146,25 @@ async function bootstrap() {
       } catch (error) {
         sendFleetOperationResult(event.data?.requestId, false, 'refresh', error?.message || 'Nie udało się odświeżyć floty.')
       }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relations-request') {
+      try {
+        await syncCentralRelationsToTms()
+      } catch (error) {
+        sendRelationOperationResult(event.data?.requestId, false, 'load', '', '', error?.message || 'Nie udało się pobrać relacji.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-upsert') {
+      await upsertCentralRelationFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-archive') {
+      await archiveCentralRelationFromTms(event.data)
       return
     }
 
