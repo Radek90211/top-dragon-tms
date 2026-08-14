@@ -82414,7 +82414,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
         if (state.user) {
           syncBoardOnly();
-          renderMapDriverFilterList();
+          syncUnloadMapCard();
         }
       };
 
