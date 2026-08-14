@@ -66760,18 +66760,7 @@
       rozliczenia: { label: "Rozliczenia" }
     };
 
-    const USERS = [
-      { login: "AGA", role: "rozliczenia", category: "rozliczenia", name: "Aga" },
-      { login: "KASIA", role: "rozliczenia", category: "rozliczenia", name: "Kasia" },
-      { login: "TOM", role: "spedytor", category: "spedycja", branch: "Oddział 1", name: "TOM" },
-      { login: "NATI", role: "spedytor", category: "spedycja", branch: "Oddział 1", name: "NATI" },
-      { login: "MARIO", role: "spedytor", category: "spedycja", branch: "Oddział 1", name: "MARIO" },
-      { login: "MATI", role: "spedytor", category: "spedycja", branch: "Oddział 2", name: "MATI" },
-      { login: "MARC", role: "spedytor", category: "spedycja", branch: "Oddział 2", name: "MARC" },
-      { login: "DAN", role: "spedytor", category: "spedycja", branch: "Oddział 3", name: "DAN" },
-      { login: "BART", role: "spedytor", category: "spedycja", branch: "Oddział 3", name: "BART" },
-      { login: "RADEK", role: "spedytor", category: "spedycja", branch: "Oddział 3", name: "RADEK" }
-    ];
+    const USERS = [];
 
     const NEXT_LOAD_READY_WINDOW_HOURS = 4;
     const MAX_VEHICLE_WITH_LOAD_HEIGHT_M = 4.3;
@@ -71075,7 +71064,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
                   <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
                   ${["spedytor","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
-                  ${state.user.role === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
+                  ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
                   <span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">
@@ -78502,8 +78491,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.user = {
         login: loginValue,
         role,
+        supabaseRole: String(user.supabaseRole || user.role || ""),
         category: role === "rozliczenia" ? "rozliczenia" : role === "admin" ? "administracja" : "spedycja",
         branch: String(user.branch || ""),
+        branchId: String(user.branchId || ""),
         name: String(user.displayName || loginValue),
         supabaseId: String(user.id || ""),
         email: String(user.email || "")
@@ -78597,7 +78588,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderToStringForTest(collapsed) {
       const previousUser = state.user;
       const previousCollapsed = state.unloadPanelCollapsed;
-      state.user = USERS.find(user => user.login === "DAN");
+      state.user = USERS.find(user => user.role === "spedytor") || {
+        login:"TEST",
+        role:"spedytor",
+        category:"spedycja",
+        branch:"Oddział testowy",
+        name:"TEST"
+      };
       state.unloadPanelCollapsed = collapsed;
       const output = renderApp();
       state.user = previousUser;
@@ -82140,8 +82137,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const message = event.data || {};
       if (message.type === "top-dragon-auth") {
         applyAuthenticatedUser(message.user || null);
+      } else if (message.type === "top-dragon-user-directory") {
+        const profiles = Array.isArray(message.profiles) ? message.profiles : [];
+        const mappedUsers = profiles.map(profile => {
+          const role = internalRoleFromSupabase(String(profile.role || ""));
+          const login = String(profile.login || normalizeEmbeddedLogin({
+            role: profile.role,
+            displayName: profile.displayName,
+            email: ""
+          }));
+          return {
+            login,
+            role,
+            supabaseRole: String(profile.role || ""),
+            category: role === "rozliczenia" ? "rozliczenia" : role === "admin" ? "administracja" : "spedycja",
+            branch: String(profile.branch || ""),
+            branchId: String(profile.branchId || ""),
+            name: String(profile.displayName || login),
+            supabaseId: String(profile.id || "")
+          };
+        });
+
+        USERS.splice(0, USERS.length, ...mappedUsers);
+
+        if (state.user?.supabaseRole === "admin" && !USERS.some(user => user.supabaseId === state.user.supabaseId)) {
+          USERS.push({
+            login: state.user.login,
+            role: "admin",
+            supabaseRole: "admin",
+            category: "administracja",
+            branch: state.user.branch || "Wszystkie oddziały",
+            branchId: state.user.branchId || "",
+            name: state.user.name || "Administrator",
+            supabaseId: state.user.supabaseId || ""
+          });
+        }
+
+        if (state.user) render();
       } else if (message.type === "top-dragon-signout") {
         state.user = null;
+        USERS.splice(0, USERS.length);
         render();
       }
     });
@@ -82282,16 +82317,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.openAdministrationPanel = function() {
-        if (!state.user || state.user.role !== "admin") return;
+        if (!state.user || state.user.supabaseRole !== "admin") return;
         window.parent?.postMessage(
           { type: "top-dragon-open-admin" },
           window.location.origin
         );
       };
-
-      if (!USERS.some(user => user.login === "ADMIN")) {
-        USERS.push({ login:"ADMIN", role:"admin", category:"administracja", branch:"Wszystkie oddziały", name:"Administrator" });
-      }
 
       function loadCustomFleet() {
         try {
