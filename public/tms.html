@@ -82183,10 +82183,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.applySupabaseFleetRows?.(window.__topDragonLastFleetRows);
       } else if (message.type === "top-dragon-fleet-operation-result") {
         window.handleFleetOperationResult?.(message);
+      } else if (message.type === "top-dragon-relation-usage-result") {
+        window.handleRelationUsageResult?.(message);
       } else if (message.type === "top-dragon-signout") {
         state.user = null;
         USERS.splice(0, USERS.length);
         window.__topDragonLastFleetRows = [];
+        CENTRAL_RELATION_USAGE_SYNCED.clear();
+        CENTRAL_RELATION_USAGE_PENDING.clear();
         render();
       }
     });
@@ -82338,6 +82342,117 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       let FLEET_OPERATION_BUSY = false;
       let LAST_FLEET_REQUEST_ID = "";
+
+      const CENTRAL_RELATION_USAGE_SYNCED = new Set();
+      const CENTRAL_RELATION_USAGE_PENDING = new Map();
+      let CENTRAL_RELATION_USAGE_TIMER = null;
+      let CENTRAL_RELATION_USAGE_ERROR_AT = 0;
+
+      function relationUsageKey(relationRef, assignmentId) {
+        return `${String(relationRef || "").trim()}::${String(assignmentId || "").trim()}`;
+      }
+
+      function relationUsageCandidates() {
+        const seen = new Set();
+        const rows = [];
+        const routeSources = [
+          ...(Array.isArray(state.routes) ? state.routes : []),
+          ...(Array.isArray(state.futureRoutes) ? state.futureRoutes : [])
+        ];
+
+        routeSources.forEach(route => {
+          const relationRef = String(route?.id || "").trim();
+          const driverId = String(route?.driverId || "").trim();
+          if (!relationRef || !driverId) return;
+
+          const driver = driverById(driverId);
+          const assignmentId = String(driver?.dbAssignmentId || "").trim();
+          if (!driver?.supabaseFleet || !assignmentId) return;
+
+          const key = relationUsageKey(relationRef, assignmentId);
+          if (seen.has(key)) return;
+          seen.add(key);
+
+          rows.push({
+            key,
+            relationRef,
+            assignmentId
+          });
+        });
+
+        return rows;
+      }
+
+      function syncCentralRelationUsage() {
+        if (!EMBEDDED_MODE || !state.user) return;
+
+        relationUsageCandidates().forEach(candidate => {
+          if (
+            CENTRAL_RELATION_USAGE_SYNCED.has(candidate.key) ||
+            CENTRAL_RELATION_USAGE_PENDING.has(candidate.key)
+          ) return;
+
+          const requestId = `relation-usage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          CENTRAL_RELATION_USAGE_PENDING.set(candidate.key, requestId);
+
+          window.parent?.postMessage({
+            type: "top-dragon-relation-usage-register",
+            requestId,
+            relationRef: candidate.relationRef,
+            assignmentId: candidate.assignmentId
+          }, window.location.origin);
+        });
+      }
+
+      function scheduleCentralRelationUsageSync(delay = 250) {
+        clearTimeout(CENTRAL_RELATION_USAGE_TIMER);
+        CENTRAL_RELATION_USAGE_TIMER = setTimeout(syncCentralRelationUsage, Math.max(0, Number(delay) || 0));
+      }
+
+      window.handleRelationUsageResult = function(message) {
+        const relationRef = String(message?.relationRef || "").trim();
+        const assignmentId = String(message?.assignmentId || "").trim();
+        const key = relationUsageKey(relationRef, assignmentId);
+
+        if (key !== "::") {
+          CENTRAL_RELATION_USAGE_PENDING.delete(key);
+        } else {
+          for (const [pendingKey, pendingRequestId] of CENTRAL_RELATION_USAGE_PENDING.entries()) {
+            if (pendingRequestId === message?.requestId) {
+              CENTRAL_RELATION_USAGE_PENDING.delete(pendingKey);
+              break;
+            }
+          }
+        }
+
+        if (message?.ok) {
+          if (key !== "::") CENTRAL_RELATION_USAGE_SYNCED.add(key);
+          const driver = DRIVERS.find(item => String(item.dbAssignmentId || "") === assignmentId);
+          if (driver) driver.relationLocked = true;
+
+          const host = document.querySelector('[data-role="commercial-body"]');
+          if (host && state.commercialView === "fleet") {
+            host.innerHTML = renderFleetManagement();
+          }
+          return;
+        }
+
+        const now = Date.now();
+        if (now - CENTRAL_RELATION_USAGE_ERROR_AT > 15000) {
+          CENTRAL_RELATION_USAGE_ERROR_AT = now;
+          showAppMessage(
+            "Nie udało się zapisać historii relacji",
+            String(message?.message || "Spróbuj ponownie po odświeżeniu strony."),
+            "error"
+          );
+        }
+
+        scheduleCentralRelationUsageSync(2500);
+      };
+
+      if (!window.__topDragonRelationUsageTicker) {
+        window.__topDragonRelationUsageTicker = setInterval(syncCentralRelationUsage, 1800);
+      }
 
       try { localStorage.removeItem(CUSTOM_FLEET_STORAGE_KEY); } catch (error) {}
 
