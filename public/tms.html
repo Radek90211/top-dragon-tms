@@ -82173,10 +82173,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           });
         }
 
-        if (state.user) render();
+        if (window.__topDragonLastFleetRows && typeof window.applySupabaseFleetRows === "function") {
+          window.applySupabaseFleetRows(window.__topDragonLastFleetRows);
+        } else if (state.user) {
+          render();
+        }
+      } else if (message.type === "top-dragon-fleet-data") {
+        window.__topDragonLastFleetRows = Array.isArray(message.rows) ? message.rows : [];
+        window.applySupabaseFleetRows?.(window.__topDragonLastFleetRows);
+      } else if (message.type === "top-dragon-fleet-operation-result") {
+        window.handleFleetOperationResult?.(message);
       } else if (message.type === "top-dragon-signout") {
         state.user = null;
         USERS.splice(0, USERS.length);
+        window.__topDragonLastFleetRows = [];
         render();
       }
     });
@@ -82291,6 +82301,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function driverHasRelationHistory(driverId) {
+        const driver = driverById(driverId);
+        if (driver?.relationLocked) return true;
         rememberAllCurrentDriverRelationUsage();
         return DRIVER_RELATION_HISTORY.has(String(driverId || "").trim());
       }
@@ -82324,20 +82336,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         );
       };
 
-      function loadCustomFleet() {
-        try {
-          const rows = JSON.parse(localStorage.getItem(CUSTOM_FLEET_STORAGE_KEY) || "[]");
-          return Array.isArray(rows) ? rows.filter(row => row && row.id && row.driver && row.carrier) : [];
-        } catch (error) {
-          return [];
-        }
-      }
+      let FLEET_OPERATION_BUSY = false;
+      let LAST_FLEET_REQUEST_ID = "";
 
-      function saveCustomFleet() {
-        try {
-          localStorage.setItem(CUSTOM_FLEET_STORAGE_KEY, JSON.stringify(DRIVERS.filter(driver => driver.customFleet)));
-        } catch (error) {}
-      }
+      try { localStorage.removeItem(CUSTOM_FLEET_STORAGE_KEY); } catch (error) {}
+
+      function loadCustomFleet() { return []; }
+      function saveCustomFleet() {}
 
       function invalidateFleetCaches() {
         DRIVER_BY_ID_CACHE = null;
@@ -82348,20 +82353,81 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.leafletFitSignature = "";
       }
 
-      loadCustomFleet().forEach(driver => {
-        if (DRIVERS.some(item => item.id === driver.id)) return;
-        const normalized = {
-          ...driver,
-          dispatcher: String(driver.dispatcher || driver.createdBy || queueDispatchers()[0] || "TOM").toUpperCase(),
-          homeDispatcher: String(driver.homeDispatcher || driver.dispatcher || driver.createdBy || "TOM").toUpperCase(),
-          phone: String(driver.phone || ANON_PHONE),
-          trailerHeight: Number(driver.trailerHeight || 1.3),
-          customFleet: true
-        };
-        DRIVERS.push(normalized);
-        DRIVER_HOME_DISPATCHERS.set(normalized.id, normalized.homeDispatcher);
-      });
-      applyStoredDriverAssignments();
+      function userBySupabaseId(id) {
+        return USERS.find(user => String(user.supabaseId || "") === String(id || "")) || null;
+      }
+
+      window.applySupabaseFleetRows = function(rows) {
+        const sourceRows = Array.isArray(rows) ? rows : [];
+        window.__topDragonLastFleetRows = sourceRows;
+
+        for (let index = DRIVERS.length - 1; index >= 0; index -= 1) {
+          if (DRIVERS[index]?.supabaseFleet || DRIVERS[index]?.customFleet) {
+            DRIVER_HOME_DISPATCHERS.delete(DRIVERS[index].id);
+            DRIVERS.splice(index, 1);
+          }
+        }
+
+        sourceRows.forEach(row => {
+          if (!row?.id || !row?.driver?.fullName || !row?.carrier?.name) return;
+          const dispatcherUser = userBySupabaseId(row.assignedDispatcherId);
+          const creatorUser = userBySupabaseId(row.createdBy);
+          const dispatcher = String(dispatcherUser?.login || dispatcherUser?.displayName || "").toUpperCase();
+          if (!dispatcher) return;
+
+          const normalized = {
+            id: String(row.id),
+            dbAssignmentId: String(row.id),
+            driverEntityId: String(row.driver?.id || ""),
+            vehicleEntityId: String(row.vehicle?.id || ""),
+            trailerEntityId: String(row.trailer?.id || ""),
+            carrierEntityId: String(row.carrier?.id || ""),
+            dispatcher,
+            homeDispatcher: dispatcher,
+            carrier: String(row.carrier?.name || ""),
+            driver: String(row.driver?.fullName || ""),
+            phone: String(row.driver?.phone || ANON_PHONE),
+            idCard: String(row.driver?.identityDocumentNumber || ""),
+            nationality: String(row.driver?.nationality || "PL").toUpperCase(),
+            base: String(row.driver?.baseLocation || ""),
+            tractorReg: String(row.vehicle?.registrationNo || "").toUpperCase(),
+            vehicleBrand: String(row.vehicle?.brand || ""),
+            trailerReg: String(row.trailer?.registrationNo || "").toUpperCase(),
+            trailerHeight: Number(row.trailer?.heightM || 1.3),
+            customFleet: true,
+            supabaseFleet: true,
+            relationLocked: Boolean(row.relationLocked),
+            createdBy: String(creatorUser?.login || "").toUpperCase(),
+            createdAt: String(row.createdAt || ""),
+            branchId: String(row.branchId || "")
+          };
+
+          DRIVERS.push(normalized);
+          DRIVER_HOME_DISPATCHERS.set(normalized.id, normalized.homeDispatcher);
+          state.mapVisibleDriverIds = { ...(state.mapVisibleDriverIds || {}), [normalized.id]: true };
+        });
+
+        applyStoredDriverAssignments();
+        invalidateFleetCaches();
+
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (state.user) {
+          syncBoardOnly();
+          renderMapDriverFilterList();
+        }
+      };
+
+      window.handleFleetOperationResult = function(message) {
+        FLEET_OPERATION_BUSY = false;
+        const ok = Boolean(message?.ok);
+        const action = String(message?.action || "");
+        const text = String(message?.message || (ok ? "Operacja zakończona." : "Operacja nie powiodła się."));
+        showAppMessage(ok ? (action === "delete" ? "Usunięto zestaw" : "Zapisano zestaw") : "Błąd floty", text, ok ? "success" : "error");
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+      };
+
       invalidateFleetCaches();
 
       function loadAuditLog() {
@@ -82457,12 +82523,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="wide"><label class="field-label" style="margin-top:0;">Przewoźnik</label><input id="fleet-carrier" class="input" required placeholder="np. Trans ABC" /></div>
               <div class="wide"><label class="field-label" style="margin-top:0;">Kierowca</label><input id="fleet-driver-name" class="input" required placeholder="imię i nazwisko" /></div>
               <div><label class="field-label" style="margin-top:0;">Telefon</label><input id="fleet-phone" class="input" inputmode="tel" placeholder="numer telefonu" /></div>
+              <div><label class="field-label" style="margin-top:0;">Nr dowodu osobistego</label><input id="fleet-id-card" class="input" placeholder="numer dokumentu" /></div>
+              <div><label class="field-label" style="margin-top:0;">Marka pojazdu</label><input id="fleet-vehicle-brand" class="input" placeholder="np. Volvo" /></div>
               <div><label class="field-label" style="margin-top:0;">Ciągnik / PL</label><input id="fleet-tractor" class="input" placeholder="nr rejestracyjny" /></div>
               <div><label class="field-label" style="margin-top:0;">Naczepa / PL</label><input id="fleet-trailer" class="input" placeholder="nr rejestracyjny" /></div>
               <div><label class="field-label" style="margin-top:0;">Wysokość naczepy</label><input id="fleet-height" class="input" type="number" min="1" max="4.3" step="0.05" value="1.30" /></div>
               <div><label class="field-label" style="margin-top:0;">Narodowość kierowcy</label><select id="fleet-nationality" class="select"><option>PL</option><option>UA</option><option>BY</option><option>LT</option><option>SK</option><option>CZ</option></select></div>
               <div class="wide"><label class="field-label" style="margin-top:0;">Baza kierowcy</label><input id="fleet-base" class="input" list="locations-list" placeholder="miejscowość lub kod" /></div>
-              <div class="fleet-form-actions wide"><button type="submit" class="btn btn-dark">Dodaj zestaw</button></div>
+              <div class="fleet-form-actions wide"><button type="button" class="btn" onclick="refreshFleetFromSupabase()">Odśwież flotę</button><button type="submit" class="btn btn-dark" ${FLEET_OPERATION_BUSY ? "disabled" : ""}>${FLEET_OPERATION_BUSY ? "Zapisywanie…" : "Dodaj zestaw"}</button></div>
             </form>
           </div>
           <div class="fleet-form-card">
@@ -82475,70 +82543,115 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 : hasRelationHistory
                   ? `<button type="button" class="btn-mini danger fleet-delete-locked" disabled title="Usunięcie zablokowane: kierowca lub pojazd występuje w historii relacji.">Usuń</button>`
                   : `<button type="button" class="btn-mini danger" onclick="removeFleetDriver('${attr(driver.id)}')">Usuń</button>`;
-              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}</div></div><span>${esc(driver.carrier)}</span><span>${esc(driver.tractorReg || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${deleteControl}</div></div>`;
+              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${deleteControl}</div></div>`;
             }).join("") : `<div class="commercial-empty">Brak dodanych kierowców, pojazdów i przewoźników.</div>`}</div>
           </div>
         </div>`;
       };
 
+      window.refreshFleetFromSupabase = function() {
+        if (FLEET_OPERATION_BUSY) return;
+        const requestId = `fleet-refresh-${Date.now()}`;
+        window.parent?.postMessage({ type:"top-dragon-fleet-refresh", requestId }, window.location.origin);
+      };
+
       window.addFleetDriver = function(event) {
         event?.preventDefault?.();
-        if (!state.user || !["spedytor","admin"].includes(state.user.role)) return;
-        const dispatcher = isAdminUser() ? String(document.getElementById("fleet-dispatcher")?.value || currentFleetDispatcher()) : state.user.login;
+        if (!state.user || !["spedytor","admin"].includes(state.user.role) || FLEET_OPERATION_BUSY) return;
+
+        const dispatcher = isAdminUser()
+          ? String(document.getElementById("fleet-dispatcher")?.value || currentFleetDispatcher())
+          : state.user.login;
+        const dispatcherUser = USERS.find(user => user.role === "spedytor" && user.login === dispatcher);
         const carrier = String(document.getElementById("fleet-carrier")?.value || "").trim();
         const driverName = String(document.getElementById("fleet-driver-name")?.value || "").trim();
-        const phone = String(document.getElementById("fleet-phone")?.value || "").trim() || ANON_PHONE;
+        const phone = String(document.getElementById("fleet-phone")?.value || "").trim();
+        const identityDocumentNumber = String(document.getElementById("fleet-id-card")?.value || "").trim();
+        const vehicleBrand = String(document.getElementById("fleet-vehicle-brand")?.value || "").trim();
         const tractorReg = String(document.getElementById("fleet-tractor")?.value || "").trim().toUpperCase();
         const trailerReg = String(document.getElementById("fleet-trailer")?.value || "").trim().toUpperCase();
-        const trailerHeight = Math.max(1, Math.min(4.3, Number(document.getElementById("fleet-height")?.value || 1.3)));
+        const trailerHeightM = Math.max(1, Math.min(4.3, Number(document.getElementById("fleet-height")?.value || 1.3)));
         const nationality = String(document.getElementById("fleet-nationality")?.value || "PL").trim().toUpperCase();
-        const base = normalizeLocation(String(document.getElementById("fleet-base")?.value || "").trim()) || String(document.getElementById("fleet-base")?.value || "").trim();
-        if (!dispatcher || !queueDispatchers().includes(dispatcher)) { showAppMessage("Wybierz spedytora", "Nowy zestaw musi być przypisany do spedytora.", "error"); return; }
-        if (!carrier || !driverName) { showAppMessage("Uzupełnij dane", "Podaj przewoźnika i imię oraz nazwisko kierowcy.", "error"); return; }
-        const duplicate = DRIVERS.some(item => removePolishChars(item.driver) === removePolishChars(driverName) && removePolishChars(item.carrier) === removePolishChars(carrier));
-        if (duplicate) { showAppMessage("Taki zestaw już istnieje", "Kierowca i przewoźnik są już zapisani w systemie.", "info"); return; }
-        const id = `custom-driver-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
-        const driver = { id, dispatcher, homeDispatcher:dispatcher, carrier, driver:driverName, phone, trailerHeight, nationality, trailerReg, tractorReg, idCard:"", base, customFleet:true, createdBy:state.user.login, createdAt:new Date().toISOString() };
-        DRIVERS.push(driver);
-        DRIVER_HOME_DISPATCHERS.set(id, dispatcher);
-        state.mapVisibleDriverIds = { ...(state.mapVisibleDriverIds || {}), [id]:true };
-        saveCustomFleet();
-        invalidateFleetCaches();
-        recordAuditOperation("Dodano zestaw do floty", "driver", id, `${driverName} · ${carrier} · ${dispatcher}`);
+        const baseLocation = normalizeLocation(String(document.getElementById("fleet-base")?.value || "").trim()) || String(document.getElementById("fleet-base")?.value || "").trim();
+
+        if (!dispatcherUser?.supabaseId || !dispatcherUser?.branchId) {
+          showAppMessage("Wybierz spedytora", "Spedytor musi być aktywnym użytkownikiem przypisanym do oddziału w Supabase.", "error");
+          return;
+        }
+        if (!carrier || !driverName) {
+          showAppMessage("Uzupełnij dane", "Podaj przewoźnika i imię oraz nazwisko kierowcy.", "error");
+          return;
+        }
+        if (tractorReg && !vehicleBrand) {
+          showAppMessage("Uzupełnij markę", "Jeżeli podajesz numer rejestracyjny ciągnika, podaj również markę pojazdu.", "error");
+          return;
+        }
+
+        const duplicate = DRIVERS.some(item =>
+          removePolishChars(item.driver) === removePolishChars(driverName) &&
+          removePolishChars(item.carrier) === removePolishChars(carrier)
+        );
+        if (duplicate) {
+          showAppMessage("Taki zestaw już istnieje", "Kierowca i przewoźnik są już zapisani w widocznej flocie.", "info");
+          return;
+        }
+
+        FLEET_OPERATION_BUSY = true;
+        const requestId = `fleet-create-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+        LAST_FLEET_REQUEST_ID = requestId;
+
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host) host.innerHTML = renderFleetManagement();
-        syncBoardOnly();
-        showAppMessage("Dodano zestaw", `${driverName} · ${carrier} został przypisany do ${dispatcher}.`, "success");
+
+        window.parent?.postMessage({
+          type: "top-dragon-fleet-create",
+          requestId,
+          payload: {
+            assignedDispatcherId: dispatcherUser.supabaseId,
+            branchId: dispatcherUser.branchId,
+            carrierName: carrier,
+            driverName,
+            phone,
+            identityDocumentNumber,
+            vehicleBrand,
+            vehicleRegistrationNo: tractorReg,
+            trailerRegistrationNo: trailerReg,
+            trailerHeightM,
+            nationality,
+            baseLocation
+          }
+        }, window.location.origin);
       };
 
       window.removeFleetDriver = function(driverId) {
         const driver = driverById(driverId);
-        if (!driver?.customFleet) return;
+        if (!driver?.supabaseFleet || FLEET_OPERATION_BUSY) return;
         const allowed = isAdminUser() || driver.createdBy === state.user?.login || driver.homeDispatcher === state.user?.login;
-        if (!allowed) { showAppMessage("Brak uprawnień", "Ten zestaw może usunąć jego autor lub administrator.", "error"); return; }
+        if (!allowed) {
+          showAppMessage("Brak uprawnień", "Ten zestaw może usunąć jego autor, przypisany spedytor, kierownik oddziału lub administrator.", "error");
+          return;
+        }
         if (driverHasRelationHistory(driverId)) {
           showAppMessage(
             "Usuwanie zablokowane",
-            "Kierowca lub pojazd występuje w historii relacji. Rekord musi pozostać w systemie, aby można było wrócić do wcześniejszych zleceń.",
+            "Kierowca lub pojazd występuje w historii relacji. Rekord musi pozostać w systemie.",
             "error"
           );
           return;
         }
         if (!window.confirm(`Usunąć zestaw ${driver.driver} · ${driver.carrier}?`)) return;
-        const index = DRIVERS.findIndex(item => item.id === driverId);
-        if (index >= 0) DRIVERS.splice(index, 1);
-        DRIVER_HOME_DISPATCHERS.delete(driverId);
-        const assignments = loadDriverAssignments();
-        delete assignments[driverId];
-        saveDriverAssignments(assignments);
-        delete state.mapVisibleDriverIds?.[driverId];
-        saveCustomFleet();
-        invalidateFleetCaches();
-        recordAuditOperation("Usunięto zestaw z floty", "driver", driverId, `${driver.driver} · ${driver.carrier}`);
+
+        FLEET_OPERATION_BUSY = true;
+        const requestId = `fleet-delete-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+        LAST_FLEET_REQUEST_ID = requestId;
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host) host.innerHTML = renderFleetManagement();
-        syncBoardOnly();
-        showAppMessage("Usunięto zestaw", `${driver.driver} został usunięty z floty.`, "success");
+
+        window.parent?.postMessage({
+          type: "top-dragon-fleet-delete",
+          requestId,
+          assignmentId: driver.dbAssignmentId || driver.id
+        }, window.location.origin);
       };
 
       function auditRowsFiltered() {
