@@ -788,7 +788,11 @@ async function registerRelationUsageFromTms(message) {
       relationRef
     )
 
-    await syncFleetDataToTms()
+    // Nie odświeżamy całej floty po samym zapisie historii relacji.
+    // Iframe TMS oznacza użyty zestaw jako relationLocked po otrzymaniu
+    // top-dragon-relation-usage-result. Pełna synchronizacja floty w tym
+    // miejscu przebudowywała tablicę Planu kierowców tuż po dodaniu relacji
+    // i mogła powodować jej chwilowe/zauważalne zniknięcie.
   } catch (error) {
     sendRelationUsageResult(
       requestId,
