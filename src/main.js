@@ -857,6 +857,15 @@ async function upsertCentralRelationFromTms(message) {
     return
   }
 
+  if (currentProfile?.role === 'dispatcher') {
+    const actor = String(currentProfile?.display_name || '').trim()
+    const owner = String(relation?.ownerDispatcher || relation?.createdBy || '').trim()
+    if (!actor || !owner || actor.toLocaleLowerCase('pl') !== owner.toLocaleLowerCase('pl')) {
+      sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Nie możesz zapisać zmian relacji należącej do innego spedytora.')
+      return
+    }
+  }
+
   try {
     const { error } = await supabase.rpc('upsert_tms_relation', {
       p_branch_id: branchId,
@@ -1198,7 +1207,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-clients-v10-resize-anchor"
+        src="/tms.html?embedded=1&build=central-clients-v11-card-drop-owner-lock"
         title="Top Dragon TMS"
       ></iframe>
     </main>
