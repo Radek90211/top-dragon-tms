@@ -1749,6 +1749,39 @@
       cursor: grabbing;
     }
 
+    /* MODUŁ: płynniejsze przeciąganie relacji. Podczas drag&drop wyłączamy
+       cięższe efekty kafelka i używamy lekkiego podglądu zamiast całego DOM. */
+    .time-route.route-dragging {
+      opacity: 0.48;
+      box-shadow: none !important;
+      transition: none !important;
+    }
+
+    .route-drag-ghost {
+      position: fixed;
+      left: -10000px;
+      top: -10000px;
+      max-width: 220px;
+      min-width: 110px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 12px;
+      border: 1px solid rgba(15, 23, 42, 0.26);
+      border-radius: 8px;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+      pointer-events: none;
+      z-index: 99999;
+    }
+
     .time-route-title {
       display: block;
       width: 100%;
@@ -76726,7 +76759,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
                 ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
-                ${canEditThisRoute ? `onpointerdown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" onmousedown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" ondragstart="startRouteDrag(event, '${attr(route.id)}')"` : ""}
+                ${canEditThisRoute ? `onpointerdown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" onmousedown="maybeStartRouteResizeFromRoute(event, '${attr(route.id)}')" ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
                 style="left:${left}%;width:${Math.min(displayWidth, 100 - left)}%;"
               >
@@ -79300,6 +79333,51 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncAddModal();
     }
 
+    let routeDragState = {
+      routeId: null,
+      grabOffsetHours: 0,
+      ghost: null
+    };
+
+    function clearRouteDragState() {
+      document.querySelectorAll(".time-route.route-dragging").forEach(element => element.classList.remove("route-dragging"));
+      if (routeDragState.ghost?.remove) routeDragState.ghost.remove();
+      routeDragState = { routeId: null, grabOffsetHours: 0, ghost: null };
+    }
+
+    function endRouteDrag(event) {
+      clearRouteDragState();
+    }
+
+    function createRouteDragGhost(route) {
+      const ghost = document.createElement("div");
+      ghost.className = "route-drag-ghost";
+      ghost.textContent = routeUnloadBoardLabel(route) || "Relacja";
+      document.body.appendChild(ghost);
+      return ghost;
+    }
+
+    function rawGlobalHourFromCell(event, cell) {
+      const rect = cell.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+      const idx = Math.max(0, getDateIndex(cell.dataset.date));
+      return idx * 24 + ratio * 24;
+    }
+
+    function rawGlobalHourFromTimeline(event, element) {
+      const rect = element.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+      return ratio * timelineMaxHour();
+    }
+
+    function routeDropStartFromPointer(pointerGlobalHour, route) {
+      const duration = routeGlobalDuration(route);
+      const grabOffset = routeDragState.routeId === route.id
+        ? Math.max(0, Math.min(duration, Number(routeDragState.grabOffsetHours || 0)))
+        : 0;
+      return clampTimelineHour(pointerGlobalHour - grabOffset, 0, Math.max(0, timelineMaxHour() - duration));
+    }
+
     function startRouteDrag(event, routeId) {
       if (routeResize.active || event?.target?.closest?.(".time-resize")) {
         event.preventDefault();
@@ -79314,14 +79392,37 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         else blockForeignRouteEditMessage();
         return;
       }
+
+      clearRouteDragState();
+      const element = event.currentTarget?.closest?.(".time-route") || event.currentTarget;
+      const rect = element?.getBoundingClientRect?.();
+      const duration = routeGlobalDuration(route);
+      const visualRatio = rect
+        ? Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)))
+        : 0;
+      const ghost = createRouteDragGhost(route);
+
+      routeDragState = {
+        routeId,
+        // Zachowujemy punkt złapania kafelka. Dzięki temu po upuszczeniu jego lewa
+        // krawędź nie przeskakuje pod kursor, co szczególnie przeszkadza przy kafelku +30%.
+        grabOffsetHours: visualRatio * duration,
+        ghost
+      };
+
+      element?.classList?.add("route-dragging");
       event.dataTransfer.setData("text/plain", routeId);
       event.dataTransfer.effectAllowed = "move";
+      if (event.dataTransfer.setDragImage && ghost) {
+        const ghostWidth = Math.max(1, ghost.getBoundingClientRect().width || 160);
+        event.dataTransfer.setDragImage(ghost, Math.min(ghostWidth - 8, Math.max(8, visualRatio * ghostWidth)), 15);
+      }
     }
 
     function allowRouteDrop(event) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
-      if (event.currentTarget && event.currentTarget.classList && event.currentTarget.classList.contains("day-cell")) {
+      if (event.currentTarget && event.currentTarget.classList && event.currentTarget.classList.contains("day-cell") && !event.currentTarget.classList.contains("drop-hover")) {
         event.currentTarget.classList.add("drop-hover");
       }
     }
@@ -79388,12 +79489,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
-      const startGlobal = snapGlobalHourFromCell(event, event.currentTarget);
-      const duration = routeGlobalEnd(route) - routeGlobalStart(route);
+      const duration = routeGlobalDuration(route);
+      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromCell(event, event.currentTarget), route);
 
       route.driverId = driverId;
       setRouteGlobalStart(route, startGlobal);
-      setRouteGlobalEnd(route, Math.min(timelineMaxHour(), startGlobal + duration));
+      setRouteGlobalEnd(route, startGlobal + duration);
 
       const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
       route.ownerDispatcher = owner;
@@ -79402,7 +79503,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         route.createdBy = state.user.login;
       }
 
-      scheduleUiSync({ board: true, unload: true, details: state.detailsOpen });
+      clearRouteDragState();
+      applyRouteMoveDomPreview(route);
+      scheduleUiSync({ unload: true, details: state.detailsOpen });
+      scheduleRouteMoveBoardReconcile();
     }
 
     function dropRouteOnTimeline(event, driverId) {
@@ -79426,12 +79530,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
-      const startGlobal = snapGlobalHourFromTimeline(event, event.currentTarget);
       const duration = routeGlobalDuration(route);
+      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromTimeline(event, event.currentTarget), route);
 
       route.driverId = driverId;
       setRouteGlobalStart(route, startGlobal);
-      setRouteGlobalEnd(route, Math.min(timelineMaxHour(), startGlobal + duration));
+      setRouteGlobalEnd(route, startGlobal + duration);
 
       const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
       route.ownerDispatcher = owner;
@@ -79440,7 +79544,35 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         route.createdBy = state.user.login;
       }
 
-      scheduleUiSync({ board: true, unload: true, details: state.detailsOpen });
+      clearRouteDragState();
+      applyRouteMoveDomPreview(route);
+      scheduleUiSync({ unload: true, details: state.detailsOpen });
+      scheduleRouteMoveBoardReconcile();
+    }
+
+    let routeMoveBoardReconcileTimer = null;
+
+    function applyRouteMoveDomPreview(route) {
+      if (!route) return false;
+      const element = routeButtonElement(route.id);
+      const targetRow = Array.from(document.querySelectorAll(".timeline-row[data-driver-id]")).find(row => row.dataset.driverId === String(route.driverId || ""));
+      if (!element || !targetRow) return false;
+      if (element.parentElement !== targetRow) targetRow.appendChild(element);
+      updateRouteResizePreview(route);
+      return true;
+    }
+
+    function scheduleRouteMoveBoardReconcile(delay = 180) {
+      clearTimeout(routeMoveBoardReconcileTimer);
+      routeMoveBoardReconcileTimer = setTimeout(() => {
+        routeMoveBoardReconcileTimer = null;
+        const run = () => syncBoardOnly();
+        if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(run, { timeout: 320 });
+        } else {
+          setTimeout(run, 0);
+        }
+      }, Math.max(40, Number(delay) || 180));
     }
 
     let routeResize = {
@@ -79469,9 +79601,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const end = Math.max(start + 0.25, Math.min(timelineMaxHour(), routeGlobalEnd(route)));
       const left = (start / timelineMaxHour()) * 100;
       const width = Math.max(1.5, ((end - start) / timelineMaxHour()) * 100);
+      // Ustalenie projektu: kafelek relacji jest wizualnie o 30% szerszy.
+      // Ten sam przelicznik musi działać także podczas przeciągania i resize.
+      const displayWidth = Math.max(1.95, width * 1.3);
 
       element.style.left = `${left}%`;
-      element.style.width = `${Math.min(width, 100 - left)}%`;
+      element.style.width = `${Math.min(displayWidth, 100 - left)}%`;
       // Brak podglądu przerw na tablicy.
     }
 
@@ -82083,7 +82218,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     window.takeFutureGroup = takeFutureGroup;
     window.toggleIdentityColumns = toggleIdentityColumns;
     window.__TMS_TEST_API__ = {
-      state, normalizeLocation, cityFromText, getCoords, projectPoint, totalKm, profit, perKm, routeSms, setMapZoom, handleMapWheel, toggleUnloadPanel, toggleDarkMode, toggleOnlyMine, canMoveRouteToDriver, hasRouteCollisions, snapToQuarterHour, showAppMessage, closeAppMessage, captureScrollState, renderKeepingScroll, renderToStringForTest, routesForCell, weeklySummary, toggleCellExpanded, startRouteDrag, dropRoute, startRouteResize, moveRouteResize, routeResizeSideFromPoint, maybeStartRouteResizeFromRoute, attachRouteResizeDelegation, cellHasOverlap, routeStartHour, routeEndHour, routeGlobalStart, routeGlobalEnd, setRouteGlobalEnd, routeOverlapsDate, segmentForDate, locationWithPostal, routeStatusClasses, openRouteContextMenu, setRouteStatus, deleteRoute, exportAccountingReport, exportDriverPlan, renderStatsUi, toggleStatsPanel, renderRouteContextMenu, goToDriverPlan, flashDriverRow, nextRouteInfoForDriver, nextRouteInfoForMapPoint, nextRelationTextForRoute, nextRouteAfterRoute, nextRouteGapHours, routeReadyAfterPausePlusBuffer, routeNextLoadWindow, routeStatusGlobalMoment, routeStatusDate, nextEligibleRouteAfterPausePlusBuffer, hasNextLoadWithin12h, hasNextLoadWithinWorkWindow, nextRouteStatusForRoute, nextRouteForDriver, findNearestVehicles, coordsFromSearchText, formatDateForInput, parseDateInput, renderDateStepper, setReportDateFromInput, shiftReportDate, shiftNearestDate, shiftNewRouteDate, shiftRouteDate, nearestSuggestionOptions, handleNearestInput, updateNearestSuggestionsBox, selectNearestSuggestion, findNearestVehiclesFromInput, toggleNearestResults, nearbyClientsForCoords, renderClientDatabase, saveClientFromForm, haversineKm, driverPositionForDate, runInternalTests
+      state, normalizeLocation, cityFromText, getCoords, projectPoint, totalKm, profit, perKm, routeSms, setMapZoom, handleMapWheel, toggleUnloadPanel, toggleDarkMode, toggleOnlyMine, canMoveRouteToDriver, hasRouteCollisions, snapToQuarterHour, showAppMessage, closeAppMessage, captureScrollState, renderKeepingScroll, renderToStringForTest, routesForCell, weeklySummary, toggleCellExpanded, startRouteDrag, endRouteDrag, dropRoute, startRouteResize, moveRouteResize, routeResizeSideFromPoint, maybeStartRouteResizeFromRoute, attachRouteResizeDelegation, cellHasOverlap, routeStartHour, routeEndHour, routeGlobalStart, routeGlobalEnd, setRouteGlobalEnd, routeOverlapsDate, segmentForDate, locationWithPostal, routeStatusClasses, openRouteContextMenu, setRouteStatus, deleteRoute, exportAccountingReport, exportDriverPlan, renderStatsUi, toggleStatsPanel, renderRouteContextMenu, goToDriverPlan, flashDriverRow, nextRouteInfoForDriver, nextRouteInfoForMapPoint, nextRelationTextForRoute, nextRouteAfterRoute, nextRouteGapHours, routeReadyAfterPausePlusBuffer, routeNextLoadWindow, routeStatusGlobalMoment, routeStatusDate, nextEligibleRouteAfterPausePlusBuffer, hasNextLoadWithin12h, hasNextLoadWithinWorkWindow, nextRouteStatusForRoute, nextRouteForDriver, findNearestVehicles, coordsFromSearchText, formatDateForInput, parseDateInput, renderDateStepper, setReportDateFromInput, shiftReportDate, shiftNearestDate, shiftNewRouteDate, shiftRouteDate, nearestSuggestionOptions, handleNearestInput, updateNearestSuggestionsBox, selectNearestSuggestion, findNearestVehiclesFromInput, toggleNearestResults, nearbyClientsForCoords, renderClientDatabase, saveClientFromForm, haversineKm, driverPositionForDate, runInternalTests
     };
 
     window.addEventListener("storage", event => {
@@ -82388,6 +82523,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return payload ? JSON.stringify(payload) : "";
     }
 
+    function centralRelationsSetFingerprint(routes = []) {
+      return (Array.isArray(routes) ? routes : [])
+        .filter(route => route && !route.futureQueue && !route.proposedLoad)
+        .map(route => {
+          const branchId = centralRouteBranchId(route);
+          return `${centralRelationKey(branchId, route.id)}::${centralRouteFingerprint(route)}`;
+        })
+        .sort()
+        .join("||");
+    }
+
     function requestCentralRelations() {
       if (!EMBEDDED_MODE || !state.user) return;
       window.parent?.postMessage({
@@ -82398,6 +82544,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function applyCentralRelationsData(message) {
       const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const beforeFingerprint = centralRelationsSetFingerprint(state.routes || []);
       const currentByKey = new Map();
       (state.routes || []).forEach(route => {
         const branchId = centralRouteBranchId(route);
@@ -82450,11 +82597,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
 
+      const afterFingerprint = centralRelationsSetFingerprint(merged);
       state.routes = merged;
       CENTRAL_RELATIONS_READY = true;
-      boardRenderCache = null;
-      invalidateCombinedClientHistoryCache();
-      renderKeepingScroll();
+
+      // Supabase Realtime odsyła również zmianę wykonaną przez tę samą kartę.
+      // Jeśli stan po stronie serwera jest identyczny z lokalnym, nie przebudowujemy
+      // całej tablicy. To usuwa krótkie przycięcie po każdym przesunięciu kafelka.
+      if (beforeFingerprint !== afterFingerprint) {
+        boardRenderCache = null;
+        invalidateCombinedClientHistoryCache();
+        renderKeepingScroll();
+      }
       scheduleCentralRelationsDiff(120);
     }
 
