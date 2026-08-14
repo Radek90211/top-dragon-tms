@@ -1207,7 +1207,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-clients-v11-card-drop-owner-lock"
+        src="/tms.html?embedded=1&build=central-clients-v12-drop-5min-delete-bottom"
         title="Top Dragon TMS"
       ></iframe>
     </main>
