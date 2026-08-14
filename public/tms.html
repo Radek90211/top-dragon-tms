@@ -1782,6 +1782,34 @@
       z-index: 99999;
     }
 
+    /* 3H.4: precyzyjne upuszczanie relacji. Linia pokazuje dokładnie
+       przyszłą lewą krawędź kafelka, już po uwzględnieniu punktu złapania. */
+    .route-drop-guide {
+      position: fixed;
+      width: 2px;
+      min-height: 34px;
+      background: #2563eb;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.9), 0 0 8px rgba(37,99,235,.42);
+      pointer-events: none;
+      z-index: 100000;
+      transform: translateX(-1px);
+    }
+    .route-drop-guide-label {
+      position: absolute;
+      left: 5px;
+      top: 2px;
+      padding: 2px 5px;
+      border-radius: 6px;
+      background: #1d4ed8;
+      color: #fff;
+      font-size: 9px;
+      line-height: 1.2;
+      font-weight: 900;
+      white-space: nowrap;
+      box-shadow: 0 2px 7px rgba(15,23,42,.18);
+    }
+    .app.dark-mode .route-drop-guide-label { background:#60a5fa;color:#0f172a; }
+
     .time-route-title {
       display: block;
       width: 100%;
@@ -5750,13 +5778,18 @@
     .app.dark-mode .profitability-calculator,.app.dark-mode .rate-only-card,.app.dark-mode .future-group-collapse { background:#111827;border-color:#334155; }
     .app.dark-mode .profitability-metric { background:#0f172a;border-color:#334155; }
     .app.dark-mode .profitability-metric b { color:#f8fafc; }
+    .details-delete-row {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 2px 0 6px;
+      margin-top: 2px;
+    }
     .details-delete-icon {
-      position: absolute;
-      right: 14px;
-      bottom: 14px;
-      z-index: 8;
+      position: static;
       width: 36px;
       height: 36px;
+      flex: 0 0 36px;
       display: grid;
       place-items: center;
       border: 1px solid #dc2626;
@@ -78331,8 +78364,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <a class="btn" data-sms-open-route="${attr(route.id)}" href="${attr(smsHref)}">Otwórz SMS</a>
               </div>
             </section>
+
+            ${canDelete ? `<div class="details-delete-row"><button type="button" class="details-delete-icon" onclick="deleteRoute('${attr(route.id)}')" title="Usuń relację" aria-label="Usuń relację"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg></button></div>` : ""}
           </div>
-          ${canDelete ? `<button type="button" class="details-delete-icon" onclick="deleteRoute('${attr(route.id)}')" title="Usuń relację" aria-label="Usuń relację"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg></button>` : ""}
         </aside>
       `;
     }
@@ -79356,18 +79390,51 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncAddModal();
     }
 
+    const ROUTE_DROP_SNAP_MINUTES = 5;
+    const ROUTE_DROP_STEPS_PER_HOUR = 60 / ROUTE_DROP_SNAP_MINUTES;
+
+    function snapToRouteDropGrid(value) {
+      return Math.round(Number(value || 0) * ROUTE_DROP_STEPS_PER_HOUR) / ROUTE_DROP_STEPS_PER_HOUR;
+    }
+
+    function clampRouteDropHour(value, min = 0, max = timelineMaxHour()) {
+      return Math.max(min, Math.min(max, snapToRouteDropGrid(value)));
+    }
+
+    function setRouteGlobalStartFromDrop(route, globalHour) {
+      const hour = clampRouteDropHour(globalHour, 0, timelineMaxHour() - (ROUTE_DROP_SNAP_MINUTES / 60));
+      const dayIndex = Math.floor(hour / 24);
+      route.date = dateFromIndex(dayIndex);
+      route.startHour = Number((hour - dayIndex * 24).toFixed(4));
+    }
+
+    function setRouteGlobalEndFromDrop(route, globalHour) {
+      const minDuration = ROUTE_DROP_SNAP_MINUTES / 60;
+      const hour = clampRouteDropHour(globalHour, routeGlobalStart(route) + minDuration, timelineMaxHour());
+      const safeHour = hour === timelineMaxHour() ? hour - minDuration : hour;
+      const dayIndex = Math.floor(safeHour / 24);
+      route.endDate = dateFromIndex(dayIndex);
+      route.endHour = Number((hour - dayIndex * 24).toFixed(4));
+      if (Math.abs(route.endHour) < 0.0001 && hour > routeGlobalStart(route)) {
+        route.endDate = dateFromIndex(Math.max(0, dayIndex - 1));
+        route.endHour = 24;
+      }
+    }
+
     let routeDragState = {
       routeId: null,
       // Offset liczony z faktycznie widocznej szerokości kafelka, a nie z czasu relacji.
       // To jest kluczowe przy świeżym kafelku szerszym o 30%.
       grabOffsetHours: 0,
-      ghost: null
+      ghost: null,
+      guide: null
     };
 
     function clearRouteDragState() {
       document.querySelectorAll(".time-route.route-dragging").forEach(element => element.classList.remove("route-dragging"));
       if (routeDragState.ghost?.remove) routeDragState.ghost.remove();
-      routeDragState = { routeId: null, grabOffsetHours: 0, ghost: null };
+      if (routeDragState.guide?.remove) routeDragState.guide.remove();
+      routeDragState = { routeId: null, grabOffsetHours: 0, ghost: null, guide: null };
     }
 
     function endRouteDrag(event) {
@@ -79400,9 +79467,47 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const grabOffset = routeDragState.routeId === route.id
         ? Math.max(0, Number(routeDragState.grabOffsetHours || 0))
         : 0;
-      // Zachowujemy dokładnie punkt, za który złapano wizualny kafelek.
-      // Nadal snapujemy do 15 min, ale bez dodatkowego skoku wynikającego z +30% szerokości.
-      return clampTimelineHour(pointerGlobalHour - grabOffset, 0, Math.max(0, timelineMaxHour() - duration));
+      // 3H.4: trzy razy gęstsza siatka upuszczania (5 min zamiast 15 min).
+      // Zachowujemy punkt złapania i dopiero wynikową lewą krawędź przyciągamy do siatki.
+      return clampRouteDropHour(pointerGlobalHour - grabOffset, 0, Math.max(0, timelineMaxHour() - duration));
+    }
+
+    function routeDropGuideLabel(globalHour) {
+      const safe = Math.max(0, Math.min(timelineMaxHour(), Number(globalHour || 0)));
+      const dayIndex = Math.max(0, Math.min(dateList().length - 1, Math.floor(safe / 24)));
+      const local = Math.max(0, safe - dayIndex * 24);
+      let totalMinutes = Math.round(local * 60);
+      if (totalMinutes >= 24 * 60) totalMinutes = 24 * 60 - ROUTE_DROP_SNAP_MINUTES;
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    }
+
+    function updateRouteDropGuide(event, target) {
+      const route = state.routes.find(item => item.id === routeDragState.routeId);
+      if (!route || !target) return;
+      const driverId = target.dataset?.driverId || target.closest?.("[data-driver-id]")?.dataset?.driverId || route.driverId;
+      const row = Array.from(document.querySelectorAll('.timeline-row[data-driver-id]')).find(item => item.dataset.driverId === String(driverId || ""));
+      if (!row) return;
+      const pointerGlobal = target.classList?.contains("day-cell")
+        ? rawGlobalHourFromCell(event, target)
+        : rawGlobalHourFromTimeline(event, target);
+      const startGlobal = routeDropStartFromPointer(pointerGlobal, route);
+      const rect = row.getBoundingClientRect();
+      const leftPx = rect.left + (startGlobal / Math.max(0.25, timelineMaxHour())) * rect.width;
+      let guide = routeDragState.guide;
+      if (!guide || !guide.isConnected) {
+        guide = document.createElement("div");
+        guide.className = "route-drop-guide";
+        guide.innerHTML = '<span class="route-drop-guide-label"></span>';
+        document.body.appendChild(guide);
+        routeDragState.guide = guide;
+      }
+      guide.style.left = `${leftPx}px`;
+      guide.style.top = `${Math.max(0, rect.top + 14)}px`;
+      guide.style.height = `${Math.max(34, rect.height - 18)}px`;
+      const label = guide.querySelector(".route-drop-guide-label");
+      if (label) label.textContent = routeDropGuideLabel(startGlobal);
     }
 
     function startRouteDrag(event, routeId) {
@@ -79439,7 +79544,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         // Liczymy offset z pikseli całej osi czasu. Dzięki temu kursor pozostaje
         // dokładnie w tym samym miejscu kafelka również przy wizualnym +30%.
         grabOffsetHours: visualGrabOffsetHours,
-        ghost
+        ghost,
+        guide: null
       };
 
       element?.classList?.add("route-dragging");
@@ -79454,6 +79560,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function allowRouteDrop(event) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
+      if (routeDragState.routeId) updateRouteDropGuide(event, event.currentTarget);
       if (event.currentTarget && event.currentTarget.classList && event.currentTarget.classList.contains("day-cell") && !event.currentTarget.classList.contains("drop-hover")) {
         event.currentTarget.classList.add("drop-hover");
       }
@@ -79525,8 +79632,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const startGlobal = routeDropStartFromPointer(rawGlobalHourFromCell(event, event.currentTarget), route);
 
       route.driverId = driverId;
-      setRouteGlobalStart(route, startGlobal);
-      setRouteGlobalEnd(route, startGlobal + duration);
+      setRouteGlobalStartFromDrop(route, startGlobal);
+      setRouteGlobalEndFromDrop(route, startGlobal + duration);
 
       const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
       route.ownerDispatcher = owner;
@@ -79566,8 +79673,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const startGlobal = routeDropStartFromPointer(rawGlobalHourFromTimeline(event, event.currentTarget), route);
 
       route.driverId = driverId;
-      setRouteGlobalStart(route, startGlobal);
-      setRouteGlobalEnd(route, startGlobal + duration);
+      setRouteGlobalStartFromDrop(route, startGlobal);
+      setRouteGlobalEndFromDrop(route, startGlobal + duration);
 
       const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
       route.ownerDispatcher = owner;
