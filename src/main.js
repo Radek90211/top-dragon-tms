@@ -994,7 +994,22 @@ async function bootstrap() {
     }
   })
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
+    // bootstrap() sam pobiera bieżącą sesję przez getSession(), więc nie
+    // renderujemy panel drugi raz dla INITIAL_SESSION. TOKEN_REFRESHED oraz
+    // powtarzające się SIGNED_IN dla tego samego użytkownika nie mogą
+    // odtwarzać iframe TMS, ponieważ wyczyściłoby to bieżący stan planu.
+    if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return
+
+    const sameUserDashboardIsActive = Boolean(
+      event === 'SIGNED_IN' &&
+      session?.user?.id &&
+      currentUser?.id === session.user.id &&
+      activeTmsFrame?.isConnected
+    )
+
+    if (sameUserDashboardIsActive) return
+
     Promise.resolve(routeSession(session)).catch(renderFatalError)
   })
 
