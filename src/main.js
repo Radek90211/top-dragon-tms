@@ -744,6 +744,62 @@ function sendFleetOperationResult(requestId, ok, action, message) {
   }, window.location.origin)
 }
 
+
+function sendRelationUsageResult(requestId, ok, message, assignmentId = '', relationRef = '') {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-relation-usage-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    message: String(message || ''),
+    assignmentId: String(assignmentId || ''),
+    relationRef: String(relationRef || ''),
+  }, window.location.origin)
+}
+
+async function registerRelationUsageFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const relationRef = String(message?.relationRef || '').trim()
+  const assignmentId = String(message?.assignmentId || '').trim()
+
+  if (!relationRef || !assignmentId) {
+    sendRelationUsageResult(
+      requestId,
+      false,
+      'Brak identyfikatora relacji lub zestawu.',
+      assignmentId,
+      relationRef
+    )
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('register_fleet_relation_usage', {
+      p_relation_ref: relationRef,
+      p_assignment_id: assignmentId,
+    })
+
+    if (error) throw error
+
+    sendRelationUsageResult(
+      requestId,
+      true,
+      'Historia wykorzystania zestawu została zapisana.',
+      assignmentId,
+      relationRef
+    )
+
+    await syncFleetDataToTms()
+  } catch (error) {
+    sendRelationUsageResult(
+      requestId,
+      false,
+      error?.message || 'Nie udało się zapisać historii wykorzystania floty.',
+      assignmentId,
+      relationRef
+    )
+  }
+}
+
 async function createFleetSetFromTms(message) {
   const payload = message?.payload || {}
   const requestId = message?.requestId || ''
@@ -828,7 +884,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=fleet-supabase-v5-mapfix"
+        src="/tms.html?embedded=1&build=relation-history-v6"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -925,6 +981,11 @@ async function bootstrap() {
       } catch (error) {
         sendFleetOperationResult(event.data?.requestId, false, 'refresh', error?.message || 'Nie udało się odświeżyć floty.')
       }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-usage-register') {
+      await registerRelationUsageFromTms(event.data)
       return
     }
 
