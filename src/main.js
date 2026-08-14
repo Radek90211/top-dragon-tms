@@ -5,6 +5,7 @@ const app = document.querySelector('#app')
 let activeTmsFrame = null
 let activeAuthMessage = null
 let activeUserDirectoryMessage = null
+let activeFleetMessage = null
 let currentUser = null
 let currentProfile = null
 
@@ -57,6 +58,7 @@ function renderLogin(message = '') {
   activeTmsFrame = null
   activeAuthMessage = null
   activeUserDirectoryMessage = null
+  activeFleetMessage = null
 
   app.innerHTML = `
     <main class="login-shell">
@@ -633,6 +635,167 @@ async function syncUserDirectoryToTms() {
   )
 }
 
+
+function firstRelated(value) {
+  if (Array.isArray(value)) return value[0] || null
+  return value || null
+}
+
+async function loadFleetData() {
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from('fleet_assignments')
+    .select(`
+      id,
+      branch_id,
+      assigned_dispatcher_id,
+      created_by,
+      created_at,
+      active,
+      carrier:carriers!fleet_assignments_carrier_id_fkey(id,name),
+      driver:drivers!fleet_assignments_driver_id_fkey(id,full_name,phone,identity_document_number,nationality,base_location,created_by),
+      vehicle:vehicles!fleet_assignments_vehicle_id_fkey(id,registration_no,brand,description,created_by),
+      trailer:trailers!fleet_assignments_trailer_id_fkey(id,registration_no,height_m,description,created_by)
+    `)
+    .eq('active', true)
+    .order('created_at', { ascending: true })
+
+  if (assignmentsError) {
+    throw new Error(`Nie udało się pobrać floty: ${assignmentsError.message}`)
+  }
+
+  const { data: usage, error: usageError } = await supabase
+    .from('fleet_relation_usage')
+    .select('fleet_assignment_id, driver_id, vehicle_id, trailer_id')
+
+  if (usageError) {
+    throw new Error(`Nie udało się sprawdzić historii relacji: ${usageError.message}`)
+  }
+
+  const usageRows = usage || []
+
+  return (assignments || []).map((assignment) => {
+    const carrier = firstRelated(assignment.carrier)
+    const driver = firstRelated(assignment.driver)
+    const vehicle = firstRelated(assignment.vehicle)
+    const trailer = firstRelated(assignment.trailer)
+
+    const relationLocked = usageRows.some((item) =>
+      item.fleet_assignment_id === assignment.id ||
+      item.driver_id === driver?.id ||
+      (vehicle?.id && item.vehicle_id === vehicle.id) ||
+      (trailer?.id && item.trailer_id === trailer.id)
+    )
+
+    return {
+      id: assignment.id,
+      branchId: assignment.branch_id || '',
+      assignedDispatcherId: assignment.assigned_dispatcher_id || '',
+      createdBy: assignment.created_by || '',
+      createdAt: assignment.created_at || '',
+      relationLocked,
+      carrier: carrier ? { id: carrier.id, name: carrier.name || '' } : null,
+      driver: driver ? {
+        id: driver.id,
+        fullName: driver.full_name || '',
+        phone: driver.phone || '',
+        identityDocumentNumber: driver.identity_document_number || '',
+        nationality: driver.nationality || '',
+        baseLocation: driver.base_location || '',
+        createdBy: driver.created_by || '',
+      } : null,
+      vehicle: vehicle ? {
+        id: vehicle.id,
+        registrationNo: vehicle.registration_no || '',
+        brand: vehicle.brand || '',
+        description: vehicle.description || '',
+        createdBy: vehicle.created_by || '',
+      } : null,
+      trailer: trailer ? {
+        id: trailer.id,
+        registrationNo: trailer.registration_no || '',
+        heightM: trailer.height_m == null ? null : Number(trailer.height_m),
+        description: trailer.description || '',
+        createdBy: trailer.created_by || '',
+      } : null,
+    }
+  })
+}
+
+async function syncFleetDataToTms() {
+  const rows = await loadFleetData()
+  activeFleetMessage = {
+    type: 'top-dragon-fleet-data',
+    rows,
+  }
+
+  activeTmsFrame?.contentWindow?.postMessage(
+    activeFleetMessage,
+    window.location.origin
+  )
+}
+
+function sendFleetOperationResult(requestId, ok, action, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-fleet-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function createFleetSetFromTms(message) {
+  const payload = message?.payload || {}
+  const requestId = message?.requestId || ''
+
+  try {
+    const { error } = await supabase.rpc('create_fleet_set', {
+      p_carrier_name: String(payload.carrierName || '').trim(),
+      p_driver_name: String(payload.driverName || '').trim(),
+      p_assigned_dispatcher_id: payload.assignedDispatcherId || null,
+      p_branch_id: payload.branchId || null,
+      p_phone: String(payload.phone || '').trim() || null,
+      p_identity_document_number: String(payload.identityDocumentNumber || '').trim() || null,
+      p_vehicle_registration_no: String(payload.vehicleRegistrationNo || '').trim() || null,
+      p_vehicle_brand: String(payload.vehicleBrand || '').trim() || null,
+      p_trailer_registration_no: String(payload.trailerRegistrationNo || '').trim() || null,
+      p_trailer_height_m: payload.trailerHeightM == null ? null : Number(payload.trailerHeightM),
+      p_nationality: String(payload.nationality || '').trim() || null,
+      p_base_location: String(payload.baseLocation || '').trim() || null,
+    })
+
+    if (error) throw error
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'create', 'Zestaw został zapisany w Supabase i jest wspólny dla użytkowników oddziału.')
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'create', error?.message || 'Nie udało się zapisać zestawu.')
+  }
+}
+
+async function deleteFleetSetFromTms(message) {
+  const requestId = message?.requestId || ''
+  const assignmentId = String(message?.assignmentId || '').trim()
+
+  if (!assignmentId) {
+    sendFleetOperationResult(requestId, false, 'delete', 'Brak identyfikatora zestawu.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('delete_fleet_set', {
+      p_assignment_id: assignmentId,
+    })
+
+    if (error) throw error
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'delete', 'Zestaw został usunięty z centralnej floty.')
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'delete', error?.message || 'Nie udało się usunąć zestawu.')
+  }
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -665,7 +828,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=real-users-v3"
+        src="/tms.html?embedded=1&build=fleet-supabase-v4"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -696,6 +859,10 @@ async function renderDashboard(user) {
   syncUserDirectoryToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
   })
+
+  syncFleetDataToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować floty z TMS:', error)
+  })
 }
 
 async function routeSession(session) {
@@ -723,6 +890,9 @@ async function bootstrap() {
       if (activeUserDirectoryMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeUserDirectoryMessage, window.location.origin)
       }
+      if (activeFleetMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeFleetMessage, window.location.origin)
+      }
       return
     }
 
@@ -735,6 +905,25 @@ async function bootstrap() {
     if (event.data?.type === 'top-dragon-open-admin') {
       if (currentProfile?.role === 'admin') {
         await renderAdminPanel()
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-create') {
+      await createFleetSetFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-delete') {
+      await deleteFleetSetFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-refresh') {
+      try {
+        await syncFleetDataToTms()
+      } catch (error) {
+        sendFleetOperationResult(event.data?.requestId, false, 'refresh', error?.message || 'Nie udało się odświeżyć floty.')
       }
       return
     }
