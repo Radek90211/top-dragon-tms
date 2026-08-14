@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase.js'
 const app = document.querySelector('#app')
 let activeTmsFrame = null
 let activeAuthMessage = null
+let activeUserDirectoryMessage = null
 let currentUser = null
 let currentProfile = null
 
@@ -55,6 +56,7 @@ function renderLogin(message = '') {
   currentProfile = null
   activeTmsFrame = null
   activeAuthMessage = null
+  activeUserDirectoryMessage = null
 
   app.innerHTML = `
     <main class="login-shell">
@@ -584,6 +586,53 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   }
 }
 
+
+function normalizedTmsLogin(profile) {
+  if (profile?.role === 'admin') return 'ADMIN'
+  const source = String(profile?.display_name || 'UŻYTKOWNIK')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-ZĄĆĘŁŃÓŚŹŻ0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  return source || 'UŻYTKOWNIK'
+}
+
+async function loadVisibleUserDirectory() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, display_name, role, branch_id, active, branch:branches(name)')
+    .eq('active', true)
+    .order('display_name', { ascending: true })
+
+  if (error) {
+    throw new Error(`Nie udało się pobrać listy użytkowników: ${error.message}`)
+  }
+
+  return (data || []).map((profile) => ({
+    id: profile.id,
+    displayName: profile.display_name,
+    role: profile.role,
+    branchId: profile.branch_id || '',
+    branch: profile.branch?.name || '',
+    login: normalizedTmsLogin(profile),
+  }))
+}
+
+async function syncUserDirectoryToTms() {
+  const profiles = await loadVisibleUserDirectory()
+
+  activeUserDirectoryMessage = {
+    type: 'top-dragon-user-directory',
+    profiles,
+  }
+
+  activeTmsFrame?.contentWindow?.postMessage(
+    activeUserDirectoryMessage,
+    window.location.origin
+  )
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -616,7 +665,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=admin-header-button-v2"
+        src="/tms.html?embedded=1&build=real-users-v3"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -631,6 +680,7 @@ async function renderDashboard(user) {
       email: user.email || '',
       displayName: userName,
       role: profile.role,
+      supabaseRole: profile.role,
       branchId: profile.branch_id || '',
       branch: branchName === 'Brak oddziału' ? '' : branchName,
     },
@@ -642,6 +692,10 @@ async function renderDashboard(user) {
 
   frame?.addEventListener('load', sendIdentityToTms)
   sendIdentityToTms()
+
+  syncUserDirectoryToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
+  })
 }
 
 async function routeSession(session) {
@@ -666,6 +720,9 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-ready') {
       activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+      if (activeUserDirectoryMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeUserDirectoryMessage, window.location.origin)
+      }
       return
     }
 
