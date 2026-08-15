@@ -1782,7 +1782,7 @@
       z-index: 99999;
     }
 
-    /* 3K: precyzyjne upuszczanie relacji. Linia pokazuje dokładnie
+    /* 3K.2: precyzyjne upuszczanie relacji. Sama linia pokazuje
        środek kafelka w pozycji, w której zostanie upuszczony. */
     .route-drop-guide {
       position: fixed;
@@ -1794,22 +1794,6 @@
       z-index: 100000;
       transform: translateX(-1px);
     }
-    .route-drop-guide-label {
-      position: absolute;
-      left: 50%;
-      top: 2px;
-      transform: translateX(-50%);
-      padding: 2px 5px;
-      border-radius: 6px;
-      background: #1d4ed8;
-      color: #fff;
-      font-size: 9px;
-      line-height: 1.2;
-      font-weight: 900;
-      white-space: nowrap;
-      box-shadow: 0 2px 7px rgba(15,23,42,.18);
-    }
-    .app.dark-mode .route-drop-guide-label { background:#60a5fa;color:#0f172a; }
 
     .time-route-title {
       display: block;
@@ -79580,6 +79564,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return ratio * timelineMaxHour();
     }
 
+    function routeTimelineRowForDriver(driverId) {
+      const safeDriverId = String(driverId || "");
+      return Array.from(document.querySelectorAll('.timeline-row[data-driver-id]'))
+        .find(row => row.dataset.driverId === safeDriverId) || null;
+    }
+
+    function rawGlobalHourFromDriverTimeline(event, driverId, fallbackElement = null) {
+      // 3K.2: podczas całego przeciągania korzystamy z jednego układu współrzędnych
+      // obejmującego wszystkie dni. Przeliczanie osobno względem każdej day-cell
+      // powodowało drobny skok wskaźnika przy przekraczaniu granicy dnia.
+      const row = routeTimelineRowForDriver(driverId);
+      if (row) return rawGlobalHourFromTimeline(event, row);
+      if (fallbackElement?.classList?.contains("day-cell")) return rawGlobalHourFromCell(event, fallbackElement);
+      if (fallbackElement) return rawGlobalHourFromTimeline(event, fallbackElement);
+      return 0;
+    }
+
     function routeDropStartFromPointer(pointerGlobalHour, route) {
       const duration = routeGlobalDuration(route);
       const grabOffset = routeDragState.routeId === route.id
@@ -79590,26 +79591,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return clampRouteDropHour(pointerGlobalHour - grabOffset, 0, Math.max(0, timelineMaxHour() - duration));
     }
 
-    function routeDropGuideLabel(globalHour) {
-      const safe = Math.max(0, Math.min(timelineMaxHour(), Number(globalHour || 0)));
-      const dayIndex = Math.max(0, Math.min(dateList().length - 1, Math.floor(safe / 24)));
-      const local = Math.max(0, safe - dayIndex * 24);
-      let totalMinutes = Math.round(local * 60);
-      if (totalMinutes >= 24 * 60) totalMinutes = 24 * 60 - ROUTE_DROP_SNAP_MINUTES;
-      const hours = Math.floor(totalMinutes / 60);
-      const minutes = totalMinutes % 60;
-      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-    }
-
     function updateRouteDropGuide(event, target) {
       const route = state.routes.find(item => item.id === routeDragState.routeId);
       if (!route || !target) return;
       const driverId = target.dataset?.driverId || target.closest?.("[data-driver-id]")?.dataset?.driverId || route.driverId;
-      const row = Array.from(document.querySelectorAll('.timeline-row[data-driver-id]')).find(item => item.dataset.driverId === String(driverId || ""));
+      const row = routeTimelineRowForDriver(driverId);
       if (!row) return;
-      const pointerGlobal = target.classList?.contains("day-cell")
-        ? rawGlobalHourFromCell(event, target)
-        : rawGlobalHourFromTimeline(event, target);
+
+      // Jedna ciągła geometria osi dla wszystkich 14 dni. Dzięki temu środek
+      // nie zmienia położenia względem kafelka podczas przechodzenia między dniami.
+      const pointerGlobal = rawGlobalHourFromDriverTimeline(event, driverId, target);
       const startGlobal = routeDropStartFromPointer(pointerGlobal, route);
       const maxHour = Math.max(0.25, timelineMaxHour());
       const duration = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, routeGlobalDuration(route));
@@ -79624,15 +79615,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!guide || !guide.isConnected) {
         guide = document.createElement("div");
         guide.className = "route-drop-guide";
-        guide.innerHTML = '<span class="route-drop-guide-label"></span>';
         document.body.appendChild(guide);
         routeDragState.guide = guide;
       }
       guide.style.left = `${leftPx}px`;
       guide.style.top = `${Math.max(0, rect.top + 14)}px`;
       guide.style.height = `${Math.max(34, rect.height - 18)}px`;
-      const label = guide.querySelector(".route-drop-guide-label");
-      if (label) label.textContent = `Środek ${routeDropGuideLabel(centerGlobal)}`;
     }
 
     function startRouteDrag(event, routeId) {
@@ -79754,7 +79742,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
       const duration = routeGlobalDuration(route);
-      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromCell(event, event.currentTarget), route);
+      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromDriverTimeline(event, driverId, event.currentTarget), route);
 
       route.driverId = driverId;
       setRouteGlobalStartFromDrop(route, startGlobal);
@@ -79795,7 +79783,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
       const duration = routeGlobalDuration(route);
-      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromTimeline(event, event.currentTarget), route);
+      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromDriverTimeline(event, driverId, event.currentTarget), route);
 
       route.driverId = driverId;
       setRouteGlobalStartFromDrop(route, startGlobal);
