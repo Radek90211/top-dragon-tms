@@ -2467,6 +2467,18 @@
       font-size: 11px;
       line-height: 1.32;
     }
+    .route-context-client-item.distance-near {
+      background: #dcfce7;
+      border-color: #86efac;
+    }
+    .route-context-client-item.distance-mid {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    .route-context-client-item.distance-far {
+      background: #fef9c3;
+      border-color: #fde047;
+    }
 
     .route-context-client-head {
       display: flex;
@@ -2527,6 +2539,9 @@
       border-color: #334155;
       background: #1f2937;
     }
+    .app.dark-mode .route-context-client-item.distance-near { background:#123524; border-color:#22c55e; }
+    .app.dark-mode .route-context-client-item.distance-mid { background:#173326; border-color:#4ade80; }
+    .app.dark-mode .route-context-client-item.distance-far { background:#3b3512; border-color:#eab308; }
 
     .details-backdrop {
       position: fixed;
@@ -73040,13 +73055,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
-      const client = (state.clients || []).find(item => String(item.id) === String(clientId));
+      const sourceClient = (state.clients || []).find(item => String(item.id) === String(clientId));
+      const resolvedClient = quickRequestClientOwner(sourceClient);
+      const client = (state.clients || []).find(item => String(item.id) === String(resolvedClient.requestClientId)) || resolvedClient.client || sourceClient;
       const requesterDispatcher = String(state.user?.login || "").toUpperCase();
-      const ownerDispatcher = String(client?.dispatcher || "").toUpperCase();
+      const ownerDispatcher = String(resolvedClient.ownerDispatcher || client?.dispatcher || "").toUpperCase();
       const requestedDate = currentAppDate();
       const normalizedLocation = String(location || client?.address || "").trim();
-      if (state.user?.role !== "spedytor") {
-        showAppMessage("Zapytanie spedytora", "Szybkie zapytanie o ładunek może wysłać spedytor.", "info");
+      if (!canSendQuickClientLoadRequest()) {
+        showAppMessage("Brak uprawnień", "Szybkie zapytanie o ładunek może wysłać spedytor, kierownik oddziału lub administrator.", "info");
         return false;
       }
       if (!client || !ownerDispatcher) {
@@ -78219,6 +78236,77 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .slice(0, Math.max(1, Number(limit || 5)));
     }
 
+    function quickRequestClientOwner(client) {
+      if (!client) return { client:null, ownerDispatcher:"", requestClientId:"" };
+      const sourceId = String(client.id || "");
+      const sourceNip = normalizeClientNip(client.nip || "");
+      const sourceName = removePolishChars(String(client.name || "").trim());
+      const sourceAddress = removePolishChars(String(client.address || "").trim());
+      const lookup = clientLookupIndex();
+      const assignedById = sourceId ? lookup.assignedById.get(sourceId) : null;
+      const assignedByName = sourceName ? lookup.assignedByName.get(sourceName) : null;
+      const matches = (state.clients || []).filter(candidate => {
+        if (!candidate) return false;
+        if (sourceId && String(candidate.id || "") === sourceId) return true;
+        const candidateNip = normalizeClientNip(candidate.nip || "");
+        if (sourceNip && candidateNip && sourceNip === candidateNip) return true;
+        const candidateName = removePolishChars(String(candidate.name || "").trim());
+        if (!sourceName || candidateName !== sourceName) return false;
+        const candidateAddress = removePolishChars(String(candidate.address || "").trim());
+        return !sourceAddress || !candidateAddress || sourceAddress === candidateAddress;
+      });
+      const assignedByNip = sourceNip ? (state.clients || []).find(candidate =>
+        candidate?.databaseType === "assigned"
+        && normalizeClientNip(candidate.nip || "") === sourceNip
+        && String(candidate.dispatcher || "").trim()
+      ) : null;
+      const ownerRecord = [assignedById, assignedByNip, assignedByName, ...matches]
+        .find(candidate => String(candidate?.dispatcher || "").trim()) || null;
+      const requestClient = ownerRecord || matches.find(candidate => String(candidate.id || "") === sourceId) || client;
+      const ownerDispatcher = String(ownerRecord?.dispatcher || client.dispatcher || "").trim().toUpperCase();
+      return {
+        client: ownerDispatcher ? { ...client, dispatcher: ownerDispatcher } : client,
+        ownerDispatcher,
+        requestClientId: String(requestClient?.id || client.id || "")
+      };
+    }
+
+    function canSendQuickClientLoadRequest() {
+      const supabaseRole = String(state.user?.supabaseRole || "");
+      return state.user?.role === "spedytor" || supabaseRole === "dispatcher" || supabaseRole === "branch_manager" || supabaseRole === "admin";
+    }
+
+    function quickRequestDistanceClass(distanceKm) {
+      const distance = Number(distanceKm);
+      if (!Number.isFinite(distance) || distance <= 50) return "distance-near";
+      if (distance <= 100) return "distance-mid";
+      return "distance-far";
+    }
+
+    function quickRequestClientsForRoute(route, limit = 12) {
+      const historyIndex = clientHistoryIndex();
+      const deduped = new Map();
+      nearestClientsForRoute(route, Math.max(24, Number(limit || 12) * 3)).forEach(item => {
+        const resolved = quickRequestClientOwner(item.client);
+        const targetClient = (state.clients || []).find(client => String(client.id || "") === resolved.requestClientId) || resolved.client || item.client;
+        const identity = normalizeClientNip(targetClient?.nip || "") || `${removePolishChars(targetClient?.name || "")}|${removePolishChars(targetClient?.address || "")}`;
+        if (!identity || deduped.has(identity)) return;
+        const rows = clientHistoryRows(targetClient, historyIndex);
+        const metrics = clientCommercialMetrics(targetClient, rows);
+        deduped.set(identity, {
+          client: resolved.client || targetClient,
+          requestClientId: resolved.requestClientId,
+          ownerDispatcher: resolved.ownerDispatcher,
+          distanceKm: item.distanceKm,
+          items: rows,
+          ...metrics
+        });
+      });
+      return Array.from(deduped.values())
+        .sort((a, b) => a.distanceKm - b.distanceKm)
+        .slice(0, Math.max(1, Number(limit || 12)));
+    }
+
     function showRouteNearbyClients(routeId) {
       if (!state.contextMenu || state.contextMenu.routeId !== routeId) return;
       state.contextMenu.view = "clients";
@@ -78243,7 +78331,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderRouteNearbyClientsContext(route) {
       const query = displayCity(route.unload) || route.unload || "";
-      const rows = regionOpportunityRows(query, true).slice(0, 6);
+      const rows = quickRequestClientsForRoute(route, 10);
       const login = String(state.user?.login || "").toUpperCase();
       return `
         <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
@@ -78251,17 +78339,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ${rows.length ? `
           <div class="route-context-client-list">
             ${rows.map(item => {
-              const owner = String(item.client?.dispatcher || "").toUpperCase();
-              const canSendQuickRequest = state.user?.role === "spedytor" && owner && owner !== login;
+              const owner = String(item.ownerDispatcher || item.client?.dispatcher || "").toUpperCase();
+              const canAsk = canSendQuickClientLoadRequest();
+              const canSendQuickRequest = canAsk && owner && owner !== login;
               const action = canSendQuickRequest
-                ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.client.id)}')">Wyślij zapytanie</button>`
-                : state.user?.role === "spedytor" && owner === login
+                ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.requestClientId || item.client.id)}')">Wyślij zapytanie</button>`
+                : canAsk && owner === login
                   ? `<span class="route-context-client-state">Twój klient</span>`
-                  : `<span class="route-context-client-state">Brak opiekuna</span>`;
+                  : owner
+                    ? `<span class="route-context-client-state">${esc(owner)}</span>`
+                    : `<span class="route-context-client-state">Brak opiekuna</span>`;
               return `
-              <div class="route-context-client-item">
+              <div class="route-context-client-item ${quickRequestDistanceClass(item.distanceKm)}">
                 <div class="route-context-client-head">
-                  <div class="route-context-client-name">${clientNameLink(item.client)}</div>
+                  <div class="route-context-client-name">${clientNameLink(item.client, item.client?.name || "Klient", owner)}</div>
                   <div class="route-context-client-actions">${action}</div>
                 </div>
                 <span class="route-context-client-distance">ok. ${Math.round(item.distanceKm)} km</span><br>
@@ -78271,7 +78362,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             `;
             }).join("")}
           </div>
-        ` : `<div class="route-context-empty">Brak klientów lub historycznych załadunków w promieniu 100 km.</div>`}
+        ` : `<div class="route-context-empty">Brak klientów z rozpoznaną lokalizacją.</div>`}
         <button onclick="showRegionOpportunitiesForRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Otwórz pełną analizę rejonu</button>
         <button onclick="enableClientsOnMapFromContext()"><span class="context-dot context-dot-empty"></span>Pokaż klientów na mapie</button>
       `;
@@ -78313,7 +78404,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
           <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
-          ${state.user?.role === "spedytor" ? `<button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-green"></span>Szybkie zapytanie o ładunek</button>` : ""}
+          ${canSendQuickClientLoadRequest() ? `<button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-green"></span>Szybkie zapytanie o ładunek</button>` : ""}
           <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci i ładunki w rejonie</button>
           ${renderOtherDispatcherContextNotice(route)}
           <div class="route-context-title">Status spedytora</div>
