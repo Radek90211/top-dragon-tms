@@ -41,7 +41,7 @@ export function getBearerToken(request) {
   return match?.[1]?.trim() || ''
 }
 
-export async function requireActiveAdmin(request) {
+export async function requireActiveUser(request) {
   const token = getBearerToken(request)
   if (!token) {
     return { ok: false, status: 401, message: 'Brak tokenu użytkownika.' }
@@ -61,11 +61,11 @@ export async function requireActiveAdmin(request) {
     .maybeSingle()
 
   if (profileError) {
-    return { ok: false, status: 500, message: `Nie udało się sprawdzić profilu administratora: ${profileError.message}` }
+    return { ok: false, status: 500, message: `Nie udało się sprawdzić profilu użytkownika: ${profileError.message}` }
   }
 
-  if (!profile?.active || profile.role !== 'admin') {
-    return { ok: false, status: 403, message: 'Ta operacja jest dostępna wyłącznie dla aktywnego administratora.' }
+  if (!profile?.active) {
+    return { ok: false, status: 403, message: 'Konto użytkownika jest nieaktywne.' }
   }
 
   return {
@@ -74,6 +74,17 @@ export async function requireActiveAdmin(request) {
     user: authData.user,
     profile,
   }
+}
+
+export async function requireActiveAdmin(request) {
+  const auth = await requireActiveUser(request)
+  if (!auth.ok) return auth
+
+  if (auth.profile?.role !== 'admin') {
+    return { ok: false, status: 403, message: 'Ta operacja jest dostępna wyłącznie dla aktywnego administratora.' }
+  }
+
+  return auth
 }
 
 export function parseJsonBody(request) {
