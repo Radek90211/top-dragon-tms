@@ -10,6 +10,7 @@ let activeRelationsMessage = null
 let activeClientsMessage = null
 let activeLoadQueueMessage = null
 let activeLoadRequestsMessage = null
+let activeAuditMessage = null
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
@@ -18,6 +19,8 @@ let loadQueueChannel = null
 let loadQueueReloadTimer = null
 let loadRequestsChannel = null
 let loadRequestsReloadTimer = null
+let auditChannel = null
+let auditReloadTimer = null
 let currentUser = null
 let currentProfile = null
 
@@ -75,6 +78,7 @@ function renderLogin(message = '') {
   activeClientsMessage = null
   activeLoadQueueMessage = null
   activeLoadRequestsMessage = null
+  activeAuditMessage = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -106,6 +110,14 @@ function renderLogin(message = '') {
   if (loadRequestsChannel) {
     supabase.removeChannel(loadRequestsChannel)
     loadRequestsChannel = null
+  }
+  if (auditReloadTimer) {
+    clearTimeout(auditReloadTimer)
+    auditReloadTimer = null
+  }
+  if (auditChannel) {
+    supabase.removeChannel(auditChannel)
+    auditChannel = null
   }
 
   app.innerHTML = `
@@ -1333,6 +1345,99 @@ async function upsertCentralLoadRequestFromTms(message) {
   }
 }
 
+async function loadCentralAudit() {
+  if (!currentProfile || currentProfile.role !== 'admin') return []
+
+  const { data, error } = await supabase
+    .from('operation_audit')
+    .select('id, actor_id, actor_name, actor_role, branch_id, branch_name, action, entity_type, entity_id, details, created_at')
+    .order('created_at', { ascending: false })
+    .limit(2500)
+
+  if (error) {
+    throw new Error(`Nie udało się pobrać historii operacji: ${error.message}`)
+  }
+
+  return (data || []).map((row) => ({
+    id: String(row.id ?? ''),
+    actorId: String(row.actor_id || ''),
+    actorName: String(row.actor_name || ''),
+    actorRole: String(row.actor_role || ''),
+    branchId: String(row.branch_id || ''),
+    branchName: String(row.branch_name || ''),
+    action: String(row.action || ''),
+    entityType: String(row.entity_type || ''),
+    entityId: String(row.entity_id || ''),
+    details: String(row.details || ''),
+    createdAt: String(row.created_at || ''),
+  }))
+}
+
+async function syncCentralAuditToTms() {
+  const rows = await loadCentralAudit()
+  activeAuditMessage = {
+    type: 'top-dragon-audit-data',
+    rows,
+  }
+  activeTmsFrame?.contentWindow?.postMessage(activeAuditMessage, window.location.origin)
+}
+
+function scheduleCentralAuditReload(delay = 120) {
+  if (auditReloadTimer) clearTimeout(auditReloadTimer)
+  auditReloadTimer = setTimeout(() => {
+    auditReloadTimer = null
+    syncCentralAuditToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć centralnej historii operacji:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralAudit() {
+  if (auditChannel) {
+    supabase.removeChannel(auditChannel)
+    auditChannel = null
+  }
+
+  if (!currentProfile || currentProfile.role !== 'admin') return
+
+  const channelName = `tms-audit-${currentUser?.id || 'admin'}`
+  auditChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'operation_audit' },
+      () => scheduleCentralAuditReload(80)
+    )
+    .subscribe()
+}
+
+async function writeCentralAuditFromTms(message) {
+  if (!currentProfile) return
+
+  const action = String(message?.action || '').trim()
+  const entityType = String(message?.entityType || '').trim()
+  const entityId = String(message?.entityId || '').trim()
+  const details = String(message?.details || '').trim()
+
+  if (!action || !entityType) return
+
+  try {
+    const { error } = await supabase.rpc('write_tms_operation_audit', {
+      p_action: action,
+      p_entity_type: entityType,
+      p_entity_id: entityId || null,
+      p_details: details || null,
+    })
+    if (error) throw error
+
+    if (currentProfile.role === 'admin') {
+      scheduleCentralAuditReload(40)
+    }
+  } catch (error) {
+    console.error('Nie udało się zapisać historii operacji:', error)
+  }
+}
+
 function sendFleetOperationResult(requestId, ok, action, message) {
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-fleet-operation-result',
@@ -1487,7 +1592,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-loads-requests-v13"
+        src="/tms.html?embedded=1&build=central-audit-v14"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1542,6 +1647,16 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
   })
   subscribeCentralLoadRequests()
+
+  if (currentProfile.role === 'admin') {
+    syncCentralAuditToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować historii operacji z TMS:', error)
+    })
+    subscribeCentralAudit()
+  } else {
+    activeAuditMessage = null
+    subscribeCentralAudit()
+  }
 }
 
 async function routeSession(session) {
@@ -1583,6 +1698,9 @@ async function bootstrap() {
       }
       if (activeLoadRequestsMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeLoadRequestsMessage, window.location.origin)
+      }
+      if (activeAuditMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeAuditMessage, window.location.origin)
       }
       return
     }
@@ -1687,6 +1805,22 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-load-request-upsert') {
       await upsertCentralLoadRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-audit-request') {
+      if (currentProfile?.role === 'admin') {
+        try {
+          await syncCentralAuditToTms()
+        } catch (error) {
+          console.error('Nie udało się pobrać historii operacji:', error)
+        }
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-audit-record') {
+      await writeCentralAuditFromTms(event.data)
       return
     }
 
