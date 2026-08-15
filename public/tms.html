@@ -2468,15 +2468,53 @@
       line-height: 1.32;
     }
 
+    .route-context-client-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 3px;
+    }
+    .route-context-client-name {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .route-context-client-actions {
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+    }
     .route-context-client-distance {
-      float: right;
+      display: inline-block;
       font-weight: 950;
       white-space: nowrap;
-      margin-left: 8px;
+      margin-bottom: 2px;
     }
-    .route-context-client-actions { display:flex;justify-content:flex-end;margin-top:6px;clear:both; }
-    .route-context-menu .route-context-quick-request { width:auto;padding:6px 8px;background:#0f172a;color:#fff;font-size:10px; }
+    .route-context-menu .route-context-quick-request {
+      width: auto;
+      min-height: 28px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: #0f172a;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
     .route-context-menu .route-context-quick-request:hover { background:#1e293b; }
+    .route-context-client-state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #fff;
+      color: #64748b;
+      font-size: 9px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
 
     .route-context-empty {
       padding: 9px;
@@ -73009,19 +73047,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const normalizedLocation = String(location || client?.address || "").trim();
       if (state.user?.role !== "spedytor") {
         showAppMessage("Zapytanie spedytora", "Szybkie zapytanie o ładunek może wysłać spedytor.", "info");
-        return;
+        return false;
       }
       if (!client || !ownerDispatcher) {
         showAppMessage("Brak opiekuna", "Zapytanie można wysłać, gdy klient ma przypisanego spedytora prowadzącego.", "error");
-        return;
+        return false;
       }
       if (!requesterDispatcher) {
         showAppMessage("Brak spedytora", "Nie można ustalić autora zapytania.", "error");
-        return;
+        return false;
       }
       if (ownerDispatcher === requesterDispatcher) {
         showAppMessage("To Twój klient", "Możesz skontaktować się z klientem bezpośrednio.", "info");
-        return;
+        return false;
       }
       const now = new Date().toISOString();
       const candidate = {
@@ -73044,7 +73082,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         saveClientLoadRequests();
         syncCommercialIntelligenceSection();
         showAppMessage(alreadyJoined ? "Zapytanie już istnieje" : "Dołączono do zapytania", `${ownerDispatcher} widzi wspólne zapytanie dotyczące klienta ${client.name}.`, alreadyJoined ? "info" : "success");
-        return;
+        return true;
       }
       const request = {
         id: `clr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -73073,6 +73111,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       saveClientLoadRequests();
       syncCommercialIntelligenceSection();
       showAppMessage("Wysłano zapytanie", `${ownerDispatcher} otrzymał zapytanie dotyczące klienta ${client.name}.`, "success");
+      return true;
     }
 
     function submitClientLoadRequest(event) {
@@ -78196,7 +78235,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return;
       const location = displayCity(route.unload) || route.unload || "";
-      sendRegionClientLoadRequest(clientId, location);
+      const sent = sendRegionClientLoadRequest(clientId, location);
+      if (sent === false) return;
       state.contextMenu = null;
       syncRouteContextMenu();
     }
@@ -78210,16 +78250,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <div class="route-context-title">Klienci i ładunki w rejonie: ${esc(query || "—")}</div>
         ${rows.length ? `
           <div class="route-context-client-list">
-            ${rows.map(item => `
+            ${rows.map(item => {
+              const owner = String(item.client?.dispatcher || "").toUpperCase();
+              const canSendQuickRequest = state.user?.role === "spedytor" && owner && owner !== login;
+              const action = canSendQuickRequest
+                ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.client.id)}')">Wyślij zapytanie</button>`
+                : state.user?.role === "spedytor" && owner === login
+                  ? `<span class="route-context-client-state">Twój klient</span>`
+                  : `<span class="route-context-client-state">Brak opiekuna</span>`;
+              return `
               <div class="route-context-client-item">
-                <span class="route-context-client-distance">ok. ${Math.round(item.distanceKm)} km</span>
-                ${clientNameLink(item.client)}<br>
+                <div class="route-context-client-head">
+                  <div class="route-context-client-name">${clientNameLink(item.client)}</div>
+                  <div class="route-context-client-actions">${action}</div>
+                </div>
+                <span class="route-context-client-distance">ok. ${Math.round(item.distanceKm)} km</span><br>
                 ${esc(item.client.address)}<br>
-                <span class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.client.dispatcher || "")}">${esc(item.client.dispatcher || "—")}</span></span><br>
                 <span class="small">Śr. marża: <b>${money(item.avgMargin)}</b> · śr. stawka: <b>${item.avgRatePerKm > 0 ? `${item.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b></span>
-                ${state.user?.role === "spedytor" && item.client.dispatcher && String(item.client.dispatcher).toUpperCase() !== login ? `<div class="route-context-client-actions"><button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.client.id)}')">Zapytaj o ładunek</button></div>` : ""}
               </div>
-            `).join("")}
+            `;
+            }).join("")}
           </div>
         ` : `<div class="route-context-empty">Brak klientów lub historycznych załadunków w promieniu 100 km.</div>`}
         <button onclick="showRegionOpportunitiesForRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Otwórz pełną analizę rejonu</button>
