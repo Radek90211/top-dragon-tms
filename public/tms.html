@@ -68059,6 +68059,7 @@
 
     function saveClientLoadRequests() {
       try { localStorage.setItem(CLIENT_LOAD_REQUEST_STORAGE_KEY, JSON.stringify((state.clientLoadRequests || []).slice(-500))); } catch (error) {}
+      if (typeof scheduleCentralLoadRequestsDiff === "function") scheduleCentralLoadRequestsDiff(40);
     }
     const SUPABASE_CLIENT_TABLE = "tms_clients";
     const SUPABASE_HISTORY_TABLE = "tms_client_route_history";
@@ -68770,6 +68771,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const CENTRAL_CLIENT_PENDING_DELETE = new Set();
     let CENTRAL_CLIENT_SYNC_TIMER = null;
     let CENTRAL_CLIENT_ERROR_AT = 0;
+
+    // ETAP 3I: centralne planowane relacje / wolne ładunki oraz zapytania o ładunek.
+    let CENTRAL_LOAD_QUEUE_READY = false;
+    const CENTRAL_LOAD_QUEUE_BASELINE = new Map();
+    const CENTRAL_LOAD_QUEUE_PENDING_UPSERT = new Set();
+    const CENTRAL_LOAD_QUEUE_PENDING_DELETE = new Set();
+    let CENTRAL_LOAD_QUEUE_SYNC_TIMER = null;
+    let CENTRAL_LOAD_QUEUE_ERROR_AT = 0;
+
+    let CENTRAL_LOAD_REQUESTS_READY = false;
+    const CENTRAL_LOAD_REQUEST_BASELINE = new Map();
+    const CENTRAL_LOAD_REQUEST_PENDING_UPSERT = new Set();
+    let CENTRAL_LOAD_REQUEST_SYNC_TIMER = null;
+    let CENTRAL_LOAD_REQUEST_ERROR_AT = 0;
 
     const state = {
       user: null,
@@ -78624,8 +78639,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         CENTRAL_RELATIONS_READY = false;
         CENTRAL_CLIENTS_READY = false;
+        CENTRAL_LOAD_QUEUE_READY = false;
+        CENTRAL_LOAD_REQUESTS_READY = false;
         setTimeout(requestCentralRelations, 0);
         setTimeout(requestCentralClients, 20);
+        setTimeout(requestCentralLoadQueue, 40);
+        setTimeout(requestCentralLoadRequests, 60);
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
       setTimeout(deliverPendingClientOwnerAlerts, 160);
@@ -82915,6 +82934,366 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralRelationsTicker = setInterval(syncCentralRelationsDiff, 800);
     }
 
+
+    // -----------------------------------------------------------------------
+    // ETAP 3I — centralna kolejka ładunków i wspólne zapytania o ładunek.
+    // -----------------------------------------------------------------------
+    function centralLoadQueueKind(route) {
+      if (route?.proposedLoad) return "proposed";
+      if (route?.futureQueue) return "future";
+      return "";
+    }
+
+    function centralLoadQueueBranchId(route) {
+      const own = String(route?._centralBranchId || "").trim();
+      if (own) return own;
+      const creator = String(route?.createdBy || route?.ownerDispatcher || "").trim();
+      const creatorUser = creator ? USERS.find(user => String(user?.login || "").trim() === creator) : null;
+      const creatorBranch = String(creatorUser?.branchId || "").trim();
+      if (creatorBranch) return creatorBranch;
+      return String(state.user?.branchId || "").trim();
+    }
+
+    function centralLoadQueueKey(branchId, queueType, loadId) {
+      return `${String(branchId || "").trim()}::${String(queueType || "").trim()}::${String(loadId || "").trim()}`;
+    }
+
+    function centralSerializableLoadQueueRoute(route) {
+      if (!route || typeof route !== "object") return null;
+      try {
+        return JSON.parse(JSON.stringify(route, (key, value) => key.startsWith("_central") ? undefined : value));
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function centralLoadQueueFingerprint(route) {
+      const payload = centralSerializableLoadQueueRoute(route);
+      return payload ? JSON.stringify(payload) : "";
+    }
+
+    function centralLoadQueueSetFingerprint() {
+      return [...(state.futureRoutes || []), ...(state.proposedLoads || [])]
+        .filter(Boolean)
+        .map(route => {
+          const kind = centralLoadQueueKind(route);
+          return `${centralLoadQueueKey(centralLoadQueueBranchId(route), kind, route.id)}::${centralLoadQueueFingerprint(route)}`;
+        })
+        .sort()
+        .join("||");
+    }
+
+    function requestCentralLoadQueue() {
+      if (!EMBEDDED_MODE || !state.user) return;
+      window.parent?.postMessage({
+        type: "top-dragon-load-queue-request",
+        requestId: `load-queue-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      }, window.location.origin);
+    }
+
+    function applyCentralLoadQueueData(message) {
+      const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const wasReady = CENTRAL_LOAD_QUEUE_READY;
+      const beforeFingerprint = centralLoadQueueSetFingerprint();
+      const currentByKey = new Map();
+
+      [...(state.futureRoutes || []), ...(state.proposedLoads || [])].forEach(route => {
+        const kind = centralLoadQueueKind(route);
+        const branchId = centralLoadQueueBranchId(route);
+        const id = String(route?.id || "").trim();
+        if (kind && branchId && id) currentByKey.set(centralLoadQueueKey(branchId, kind, id), route);
+      });
+
+      const mergedFuture = [];
+      const mergedProposed = [];
+      const remoteKeys = new Set();
+
+      const addMerged = (route, kind) => {
+        if (kind === "future") mergedFuture.push(route);
+        else if (kind === "proposed") mergedProposed.push(route);
+      };
+
+      rows.forEach(row => {
+        const branchId = String(row?.branchId || "").trim();
+        const kind = String(row?.queueType || "").trim();
+        const payload = row?.payload && typeof row.payload === "object" ? cloneData(row.payload) : null;
+        const loadId = String(payload?.id || row?.id || "").trim();
+        if (!branchId || !loadId || !payload || !["future", "proposed"].includes(kind)) return;
+
+        payload.id = loadId;
+        payload.futureQueue = kind === "future";
+        payload.proposedLoad = kind === "proposed";
+        const key = centralLoadQueueKey(branchId, kind, loadId);
+        remoteKeys.add(key);
+        if (CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
+
+        const local = currentByKey.get(key) || null;
+        const localFingerprint = local ? centralLoadQueueFingerprint(local) : "";
+        const baseline = CENTRAL_LOAD_QUEUE_BASELINE.get(key);
+        const localDirty = Boolean(local) && (baseline === undefined || localFingerprint !== baseline);
+        const pending = CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key);
+        const route = (pending || localDirty) && local ? local : payload;
+
+        try {
+          Object.defineProperty(route, "_centralBranchId", {
+            value: branchId,
+            writable: true,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (error) {
+          route._centralBranchId = branchId;
+        }
+        addMerged(route, kind);
+
+        if (!pending && !localDirty) CENTRAL_LOAD_QUEUE_BASELINE.set(key, centralLoadQueueFingerprint(payload));
+      });
+
+      currentByKey.forEach((route, key) => {
+        if (remoteKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
+        if (!wasReady || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) addMerged(route, centralLoadQueueKind(route));
+      });
+
+      for (const key of Array.from(CENTRAL_LOAD_QUEUE_BASELINE.keys())) {
+        if (!remoteKeys.has(key) && !CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key) && !CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) {
+          CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+        }
+      }
+
+      state.futureRoutes = mergedFuture;
+      state.proposedLoads = mergedProposed;
+      CENTRAL_LOAD_QUEUE_READY = true;
+      const afterFingerprint = centralLoadQueueSetFingerprint();
+      if (beforeFingerprint !== afterFingerprint) renderKeepingScroll();
+      scheduleCentralLoadQueueDiff(120);
+    }
+
+    function syncCentralLoadQueueDiff() {
+      if (!EMBEDDED_MODE || !state.user || !CENTRAL_LOAD_QUEUE_READY) return;
+      if (String(state.user?.supabaseRole || "") === "accounting") return;
+
+      const currentKeys = new Set();
+      const all = [...(state.futureRoutes || []), ...(state.proposedLoads || [])];
+      all.forEach(route => {
+        const kind = centralLoadQueueKind(route);
+        const loadId = String(route?.id || "").trim();
+        const branchId = centralLoadQueueBranchId(route);
+        if (!kind || !loadId || !branchId) return;
+
+        const key = centralLoadQueueKey(branchId, kind, loadId);
+        currentKeys.add(key);
+        if (CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
+
+        if (state.user?.role === "spedytor") {
+          const actor = String(state.user?.login || "").trim();
+          const owner = String(route?.createdBy || route?.ownerDispatcher || "").trim();
+          if (!actor || owner !== actor) return;
+        }
+        if (state.user?.supabaseRole === "branch_manager" && branchId !== String(state.user?.branchId || "").trim()) return;
+
+        const fingerprint = centralLoadQueueFingerprint(route);
+        if (!fingerprint || CENTRAL_LOAD_QUEUE_BASELINE.get(key) === fingerprint || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) return;
+        const payload = centralSerializableLoadQueueRoute(route);
+        if (!payload) return;
+
+        CENTRAL_LOAD_QUEUE_PENDING_UPSERT.add(key);
+        CENTRAL_LOAD_QUEUE_BASELINE.set(key, fingerprint);
+        window.parent?.postMessage({
+          type: "top-dragon-load-queue-upsert",
+          requestId: `load-queue-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          queueType: kind,
+          loadId,
+          branchId,
+          load: payload
+        }, window.location.origin);
+      });
+
+      for (const key of Array.from(CENTRAL_LOAD_QUEUE_BASELINE.keys())) {
+        if (currentKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key) || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) continue;
+        const parts = key.split("::");
+        if (parts.length < 3) continue;
+        const branchId = parts.shift() || "";
+        const queueType = parts.shift() || "";
+        const loadId = parts.join("::");
+        if (!branchId || !queueType || !loadId) continue;
+
+        CENTRAL_LOAD_QUEUE_PENDING_DELETE.add(key);
+        CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+        window.parent?.postMessage({
+          type: "top-dragon-load-queue-archive",
+          requestId: `load-queue-archive-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          queueType,
+          loadId,
+          branchId
+        }, window.location.origin);
+      }
+    }
+
+    function scheduleCentralLoadQueueDiff(delay = 80) {
+      clearTimeout(CENTRAL_LOAD_QUEUE_SYNC_TIMER);
+      CENTRAL_LOAD_QUEUE_SYNC_TIMER = setTimeout(syncCentralLoadQueueDiff, Math.max(0, Number(delay) || 0));
+    }
+
+    window.handleCentralLoadQueueOperationResult = function(message) {
+      const branchId = String(message?.branchId || "").trim();
+      const queueType = String(message?.queueType || "").trim();
+      const loadId = String(message?.loadId || "").trim();
+      const key = centralLoadQueueKey(branchId, queueType, loadId);
+      if (message?.action === "archive") CENTRAL_LOAD_QUEUE_PENDING_DELETE.delete(key);
+      else if (message?.action === "upsert") CENTRAL_LOAD_QUEUE_PENDING_UPSERT.delete(key);
+
+      if (message?.ok) {
+        scheduleCentralLoadQueueDiff(0);
+        return;
+      }
+      if (message?.action === "upsert") CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+      const now = Date.now();
+      if (now - CENTRAL_LOAD_QUEUE_ERROR_AT > 12000) {
+        CENTRAL_LOAD_QUEUE_ERROR_AT = now;
+        showAppMessage("Nie udało się zsynchronizować ładunku", String(message?.message || "Spróbuj ponownie za chwilę."), "error");
+      }
+      setTimeout(requestCentralLoadQueue, 1200);
+    };
+
+    if (!window.__topDragonCentralLoadQueueTicker) {
+      window.__topDragonCentralLoadQueueTicker = setInterval(syncCentralLoadQueueDiff, 800);
+    }
+
+    function centralLoadRequestFingerprint(item) {
+      if (!item || typeof item !== "object") return "";
+      try { return JSON.stringify(item); } catch (error) { return ""; }
+    }
+
+    function centralLoadRequestsSetFingerprint(rows = state.clientLoadRequests || []) {
+      return (Array.isArray(rows) ? rows : [])
+        .map(item => `${String(item?.id || "")}::${centralLoadRequestFingerprint(item)}`)
+        .sort()
+        .join("||");
+    }
+
+    function requestCentralLoadRequests() {
+      if (!EMBEDDED_MODE || !state.user) return;
+      window.parent?.postMessage({
+        type: "top-dragon-load-requests-request",
+        requestId: `load-requests-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      }, window.location.origin);
+    }
+
+    function applyCentralLoadRequestsData(message) {
+      const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const wasReady = CENTRAL_LOAD_REQUESTS_READY;
+      const previousRows = cloneData(state.clientLoadRequests || []);
+      const beforeFingerprint = centralLoadRequestsSetFingerprint();
+      const currentById = new Map((state.clientLoadRequests || []).map(item => [String(item?.id || ""), item]));
+      const currentByMerge = new Map();
+      (state.clientLoadRequests || []).forEach(item => {
+        const key = clientLoadRequestMergeKey(item);
+        if (key) currentByMerge.set(key, item);
+      });
+
+      const merged = [];
+      const remoteIds = new Set();
+      const remoteMergeKeys = new Set();
+
+      rows.forEach(row => {
+        const payload = row?.payload && typeof row.payload === "object" ? cloneData(row.payload) : null;
+        const requestId = String(payload?.id || row?.id || "").trim();
+        if (!requestId || !payload) return;
+        payload.id = requestId;
+        const mergeKey = String(row?.mergeKey || clientLoadRequestMergeKey(payload));
+        remoteIds.add(requestId);
+        if (mergeKey) remoteMergeKeys.add(mergeKey);
+
+        const local = currentById.get(requestId) || currentByMerge.get(mergeKey) || null;
+        const pendingId = local ? String(local.id || "") : requestId;
+        const pending = CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(pendingId) || CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(requestId);
+        const baseline = CENTRAL_LOAD_REQUEST_BASELINE.get(requestId);
+        const localDirty = Boolean(local) && (baseline === undefined || centralLoadRequestFingerprint(local) !== baseline);
+        const item = (pending || localDirty) && local ? local : payload;
+        item.id = requestId;
+        merged.push(item);
+        if (!pending && !localDirty) CENTRAL_LOAD_REQUEST_BASELINE.set(requestId, centralLoadRequestFingerprint(payload));
+      });
+
+      (state.clientLoadRequests || []).forEach(item => {
+        const id = String(item?.id || "").trim();
+        const mergeKey = clientLoadRequestMergeKey(item);
+        if (!id) return;
+        if (remoteIds.has(id) || (mergeKey && remoteMergeKeys.has(mergeKey))) return;
+        if (!wasReady || CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(id)) merged.push(item);
+      });
+
+      for (const id of Array.from(CENTRAL_LOAD_REQUEST_BASELINE.keys())) {
+        if (!remoteIds.has(id) && !CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(id)) CENTRAL_LOAD_REQUEST_BASELINE.delete(id);
+      }
+
+      state.clientLoadRequests = merged;
+      CENTRAL_LOAD_REQUESTS_READY = true;
+      try { localStorage.setItem(CLIENT_LOAD_REQUEST_STORAGE_KEY, JSON.stringify(merged.slice(-500))); } catch (error) {}
+      const afterFingerprint = centralLoadRequestsSetFingerprint();
+      if (beforeFingerprint !== afterFingerprint) {
+        syncCommercialIntelligenceSection();
+        notifyClientLoadRequestChanges(previousRows, merged);
+      }
+      scheduleCentralLoadRequestsDiff(120);
+    }
+
+    function syncCentralLoadRequestsDiff() {
+      if (!EMBEDDED_MODE || !state.user || !CENTRAL_LOAD_REQUESTS_READY) return;
+      if (String(state.user?.supabaseRole || "") === "accounting") return;
+
+      (state.clientLoadRequests || []).forEach(item => {
+        if (!item || item.sample) return;
+        const id = String(item.id || "").trim();
+        const fingerprint = centralLoadRequestFingerprint(item);
+        if (!id || !fingerprint || CENTRAL_LOAD_REQUEST_BASELINE.get(id) === fingerprint || CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(id)) return;
+
+        CENTRAL_LOAD_REQUEST_PENDING_UPSERT.add(id);
+        CENTRAL_LOAD_REQUEST_BASELINE.set(id, fingerprint);
+        window.parent?.postMessage({
+          type: "top-dragon-load-request-upsert",
+          requestId: `load-request-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          localRequestId: id,
+          mergeKey: clientLoadRequestMergeKey(item),
+          request: cloneData(item)
+        }, window.location.origin);
+      });
+    }
+
+    function scheduleCentralLoadRequestsDiff(delay = 80) {
+      clearTimeout(CENTRAL_LOAD_REQUEST_SYNC_TIMER);
+      CENTRAL_LOAD_REQUEST_SYNC_TIMER = setTimeout(syncCentralLoadRequestsDiff, Math.max(0, Number(delay) || 0));
+    }
+
+    window.handleCentralLoadRequestOperationResult = function(message) {
+      const localId = String(message?.localRequestId || "").trim();
+      const canonicalId = String(message?.canonicalRequestId || localId).trim();
+      if (localId) CENTRAL_LOAD_REQUEST_PENDING_UPSERT.delete(localId);
+
+      if (message?.ok) {
+        if (localId && canonicalId && canonicalId !== localId) {
+          state.clientLoadRequests = (state.clientLoadRequests || []).map(item =>
+            String(item?.id || "") === localId ? { ...item, id: canonicalId } : item
+          );
+          CENTRAL_LOAD_REQUEST_BASELINE.delete(localId);
+        }
+        setTimeout(requestCentralLoadRequests, 0);
+        return;
+      }
+
+      if (localId) CENTRAL_LOAD_REQUEST_BASELINE.delete(localId);
+      const now = Date.now();
+      if (now - CENTRAL_LOAD_REQUEST_ERROR_AT > 12000) {
+        CENTRAL_LOAD_REQUEST_ERROR_AT = now;
+        showAppMessage("Nie udało się zsynchronizować zapytania", String(message?.message || "Spróbuj ponownie za chwilę."), "error");
+      }
+      setTimeout(requestCentralLoadRequests, 1200);
+    };
+
+    if (!window.__topDragonCentralLoadRequestsTicker) {
+      window.__topDragonCentralLoadRequestsTicker = setInterval(syncCentralLoadRequestsDiff, 800);
+    }
+
     window.addEventListener("message", event => {
       if (event.origin !== window.location.origin) return;
       const message = event.data || {};
@@ -82972,6 +83351,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         applyCentralClientsData(message);
       } else if (message.type === "top-dragon-client-operation-result") {
         window.handleCentralClientOperationResult?.(message);
+      } else if (message.type === "top-dragon-load-queue-data") {
+        applyCentralLoadQueueData(message);
+      } else if (message.type === "top-dragon-load-queue-operation-result") {
+        window.handleCentralLoadQueueOperationResult?.(message);
+      } else if (message.type === "top-dragon-load-requests-data") {
+        applyCentralLoadRequestsData(message);
+      } else if (message.type === "top-dragon-load-request-operation-result") {
+        window.handleCentralLoadRequestOperationResult?.(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
         window.handleFleetOperationResult?.(message);
       } else if (message.type === "top-dragon-relation-usage-result") {
@@ -82990,6 +83377,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_CLIENT_BASELINE.clear();
         CENTRAL_CLIENT_PENDING_UPSERT.clear();
         CENTRAL_CLIENT_PENDING_DELETE.clear();
+        CENTRAL_LOAD_QUEUE_READY = false;
+        CENTRAL_LOAD_QUEUE_BASELINE.clear();
+        CENTRAL_LOAD_QUEUE_PENDING_UPSERT.clear();
+        CENTRAL_LOAD_QUEUE_PENDING_DELETE.clear();
+        CENTRAL_LOAD_REQUESTS_READY = false;
+        CENTRAL_LOAD_REQUEST_BASELINE.clear();
+        CENTRAL_LOAD_REQUEST_PENDING_UPSERT.clear();
         render();
       }
     });
@@ -83736,8 +84130,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const scope = queueVisibilityScope(route, defaultScope);
         return scope === "all" || (queueVisibilityBranch(route) && queueVisibilityBranch(route) === state.user.branch);
       };
-      proposedLoadCanModify = function(route) { return Boolean(route && (isAdminUser() || (state.user?.role === "spedytor" && route.createdBy === state.user.login))); };
-      futureCardCanDrag = function(route) { return Boolean(route && (isAdminUser() || (state.user?.role === "spedytor" && route.createdBy === state.user.login))); };
+      proposedLoadCanModify = function(route) {
+        if (!route || !state.user) return false;
+        if (state.user.supabaseRole === "admin") return true;
+        if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
+        return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
+      };
+      futureCardCanDrag = function(route) {
+        if (!route || !state.user) return false;
+        if (state.user.supabaseRole === "admin") return true;
+        if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
+        return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
+      };
       const originalOpenEditFutureRoute = openEditFutureRoute;
       openEditFutureRoute = function(event, routeId) {
         if (!isAdminUser()) return originalOpenEditFutureRoute(event, routeId);
