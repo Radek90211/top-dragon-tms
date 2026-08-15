@@ -1560,6 +1560,47 @@ async function deleteFleetSetFromTms(message) {
   }
 }
 
+async function handleTruckRoutingRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+
+  const sendResult = (ok, data = {}, errorMessage = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-truck-routing-result',
+      requestId,
+      ok: Boolean(ok),
+      data: ok ? data : null,
+      message: String(errorMessage || data?.message || ''),
+    }, window.location.origin)
+  }
+
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError) throw sessionError
+    const token = sessionData?.session?.access_token
+    if (!token) throw new Error('Sesja użytkownika wygasła. Zaloguj się ponownie.')
+
+    const payload = message?.payload && typeof message.payload === 'object' ? message.payload : {}
+    const response = await fetch('/api/truck-routing', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        mode: String(message?.mode || ''),
+        ...payload,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || `Routing ciężarowy zwrócił HTTP ${response.status}.`)
+    }
+    sendResult(true, data)
+  } catch (error) {
+    sendResult(false, {}, error?.message || 'Nie udało się wyznaczyć trasy ciężarowej.')
+  }
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -1592,7 +1633,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v19-owner-resolution-distance-colors"
+        src="/tms.html?embedded=1&build=request-workflow-v20-truck-routing-import-export"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1708,6 +1749,11 @@ async function bootstrap() {
     if (event.data?.type === 'top-dragon-auth-applied') {
       document.querySelector('#tms-frame')?.classList.remove('is-loading')
       document.querySelector('#tms-loading')?.remove()
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-truck-routing-request') {
+      await handleTruckRoutingRequestFromTms(event.data)
       return
     }
 
