@@ -8,10 +8,16 @@ let activeUserDirectoryMessage = null
 let activeFleetMessage = null
 let activeRelationsMessage = null
 let activeClientsMessage = null
+let activeLoadQueueMessage = null
+let activeLoadRequestsMessage = null
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
 let clientsReloadTimer = null
+let loadQueueChannel = null
+let loadQueueReloadTimer = null
+let loadRequestsChannel = null
+let loadRequestsReloadTimer = null
 let currentUser = null
 let currentProfile = null
 
@@ -67,6 +73,8 @@ function renderLogin(message = '') {
   activeFleetMessage = null
   activeRelationsMessage = null
   activeClientsMessage = null
+  activeLoadQueueMessage = null
+  activeLoadRequestsMessage = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -82,6 +90,22 @@ function renderLogin(message = '') {
   if (clientsChannel) {
     supabase.removeChannel(clientsChannel)
     clientsChannel = null
+  }
+  if (loadQueueReloadTimer) {
+    clearTimeout(loadQueueReloadTimer)
+    loadQueueReloadTimer = null
+  }
+  if (loadQueueChannel) {
+    supabase.removeChannel(loadQueueChannel)
+    loadQueueChannel = null
+  }
+  if (loadRequestsReloadTimer) {
+    clearTimeout(loadRequestsReloadTimer)
+    loadRequestsReloadTimer = null
+  }
+  if (loadRequestsChannel) {
+    supabase.removeChannel(loadRequestsChannel)
+    loadRequestsChannel = null
   }
 
   app.innerHTML = `
@@ -1053,6 +1077,262 @@ async function archiveCentralClientFromTms(message) {
   }
 }
 
+
+async function loadCentralLoadQueue() {
+  if (!currentProfile) return []
+
+  const { data, error } = await supabase
+    .from('tms_load_queue')
+    .select('branch_id, queue_type, load_ref, payload, updated_at')
+    .eq('active', true)
+    .order('updated_at', { ascending: true })
+
+  if (error) {
+    throw new Error(`Nie udało się pobrać kolejki ładunków: ${error.message}`)
+  }
+
+  return (data || [])
+    .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
+    .map((row) => ({
+      id: String(row.load_ref || ''),
+      branchId: String(row.branch_id || ''),
+      queueType: String(row.queue_type || ''),
+      payload: row.payload,
+      updatedAt: String(row.updated_at || ''),
+    }))
+}
+
+async function syncCentralLoadQueueToTms() {
+  const rows = await loadCentralLoadQueue()
+  activeLoadQueueMessage = {
+    type: 'top-dragon-load-queue-data',
+    rows,
+  }
+  activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueMessage, window.location.origin)
+}
+
+function scheduleCentralLoadQueueReload(delay = 120) {
+  if (loadQueueReloadTimer) clearTimeout(loadQueueReloadTimer)
+  loadQueueReloadTimer = setTimeout(() => {
+    loadQueueReloadTimer = null
+    syncCentralLoadQueueToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć centralnej kolejki ładunków:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralLoadQueue() {
+  if (loadQueueChannel) {
+    supabase.removeChannel(loadQueueChannel)
+    loadQueueChannel = null
+  }
+  if (!currentProfile) return
+
+  const channelName = `tms-load-queue-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  loadQueueChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'tms_load_queue' },
+      () => scheduleCentralLoadQueueReload(90)
+    )
+    .subscribe()
+}
+
+function sendLoadQueueOperationResult(requestId, ok, action, queueType, loadId, branchId, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-load-queue-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    queueType: String(queueType || ''),
+    loadId: String(loadId || ''),
+    branchId: String(branchId || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function upsertCentralLoadQueueFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const queueType = String(message?.queueType || '').trim()
+  const load = message?.load
+  const loadId = String(load?.id || message?.loadId || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!load || typeof load !== 'object' || !loadId || !branchId || !['future', 'proposed'].includes(queueType)) {
+    sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Brak identyfikatora ładunku, oddziału lub typu kolejki.')
+    return
+  }
+
+  const requestedBranchId = String(message?.branchId || '').trim()
+  if (currentProfile?.role !== 'admin' && requestedBranchId && requestedBranchId !== String(currentProfile?.branch_id || '').trim()) {
+    sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Nie możesz zmieniać wpisu należącego do innego oddziału.')
+    return
+  }
+
+  if (currentProfile?.role === 'dispatcher') {
+    const actor = String(currentProfile?.display_name || '').trim().toLocaleLowerCase('pl')
+    const owner = String(load?.createdBy || load?.ownerDispatcher || '').trim().toLocaleLowerCase('pl')
+    if (!actor || !owner || actor !== owner) {
+      sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Nie możesz zmieniać ładunku należącego do innego spedytora.')
+      return
+    }
+  }
+
+  try {
+    const { error } = await supabase.rpc('upsert_tms_load_queue', {
+      p_branch_id: branchId,
+      p_queue_type: queueType,
+      p_load: load,
+    })
+    if (error) throw error
+
+    await syncCentralLoadQueueToTms()
+    sendLoadQueueOperationResult(requestId, true, 'upsert', queueType, loadId, branchId, 'Ładunek został zapisany w Supabase.')
+  } catch (error) {
+    sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, error?.message || 'Nie udało się zapisać ładunku.')
+  }
+}
+
+async function archiveCentralLoadQueueFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const queueType = String(message?.queueType || '').trim()
+  const loadId = String(message?.loadId || '').trim()
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!loadId || !branchId || !['future', 'proposed'].includes(queueType)) {
+    sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Brak identyfikatora ładunku, oddziału lub typu kolejki.')
+    return
+  }
+
+  const requestedBranchId = String(message?.branchId || '').trim()
+  if (currentProfile?.role !== 'admin' && requestedBranchId && requestedBranchId !== String(currentProfile?.branch_id || '').trim()) {
+    sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Nie możesz usuwać wpisu należącego do innego oddziału.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('archive_tms_load_queue', {
+      p_branch_id: branchId,
+      p_queue_type: queueType,
+      p_load_ref: loadId,
+    })
+    if (error) throw error
+
+    sendLoadQueueOperationResult(requestId, true, 'archive', queueType, loadId, branchId, 'Wpis został usunięty z aktywnej kolejki.')
+    await syncCentralLoadQueueToTms()
+  } catch (error) {
+    sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, error?.message || 'Nie udało się usunąć wpisu z kolejki.')
+  }
+}
+
+async function loadCentralLoadRequests() {
+  if (!currentProfile) return []
+
+  const { data, error } = await supabase
+    .from('tms_load_requests')
+    .select('request_ref, merge_key, payload, status, is_open, updated_at')
+    .order('updated_at', { ascending: true })
+    .limit(500)
+
+  if (error) {
+    throw new Error(`Nie udało się pobrać zapytań o ładunek: ${error.message}`)
+  }
+
+  return (data || [])
+    .filter((row) => row?.payload && row?.request_ref)
+    .map((row) => ({
+      id: String(row.request_ref || ''),
+      mergeKey: String(row.merge_key || ''),
+      payload: row.payload,
+      status: String(row.status || ''),
+      isOpen: Boolean(row.is_open),
+      updatedAt: String(row.updated_at || ''),
+    }))
+}
+
+async function syncCentralLoadRequestsToTms() {
+  const rows = await loadCentralLoadRequests()
+  activeLoadRequestsMessage = {
+    type: 'top-dragon-load-requests-data',
+    rows,
+  }
+  activeTmsFrame?.contentWindow?.postMessage(activeLoadRequestsMessage, window.location.origin)
+}
+
+function scheduleCentralLoadRequestsReload(delay = 120) {
+  if (loadRequestsReloadTimer) clearTimeout(loadRequestsReloadTimer)
+  loadRequestsReloadTimer = setTimeout(() => {
+    loadRequestsReloadTimer = null
+    syncCentralLoadRequestsToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć centralnych zapytań o ładunek:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralLoadRequests() {
+  if (loadRequestsChannel) {
+    supabase.removeChannel(loadRequestsChannel)
+    loadRequestsChannel = null
+  }
+  if (!currentProfile) return
+
+  const channelName = `tms-load-requests-${currentUser?.id || 'user'}`
+  loadRequestsChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'tms_load_requests' },
+      () => scheduleCentralLoadRequestsReload(90)
+    )
+    .subscribe()
+}
+
+function sendLoadRequestOperationResult(requestId, ok, localRequestId, canonicalRequestId, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-load-request-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    localRequestId: String(localRequestId || ''),
+    canonicalRequestId: String(canonicalRequestId || localRequestId || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function upsertCentralLoadRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const localRequestId = String(message?.localRequestId || message?.request?.id || '').trim()
+  const mergeKey = String(message?.mergeKey || '').trim()
+  const request = message?.request
+
+  if (!request || typeof request !== 'object' || !localRequestId || !mergeKey) {
+    sendLoadRequestOperationResult(requestId, false, localRequestId, localRequestId, 'Zapytanie nie ma identyfikatora lub klucza łączenia.')
+    return
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('upsert_tms_load_request', {
+      p_request: request,
+      p_merge_key: mergeKey,
+    })
+    if (error) throw error
+
+    const canonicalRequestId = String(data || localRequestId)
+    await syncCentralLoadRequestsToTms()
+    sendLoadRequestOperationResult(requestId, true, localRequestId, canonicalRequestId, 'Zapytanie zostało zapisane i udostępnione użytkownikom.')
+  } catch (error) {
+    sendLoadRequestOperationResult(requestId, false, localRequestId, localRequestId, error?.message || 'Nie udało się zapisać zapytania o ładunek.')
+  }
+}
+
 function sendFleetOperationResult(requestId, ok, action, message) {
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-fleet-operation-result',
@@ -1207,7 +1487,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=central-clients-v12-drop-5min-delete-bottom"
+        src="/tms.html?embedded=1&build=central-loads-requests-v13"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1252,6 +1532,16 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować klientów z TMS:', error)
   })
   subscribeCentralClients()
+
+  syncCentralLoadQueueToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować kolejki ładunków z TMS:', error)
+  })
+  subscribeCentralLoadQueue()
+
+  syncCentralLoadRequestsToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
+  })
+  subscribeCentralLoadRequests()
 }
 
 async function routeSession(session) {
@@ -1287,6 +1577,12 @@ async function bootstrap() {
       }
       if (activeClientsMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeClientsMessage, window.location.origin)
+      }
+      if (activeLoadQueueMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueMessage, window.location.origin)
+      }
+      if (activeLoadRequestsMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeLoadRequestsMessage, window.location.origin)
       }
       return
     }
@@ -1358,6 +1654,39 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-client-archive') {
       await archiveCentralClientFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-request') {
+      try {
+        await syncCentralLoadQueueToTms()
+      } catch (error) {
+        sendLoadQueueOperationResult(event.data?.requestId, false, 'load', '', '', '', error?.message || 'Nie udało się pobrać kolejki ładunków.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-upsert') {
+      await upsertCentralLoadQueueFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-archive') {
+      await archiveCentralLoadQueueFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-requests-request') {
+      try {
+        await syncCentralLoadRequestsToTms()
+      } catch (error) {
+        sendLoadRequestOperationResult(event.data?.requestId, false, '', '', error?.message || 'Nie udało się pobrać zapytań o ładunek.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-request-upsert') {
+      await upsertCentralLoadRequestFromTms(event.data)
       return
     }
 
