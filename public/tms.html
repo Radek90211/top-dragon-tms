@@ -1782,8 +1782,8 @@
       z-index: 99999;
     }
 
-    /* 3H.4: precyzyjne upuszczanie relacji. Linia pokazuje dokładnie
-       przyszłą lewą krawędź kafelka, już po uwzględnieniu punktu złapania. */
+    /* 3K: precyzyjne upuszczanie relacji. Linia pokazuje dokładnie
+       środek kafelka w pozycji, w której zostanie upuszczony. */
     .route-drop-guide {
       position: fixed;
       width: 2px;
@@ -1796,8 +1796,9 @@
     }
     .route-drop-guide-label {
       position: absolute;
-      left: 5px;
+      left: 50%;
       top: 2px;
+      transform: translateX(-50%);
       padding: 2px 5px;
       border-radius: 6px;
       background: #1d4ed8;
@@ -2489,6 +2490,9 @@
       white-space: nowrap;
       margin-left: 8px;
     }
+    .route-context-client-actions { display:flex;justify-content:flex-end;margin-top:6px;clear:both; }
+    .route-context-menu .route-context-quick-request { width:auto;padding:6px 8px;background:#0f172a;color:#fff;font-size:10px; }
+    .route-context-menu .route-context-quick-request:hover { background:#1e293b; }
 
     .route-context-empty {
       padding: 9px;
@@ -5458,13 +5462,20 @@
     .client-load-request-section { margin-top:12px; }
     .client-load-request-section:first-of-type { margin-top:0; }
     .client-load-request-section-title { display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px;font-size:12px;font-weight:900;color:#334155; }
-    .client-load-request-list { display:grid;gap:7px; }
-    .client-load-request-row { display:grid;grid-template-columns:minmax(220px,1.35fr) minmax(210px,1fr) auto;gap:10px;align-items:center;padding:10px;background:#fff;border:1px solid #e2e8f0;border-radius:10px; }
+    .client-load-request-summary { display:flex;gap:6px;flex-wrap:wrap;margin:0 0 9px; }
+    .client-load-request-summary span { display:inline-flex;border-radius:999px;padding:4px 7px;background:#fff;border:1px solid #dbe3ee;color:#475569;font-size:9px;font-weight:900; }
+    .client-load-request-list { display:grid;gap:10px; }
+    .client-load-request-row { display:block;padding:0;background:#fff;border:1px solid #dbe3ee;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.04); }
+    .client-load-request-head { display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc; }
     .client-load-request-main { min-width:0; }
-    .client-load-request-main strong { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
-    .client-load-request-meta { margin-top:4px;font-size:11px;line-height:1.45;color:#64748b; }
+    .client-load-request-main strong { display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px; }
+    .client-load-request-meta { margin-top:4px;font-size:10px;line-height:1.45;color:#64748b; }
+    .client-load-request-grid { display:grid;grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(280px,1.35fr);gap:0; }
+    .client-load-request-box { min-width:0;padding:10px 12px;border-right:1px solid #e2e8f0; }
+    .client-load-request-box:last-child { border-right:0; }
+    .client-load-request-box-title { margin-bottom:6px;font-size:9px;letter-spacing:.04em;text-transform:uppercase;font-weight:950;color:#64748b; }
     .client-load-request-note { font-size:11px;line-height:1.45;color:#475569; }
-    .client-load-request-actions { display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap; }
+    .client-load-request-actions { display:flex;gap:5px;justify-content:flex-end;align-items:center;flex-wrap:wrap;padding:8px 12px;border-top:1px solid #e2e8f0;background:#fbfdff; }
     .client-load-request-status { display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#334155; }
     .client-load-request-status.status-new { background:#dbeafe;color:#1d4ed8; }
     .client-load-request-status.status-contacting { background:#fef3c7;color:#92400e; }
@@ -5473,20 +5484,32 @@
     .client-load-request-shared { margin-top:0; }
     .client-load-request-participants { display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px; }
     .client-load-request-participant { display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border:1px solid #dbe3ee;border-radius:999px;background:#f8fafc;font-size:10px;font-weight:800; }
-    .client-load-request-response { margin-top:8px;padding:8px 10px;border-left:3px solid #22c55e;border-radius:7px;background:#f0fdf4;color:#166534; }
-    .client-load-request-response-form { display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:7px;margin-top:8px; }
-    .client-load-request-response-form .btn { white-space:nowrap; }
+    .client-load-request-response { margin-top:4px;padding:8px 10px;border-left:3px solid #22c55e;border-radius:7px;background:#f0fdf4;color:#166534; }
+    .client-load-request-response-grid { display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:5px 10px; }
+    .client-load-request-response-grid .full { grid-column:1 / -1; }
+    .client-load-request-response-grid b { color:inherit; }
+    .client-load-request-response-form { display:grid;grid-template-columns:minmax(180px,1.4fr) 120px;gap:7px;margin-top:7px; }
+    .client-load-request-response-form .full { grid-column:1 / -1; }
+    .client-load-request-response-form .field-label { margin:0 0 3px;font-size:9px; }
+    .client-load-request-response-form textarea.input { min-height:58px;resize:vertical; }
+    .client-load-request-response-form .btn { grid-column:1 / -1;justify-self:end;white-space:nowrap; }
+    .client-load-request-waiting { padding:8px 9px;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;color:#64748b;font-size:10px;line-height:1.4; }
+    .commercial-tab-alert { display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:5px;padding:0 5px;border-radius:999px;background:#dc2626;color:#fff;font-size:9px;font-weight:950;vertical-align:1px; }
+    .commercial-tab.active .commercial-tab-alert { background:#fff;color:#991b1b; }
     .commercial-region-row { align-items:center; }
     .commercial-region-actions { display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0; }
     .commercial-region-actions .commercial-meta { text-align:right; }
     .app.dark-mode .client-load-request-participant { background:#172033;border-color:#334155;color:#e2e8f0; }
     .app.dark-mode .client-load-request-response { background:#10291b;color:#bbf7d0;border-left-color:#22c55e; }
-    @media (max-width:900px) { .commercial-region-actions { align-items:flex-start;flex-direction:column; } .commercial-region-actions .commercial-meta { text-align:left; } .client-load-request-response-form { grid-template-columns:1fr; } }
+    .app.dark-mode .client-load-request-head,.app.dark-mode .client-load-request-actions,.app.dark-mode .client-load-request-waiting { background:#0f172a;border-color:#334155;color:#94a3b8; }
+    .app.dark-mode .client-load-request-box { border-color:#334155; }
+    @media (max-width:1000px) { .client-load-request-grid { grid-template-columns:1fr 1fr; } .client-load-request-box:last-child { grid-column:1 / -1;border-top:1px solid #e2e8f0; } }
+    @media (max-width:900px) { .commercial-region-actions { align-items:flex-start;flex-direction:column; } .commercial-region-actions .commercial-meta { text-align:left; } .client-load-request-response-form { grid-template-columns:1fr; } .client-load-request-response-form .full,.client-load-request-response-form .btn { grid-column:1; } }
     .app.dark-mode .client-load-request-form,.app.dark-mode .client-load-request-row { background:#111827;border-color:#334155; }
     .app.dark-mode .client-load-request-section-title,.app.dark-mode .client-load-request-note { color:#cbd5e1; }
-    .app.dark-mode .client-load-request-meta { color:#94a3b8; }
+    .app.dark-mode .client-load-request-meta,.app.dark-mode .client-load-request-box-title { color:#94a3b8; }
     @media (max-width:1050px) { .client-load-request-form { grid-template-columns:1fr 1fr; } .client-load-request-form > button { width:100%; } }
-    @media (max-width:800px) { .client-load-request-form,.client-load-request-row { grid-template-columns:1fr; } .client-load-request-actions { justify-content:flex-start; } }
+    @media (max-width:680px) { .client-load-request-form,.client-load-request-grid { grid-template-columns:1fr; } .client-load-request-box { border-right:0;border-bottom:1px solid #e2e8f0; } .client-load-request-box:last-child { grid-column:auto;border-bottom:0; } .client-load-request-actions { justify-content:flex-start; } }
     .client-quality-grade { display:inline-grid;place-items:center;width:30px;height:30px;border-radius:9px;font-weight:950;font-size:15px; }
     .client-quality-grade.grade-a { background:#dcfce7;color:#166534; }
     .client-quality-grade.grade-b { background:#e0f2fe;color:#075985; }
@@ -68046,6 +68069,9 @@
               createdAt: String(participant?.createdAt || item.createdAt || new Date().toISOString())
             })).filter(participant => participant.dispatcher),
             responseMessage: String(item.responseMessage || ""),
+            responseRelation: String(item.responseRelation || ""),
+            responseRate: Number.isFinite(Number(item.responseRate)) ? Number(item.responseRate) : 0,
+            responseComment: String(item.responseComment || item.responseMessage || ""),
             responseAuthor: String(item.responseAuthor || "").toUpperCase(),
             responseAt: String(item.responseAt || ""),
             updatedBy: String(item.updatedBy || "").toUpperCase(),
@@ -70796,9 +70822,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!drawer) return false;
       drawer.classList.toggle("open", Boolean(isOpen));
       if (tab && tab.classList.contains("stats-tab")) tab.classList.toggle("btn-dark", Boolean(isOpen));
-      if (!isOpen && (tabSelector === ".future-tab" || tabSelector === ".proposed-tab")) {
-        requestAnimationFrame(syncQueueTabOffsets);
-      }
+      // Każde schowanie prawego panelu wymusza ponowne wyliczenie pozycji zakładek.
+      // Zapobiega pozostawaniu przycisków z wartością right odziedziczoną po otwartym drawerze.
+      if (!isOpen) requestAnimationFrame(syncQueueTabOffsets);
       return true;
     }
 
@@ -72459,8 +72485,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const allowed = new Set(["rates", "region", "clients", "requests"]);
       state.commercialView = allowed.has(view) ? view : "rates";
       state.commercialPanelOpen = true;
-      syncCommercialIntelligenceSection();
       if (state.commercialView === "requests") markClientLoadRequestsSeen();
+      syncCommercialIntelligenceSection();
     }
 
     function setRegionOpportunityDraft(value) {
@@ -72921,9 +72947,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function clientLoadRequestVisibleRows() {
+      const priority = { new:0, contacting:1, available:2, unavailable:3, closed:4 };
       return (state.clientLoadRequests || [])
         .slice()
-        .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+        .sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
     }
 
     function clientLoadRequestDateLabel(value) {
@@ -72948,32 +72975,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const isOwner = login === owner;
       const isParticipant = clientLoadRequestIsParticipant(item, login);
       const canAdminister = state.user?.role === "rozliczenia" || state.user?.role === "admin";
+      const canRespond = isOwner || state.user?.role === "admin";
       const participantBadges = participants.length
         ? participants.map(participant => `<span class="client-load-request-participant"><span class="dispatcher-map-badge ${dispatcherBadgeClass(participant.dispatcher)}">${esc(participant.dispatcher)}</span>${participant.driverName ? `<span>${esc(participant.driverName)}</span>` : ""}</span>`).join("")
         : `<span class="small">Brak zgłoszonych pojazdów</span>`;
       const ownerActions = (isOwner || canAdminister) && ["new", "contacting"].includes(item.status)
-        ? `<button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','contacting')">Kontaktuję klienta</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','available')">Ładunek dostępny</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunku</button>`
+        ? `<button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','contacting')">Kontaktuję klienta</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunku</button>`
         : "";
-      const closeAction = (isOwner || isParticipant || canAdminister) && !["closed"].includes(item.status)
+      const closeAction = (isOwner || isParticipant || canAdminister) && item.status !== "closed"
         ? `<button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','closed')">Zamknij</button>`
         : "";
-      const responseComposer = (isOwner || canAdminister) && item.status === "available"
-        ? `<div class="client-load-request-response-form"><input id="client-load-response-${attr(item.id)}" class="input" value="${attr(item.responseMessage || "")}" placeholder="Wpisz informacje o dostępnym ładunku"><button type="button" class="btn btn-dark" onclick="sendClientLoadRequestResponse('${attr(item.id)}')">Wyślij wiadomość</button></div>`
+      const responseRelation = String(item.responseRelation || "").trim();
+      const responseRate = Number(item.responseRate || 0);
+      const responseComment = String(item.responseComment || item.responseMessage || "").trim();
+      const hasOwnerResponse = Boolean(responseRelation || responseRate > 0 || responseComment);
+      const responseSummary = hasOwnerResponse
+        ? `<div class="client-load-request-response"><div class="client-load-request-response-grid"><div><b>Relacja:</b> ${esc(responseRelation || "—")}</div><div><b>Stawka:</b> ${responseRate > 0 ? money(responseRate) : "—"}</div>${responseComment ? `<div class="full"><b>Komentarz:</b> ${esc(responseComment)}</div>` : ""}<div class="full small">Odpowiedział: ${item.responseAuthor ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.responseAuthor)}">${esc(item.responseAuthor)}</span>` : owner || "—"}${item.responseAt ? ` · ${esc(new Date(item.responseAt).toLocaleString("pl-PL"))}` : ""}</div></div></div>`
+        : `<div class="client-load-request-waiting">Opiekun klienta nie wprowadził jeszcze relacji, stawki ani komentarza.</div>`;
+      const responseComposer = canRespond && item.status !== "closed"
+        ? `<div class="client-load-request-response-form"><div><label class="field-label">Relacja</label><input id="client-load-response-relation-${attr(item.id)}" class="input" value="${attr(responseRelation)}" placeholder="np. Łódź → Poznań"></div><div><label class="field-label">Stawka [PLN]</label><input id="client-load-response-rate-${attr(item.id)}" class="input" type="number" min="0" step="10" value="${responseRate > 0 ? attr(responseRate) : ""}" placeholder="0"></div><div class="full"><label class="field-label">Komentarz opiekuna</label><textarea id="client-load-response-comment-${attr(item.id)}" class="input" placeholder="np. 24 t, załadunek od 13:00, klient czeka na potwierdzenie">${esc(responseComment)}</textarea></div><button type="button" class="btn btn-dark" onclick="sendClientLoadRequestResponse('${attr(item.id)}')">Zapisz odpowiedź dla spedytorów</button></div>`
         : "";
       return `<div class="client-load-request-row">
-        <div class="client-load-request-main">
-          <strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong>
-          <div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "—"} · termin: ${esc(clientLoadRequestDateLabel(item.requestedDate))}${item.location ? ` · rejon: ${esc(item.location)}` : ""}</div>
-          <div class="client-load-request-participants"><span class="small">Zainteresowani:</span>${participantBadges}</div>
+        <div class="client-load-request-head">
+          <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "—"}</div></div>
+          <div class="client-load-request-meta">Aktualizacja: ${item.updatedAt ? esc(new Date(item.updatedAt).toLocaleString("pl-PL")) : "—"}</div>
         </div>
-        <div class="client-load-request-note">${item.note ? esc(item.note) : "Zapytanie o dostępność ładunku."}${item.responseMessage ? `<div class="client-load-request-response"><b>Odpowiedź ${item.responseAuthor ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.responseAuthor)}">${esc(item.responseAuthor)}</span>` : ""}:</b> ${esc(item.responseMessage)}</div>` : ""}${responseComposer}</div>
+        <div class="client-load-request-grid">
+          <div class="client-load-request-box"><div class="client-load-request-box-title">Zapytanie</div><div class="client-load-request-note"><b>Termin:</b> ${esc(clientLoadRequestDateLabel(item.requestedDate))}<br><b>Rejon:</b> ${esc(item.location || "—")}<br><span>${item.note ? esc(item.note) : "Zapytanie o dostępność ładunku."}</span></div></div>
+          <div class="client-load-request-box"><div class="client-load-request-box-title">Zainteresowani spedytorzy</div><div class="client-load-request-participants">${participantBadges}</div></div>
+          <div class="client-load-request-box"><div class="client-load-request-box-title">Odpowiedź opiekuna klienta</div>${responseSummary}${responseComposer}</div>
+        </div>
         <div class="client-load-request-actions">${ownerActions}${closeAction}</div>
       </div>`;
     }
 
     function renderClientLoadRequests() {
       const rows = clientLoadRequestVisibleRows();
-      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak zapytań. Zapytanie wyślesz z zakładki „Klienci i ładunki w rejonie”.</div>`}</div>`;
+      const waiting = rows.filter(item => ["new", "contacting"].includes(item.status)).length;
+      const available = rows.filter(item => item.status === "available").length;
+      const closed = rows.filter(item => ["unavailable", "closed"].includes(item.status)).length;
+      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>Do odpowiedzi: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Zamknięte / brak: ${closed}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak zapytań. Zapytanie wyślesz z zakładki „Klienci i ładunki w rejonie” albo prawym przyciskiem myszy na kafelku relacji.</div>`}</div>`;
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
@@ -72982,6 +73023,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const ownerDispatcher = String(client?.dispatcher || "").toUpperCase();
       const requestedDate = currentAppDate();
       const normalizedLocation = String(location || client?.address || "").trim();
+      if (state.user?.role !== "spedytor") {
+        showAppMessage("Zapytanie spedytora", "Szybkie zapytanie o ładunek może wysłać spedytor.", "info");
+        return;
+      }
       if (!client || !ownerDispatcher) {
         showAppMessage("Brak opiekuna", "Zapytanie można wysłać, gdy klient ma przypisanego spedytora prowadzącego.", "error");
         return;
@@ -73030,6 +73075,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         note:normalizedLocation ? `Prośba o sprawdzenie ładunku w rejonie ${normalizedLocation}.` : "Prośba o sprawdzenie dostępności ładunku.",
         participants:[{ dispatcher:requesterDispatcher, driverId:"", driverName:"", note:"", createdAt:now }],
         responseMessage:"",
+        responseRelation:"",
+        responseRate:0,
+        responseComment:"",
         responseAuthor:"",
         responseAt:"",
         updatedBy:requesterDispatcher,
@@ -73075,23 +73123,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const request = (state.clientLoadRequests || []).find(item => item.id === requestId);
       if (!request) return;
       const login = String(state.user?.login || "").toUpperCase();
-      const canAdminister = state.user?.role === "rozliczenia" || state.user?.role === "admin";
+      const canAdminister = state.user?.role === "admin";
       if (login !== request.ownerDispatcher && !canAdminister) {
-        showAppMessage("Brak uprawnień", "Wiadomość może wysłać opiekun klienta lub administrator.", "error");
+        showAppMessage("Brak uprawnień", "Relację, komentarz i stawkę może wprowadzić opiekun klienta lub administrator.", "error");
         return;
       }
-      const input = document.getElementById(`client-load-response-${requestId}`);
-      const responseMessage = String(input?.value || "").trim();
-      if (!responseMessage) {
-        showAppMessage("Wpisz wiadomość", "Dodaj krótką informację o dostępnym ładunku.", "error");
-        input?.focus?.();
+      const relationInput = document.getElementById(`client-load-response-relation-${requestId}`);
+      const rateInput = document.getElementById(`client-load-response-rate-${requestId}`);
+      const commentInput = document.getElementById(`client-load-response-comment-${requestId}`);
+      const responseRelation = String(relationInput?.value || "").trim();
+      const rawRate = String(rateInput?.value || "").replace(",", ".").trim();
+      const responseRate = rawRate ? Number(rawRate) : 0;
+      const responseComment = String(commentInput?.value || "").trim();
+      if (!responseRelation && !(responseRate > 0) && !responseComment) {
+        showAppMessage("Uzupełnij odpowiedź", "Wprowadź relację, stawkę lub komentarz dla zainteresowanych spedytorów.", "error");
+        relationInput?.focus?.();
+        return;
+      }
+      if (rawRate && (!Number.isFinite(responseRate) || responseRate < 0)) {
+        showAppMessage("Nieprawidłowa stawka", "Stawka powinna być dodatnią kwotą w PLN.", "error");
+        rateInput?.focus?.();
         return;
       }
       const now = new Date().toISOString();
       state.clientLoadRequests = (state.clientLoadRequests || []).map(item => item.id === requestId ? {
         ...item,
         status:"available",
-        responseMessage,
+        responseRelation,
+        responseRate: responseRate > 0 ? responseRate : 0,
+        responseComment,
+        responseMessage: responseComment,
         responseAuthor:login,
         responseAt:now,
         updatedAt:now,
@@ -73100,11 +73161,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       saveClientLoadRequests();
       const host = document.querySelector('[data-role="commercial-body"]');
       if (host) host.innerHTML = renderCommercialBody();
-      showAppMessage("Wysłano odpowiedź", "Zainteresowani spedytorzy zobaczą wiadomość w zapytaniu.", "success");
+      showAppMessage("Odpowiedź zapisana", "Relacja, stawka i komentarz są widoczne dla zainteresowanych spedytorów.", "success");
     }
 
     function clientLoadRequestSeenStorageKey(login = state.user?.login) {
       return `${CLIENT_LOAD_REQUEST_STORAGE_KEY}:seen:${String(login || "").toUpperCase()}`;
+    }
+
+    function clientLoadRequestSeenAt(login = state.user?.login) {
+      try { return String(localStorage.getItem(clientLoadRequestSeenStorageKey(login)) || ""); } catch (error) { return ""; }
     }
 
     function markClientLoadRequestsSeen(value = new Date().toISOString()) {
@@ -73112,46 +73177,61 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       try { localStorage.setItem(clientLoadRequestSeenStorageKey(), String(value)); } catch (error) {}
     }
 
-    function notifyUnreadClientLoadRequests() {
+    function clientLoadRequestUnreadRows() {
       const login = String(state.user?.login || "").toUpperCase();
-      if (!login) return;
-      let seenAt = "";
-      try { seenAt = String(localStorage.getItem(clientLoadRequestSeenStorageKey(login)) || ""); } catch (error) {}
-      const relevant = (state.clientLoadRequests || []).filter(item => {
+      if (!login) return [];
+      const seenAt = clientLoadRequestSeenAt(login);
+      return (state.clientLoadRequests || []).filter(item => {
         const updatedAt = String(item.updatedAt || item.createdAt || "");
         if (seenAt && updatedAt <= seenAt) return false;
-        const incoming = item.ownerDispatcher === login && String(item.updatedBy || item.requesterDispatcher || "").toUpperCase() !== login;
-        const response = clientLoadRequestIsParticipant(item, login) && String(item.updatedBy || "").toUpperCase() !== login && (item.responseMessage || item.status !== "new");
-        return incoming || response;
+        const changedBy = String(item.updatedBy || item.requesterDispatcher || "").toUpperCase();
+        const incomingForOwner = String(item.ownerDispatcher || "").toUpperCase() === login && changedBy !== login;
+        const responseForParticipant = clientLoadRequestIsParticipant(item, login) && changedBy !== login && Boolean(item.responseRelation || Number(item.responseRate || 0) > 0 || item.responseComment || item.responseMessage || item.status !== "new");
+        return incomingForOwner || responseForParticipant;
       });
+    }
+
+    function clientLoadRequestUnreadCount() {
+      return clientLoadRequestUnreadRows().length;
+    }
+
+    function notifyUnreadClientLoadRequests() {
+      const relevant = clientLoadRequestUnreadRows();
       if (!relevant.length) return;
-      const incomingCount = relevant.filter(item => item.ownerDispatcher === login).length;
+      const login = String(state.user?.login || "").toUpperCase();
+      const incomingCount = relevant.filter(item => String(item.ownerDispatcher || "").toUpperCase() === login).length;
       const responseCount = relevant.length - incomingCount;
       const parts = [];
-      if (incomingCount) parts.push(`${incomingCount} ${incomingCount === 1 ? "zapytanie do Ciebie" : "zapytania do Ciebie"}`);
-      if (responseCount) parts.push(`${responseCount} ${responseCount === 1 ? "odpowiedź" : "odpowiedzi"}`);
-      showAppMessage("Zapytania o ładunek", parts.join(" · "), "info");
-      const newest = relevant.reduce((max, item) => String(item.updatedAt || item.createdAt || "") > max ? String(item.updatedAt || item.createdAt || "") : max, seenAt || "");
-      markClientLoadRequestsSeen(newest || new Date().toISOString());
+      if (incomingCount) parts.push(`${incomingCount} ${incomingCount === 1 ? "nowe zapytanie do Twojego klienta" : "nowe zapytania do Twoich klientów"}`);
+      if (responseCount) parts.push(`${responseCount} ${responseCount === 1 ? "nowa odpowiedź" : "nowe odpowiedzi"}`);
+      showAttentionToast(`Zapytania o ładunek: ${parts.join(" · ")}`);
+      playAttentionSound();
     }
 
     function notifyClientLoadRequestChanges(previousRows, nextRows) {
       const login = String(state.user?.login || "").toUpperCase();
       if (!login) return;
+      const seenAt = clientLoadRequestSeenAt(login);
       const previousById = new Map((previousRows || []).map(item => [item.id, item]));
       const changed = (nextRows || []).filter(item => {
+        const updatedAt = String(item.updatedAt || item.createdAt || "");
+        if (seenAt && updatedAt <= seenAt) return false;
         const previous = previousById.get(item.id);
-        if (!previous) return item.ownerDispatcher === login;
-        if (String(previous.updatedAt || "") === String(item.updatedAt || "")) return false;
-        const incoming = item.ownerDispatcher === login && String(item.updatedBy || "").toUpperCase() !== login;
-        const response = clientLoadRequestIsParticipant(item, login) && String(item.updatedBy || "").toUpperCase() !== login;
+        if (previous && String(previous.updatedAt || "") === updatedAt) return false;
+        const changedBy = String(item.updatedBy || item.requesterDispatcher || "").toUpperCase();
+        const incoming = String(item.ownerDispatcher || "").toUpperCase() === login && changedBy !== login;
+        const response = clientLoadRequestIsParticipant(item, login) && changedBy !== login;
         return incoming || response;
       });
       if (!changed.length) return;
-      const incoming = changed.some(item => item.ownerDispatcher === login);
-      showAppMessage(incoming ? "Nowe zapytanie do Ciebie" : "Odpowiedź na zapytanie", changed.length === 1 ? `${changed[0].clientName} · ${clientLoadRequestStatusLabel(changed[0].status)}` : `${changed.length} nowych informacji w zapytaniach.`, "info");
-      const newest = changed.reduce((max, item) => String(item.updatedAt || item.createdAt || "") > max ? String(item.updatedAt || item.createdAt || "") : max, "");
-      markClientLoadRequestsSeen(newest || new Date().toISOString());
+      const incoming = changed.some(item => String(item.ownerDispatcher || "").toUpperCase() === login);
+      const first = changed[0];
+      showAttentionToast(incoming
+        ? `Nowe zapytanie o ładunek: ${first.clientName || "klient"}${changed.length > 1 ? ` (+${changed.length - 1})` : ""}`
+        : `Nowa odpowiedź na zapytanie: ${first.clientName || "klient"}${changed.length > 1 ? ` (+${changed.length - 1})` : ""}`);
+      playAttentionSound();
+      showAppMessage(incoming ? "Nowe zapytanie do Twojego klienta" : "Odpowiedź na zapytanie", changed.length === 1 ? `${first.clientName} · ${clientLoadRequestStatusLabel(first.status)}` : `${changed.length} nowych informacji w zapytaniach.`, "info");
+      syncCommercialIntelligenceSection();
     }
 
     function renderCommercialBody() {
@@ -73188,7 +73268,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderCommercialIntelligence() {
       const tabs = [["rates", "Historia"], ["region", "Klienci i ładunki w rejonie"], ["requests", "Zapytania o ładunek"]];
       if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-      return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+      return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
     }
 
 
@@ -78128,9 +78208,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncRouteContextMenu();
     }
 
+    function sendRouteQuickClientLoadRequest(routeId, clientId) {
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route) return;
+      const location = displayCity(route.unload) || route.unload || "";
+      sendRegionClientLoadRequest(clientId, location);
+      state.contextMenu = null;
+      syncRouteContextMenu();
+    }
+
     function renderRouteNearbyClientsContext(route) {
       const query = displayCity(route.unload) || route.unload || "";
       const rows = regionOpportunityRows(query, true).slice(0, 6);
+      const login = String(state.user?.login || "").toUpperCase();
       return `
         <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
         <div class="route-context-title">Klienci i ładunki w rejonie: ${esc(query || "—")}</div>
@@ -78143,6 +78233,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${esc(item.client.address)}<br>
                 <span class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.client.dispatcher || "")}">${esc(item.client.dispatcher || "—")}</span></span><br>
                 <span class="small">Śr. marża: <b>${money(item.avgMargin)}</b> · śr. stawka: <b>${item.avgRatePerKm > 0 ? `${item.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b></span>
+                ${state.user?.role === "spedytor" && item.client.dispatcher && String(item.client.dispatcher).toUpperCase() !== login ? `<div class="route-context-client-actions"><button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.client.id)}')">Zapytaj o ładunek</button></div>` : ""}
               </div>
             `).join("")}
           </div>
@@ -78188,6 +78279,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
           <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
+          ${state.user?.role === "spedytor" ? `<button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-green"></span>Szybkie zapytanie o ładunek</button>` : ""}
           <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci i ładunki w rejonie</button>
           ${renderOtherDispatcherContextNotice(route)}
           <div class="route-context-title">Status spedytora</div>
@@ -79416,7 +79508,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncAddModal();
     }
 
-    const ROUTE_DROP_SNAP_MINUTES = 5;
+    const ROUTE_DROP_SNAP_MINUTES = 1;
     const ROUTE_DROP_STEPS_PER_HOUR = 60 / ROUTE_DROP_SNAP_MINUTES;
 
     function snapToRouteDropGrid(value) {
@@ -79493,8 +79585,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const grabOffset = routeDragState.routeId === route.id
         ? Math.max(0, Number(routeDragState.grabOffsetHours || 0))
         : 0;
-      // 3H.4: trzy razy gęstsza siatka upuszczania (5 min zamiast 15 min).
-      // Zachowujemy punkt złapania i dopiero wynikową lewą krawędź przyciągamy do siatki.
+      // 3K: siatka minutowa. Zachowujemy punkt złapania i dopiero
+      // wynikową pozycję kafelka przyciągamy do kroku 1 minuty.
       return clampRouteDropHour(pointerGlobalHour - grabOffset, 0, Math.max(0, timelineMaxHour() - duration));
     }
 
@@ -79519,8 +79611,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ? rawGlobalHourFromCell(event, target)
         : rawGlobalHourFromTimeline(event, target);
       const startGlobal = routeDropStartFromPointer(pointerGlobal, route);
+      const maxHour = Math.max(0.25, timelineMaxHour());
+      const duration = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, routeGlobalDuration(route));
+      const exactWidthPercent = Math.max(0.01, (duration / maxHour) * 100);
+      const visualWidthPercent = route.timelineWidthMode === "manual" ? exactWidthPercent : Math.max(2.535, exactWidthPercent * 1.3);
+      const visualWidthHours = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, (visualWidthPercent / 100) * maxHour);
+      const visibleWidthHours = Math.min(visualWidthHours, Math.max(ROUTE_DROP_SNAP_MINUTES / 60, maxHour - startGlobal));
+      const centerGlobal = Math.min(maxHour, startGlobal + visibleWidthHours / 2);
       const rect = row.getBoundingClientRect();
-      const leftPx = rect.left + (startGlobal / Math.max(0.25, timelineMaxHour())) * rect.width;
+      const leftPx = rect.left + (centerGlobal / maxHour) * rect.width;
       let guide = routeDragState.guide;
       if (!guide || !guide.isConnected) {
         guide = document.createElement("div");
@@ -79533,7 +79632,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       guide.style.top = `${Math.max(0, rect.top + 14)}px`;
       guide.style.height = `${Math.max(34, rect.height - 18)}px`;
       const label = guide.querySelector(".route-drop-guide-label");
-      if (label) label.textContent = routeDropGuideLabel(startGlobal);
+      if (label) label.textContent = `Środek ${routeDropGuideLabel(centerGlobal)}`;
     }
 
     function startRouteDrag(event, routeId) {
@@ -83241,6 +83340,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (beforeFingerprint !== afterFingerprint) {
         syncCommercialIntelligenceSection();
         notifyClientLoadRequestChanges(previousRows, merged);
+      } else if (!wasReady && clientLoadRequestUnreadCount()) {
+        syncCommercialIntelligenceSection();
+        notifyUnreadClientLoadRequests();
       }
       scheduleCentralLoadRequestsDiff(120);
     }
@@ -84088,7 +84190,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (["spedytor","admin"].includes(state.user?.role)) tabs.push(["fleet","Kierowcy i pojazdy"]);
         if (isAdminUser()) tabs.push(["audit","Historia operacji"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-        return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+        return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
       };
 
       const originalSetCommercialView = setCommercialView;
@@ -84100,6 +84202,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (next === "rates") state.commercialRatesSearched = false;
         state.commercialView = next;
         state.commercialPanelOpen = true;
+        if (next === "requests") markClientLoadRequestsSeen();
         syncCommercialIntelligenceSection();
         if (next === "audit" && EMBEDDED_MODE) {
           window.parent?.postMessage({ type: "top-dragon-audit-request" }, window.location.origin);
