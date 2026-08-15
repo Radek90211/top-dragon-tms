@@ -2903,6 +2903,33 @@
 
     .modal-body { padding: 16px; }
 
+    .admin-transfer-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 185;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(15,23,42,.55);
+    }
+    .admin-transfer-modal {
+      width: min(650px, 100%);
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    .admin-transfer-head { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border); }
+    .admin-transfer-head h3 { margin:0;font-size:16px; }
+    .admin-transfer-body { padding:16px;display:grid;gap:14px; }
+    .admin-transfer-group { border:1px solid #dbe3ee;border-radius:12px;padding:12px;background:#f8fafc; }
+    .admin-transfer-group strong { display:block;margin-bottom:4px; }
+    .admin-transfer-actions { display:flex;gap:8px;flex-wrap:wrap;margin-top:10px; }
+    .app.dark-mode .admin-transfer-modal { background:#111827;border-color:#334155; }
+    .app.dark-mode .admin-transfer-group { background:#0f172a;border-color:#334155; }
+
     .copy-ok {
       display: none;
       color: #15803d;
@@ -68849,6 +68876,61 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     let CENTRAL_LOAD_REQUEST_SYNC_TIMER = null;
     let CENTRAL_LOAD_REQUEST_ERROR_AT = 0;
 
+    // 3K.5: routing ciężarowy jest wykonywany przez backend Vercel, aby klucz API
+    // nigdy nie trafiał do kodu przeglądarki. Iframe komunikuje się z src/main.js.
+    const TRUCK_ROUTING_PENDING = new Map();
+    const TRUCK_SEARCH_RADIUS_KM = 150;
+
+    function requestTruckRouting(mode, payload = {}, timeoutMs = 22000) {
+      if (!EMBEDDED_MODE || !state.user) return Promise.reject(new Error("Routing ciężarowy wymaga aktywnej sesji."));
+      const requestId = `truck-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          TRUCK_ROUTING_PENDING.delete(requestId);
+          reject(new Error("Przekroczono czas oczekiwania na routing ciężarowy."));
+        }, Math.max(4000, Number(timeoutMs) || 22000));
+        TRUCK_ROUTING_PENDING.set(requestId, { resolve, reject, timer });
+        window.parent?.postMessage({
+          type: "top-dragon-truck-routing-request",
+          requestId,
+          mode,
+          payload
+        }, window.location.origin);
+      });
+    }
+
+    function handleTruckRoutingResult(message) {
+      const requestId = String(message?.requestId || "");
+      const pending = TRUCK_ROUTING_PENDING.get(requestId);
+      if (!pending) return;
+      TRUCK_ROUTING_PENDING.delete(requestId);
+      clearTimeout(pending.timer);
+      if (message?.ok) pending.resolve(message.data || {});
+      else pending.reject(new Error(String(message?.message || "Nie udało się wyznaczyć trasy ciężarowej.")));
+    }
+
+    function categoryCElapsedEstimate(driveMinutes) {
+      let remaining = Math.max(0, Math.ceil(Number(driveMinutes) || 0));
+      const driveMin = remaining;
+      let breakMin = 0;
+      let restMin = 0;
+      let elapsedMin = 0;
+      while (remaining > 0) {
+        const dayDrive = Math.min(9 * 60, remaining);
+        elapsedMin += dayDrive;
+        if (dayDrive > 4.5 * 60) {
+          breakMin += 45;
+          elapsedMin += 45;
+        }
+        remaining -= dayDrive;
+        if (remaining > 0) {
+          restMin += 11 * 60;
+          elapsedMin += 11 * 60;
+        }
+      }
+      return { driveMin, breakMin, restMin, elapsedMin };
+    }
+
     const state = {
       user: null,
       routes: cloneData(INITIAL_ROUTES),
@@ -68924,6 +69006,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       commercialRateFilters: { client: "", load: "", unload: "", rangeMin: "", rangeMax: "", marginMin: "", dispatcher: "", countMin: "" },
       commercialAssignDispatcher: "",
       regionOpportunityQuery: "",
+      regionTruckSearch: { query: "", status: "idle", rows: [], error: "" },
       leafletLoadingPromise: null,
       leafletForceNative: false,
       leafletTileErrorCount: 0,
@@ -68970,6 +69053,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       aiImportTarget: "future",
       aiImportMode: "choose",
       queueDragOverTarget: "",
+      quickTruckClientSearch: { routeId: "", status: "idle", rows: [], error: "" },
+      adminDataTransferOpen: false,
       uiSyncRaf: null,
       panelSyncRaf: null
     };
@@ -69299,6 +69384,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       let end = idx * 24 + routeEndHour(route);
       if (end <= routeGlobalStart(route)) end = routeGlobalStart(route) + 1;
       return end;
+    }
+
+    function routeUsesExactTimelineWidth(route) {
+      return route?.timelineWidthMode === "manual" || route?.timelineWidthMode === "estimated";
     }
 
     function snapToQuarterHour(value) {
@@ -71250,6 +71339,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
                   ${["spedytor","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
                   ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
+                  ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdminDataTransfer()" title="Importuj lub eksportuj relacje i klientów">Import / eksport</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
                   <span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">
@@ -71291,6 +71381,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${renderDeleteConfirm()}
           ${renderAttentionToast()}
           ${renderAppMessage()}
+          ${state.adminDataTransferOpen ? renderAdminDataTransferModal() : ""}
         </div>
       `;
     }
@@ -72530,11 +72621,65 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.regionOpportunityDraft = String(value || "");
     }
 
-    function runRegionOpportunitySearch(value) {
+    async function runRegionOpportunitySearch(value) {
       state.regionOpportunityQuery = String(value || "").trim();
       state.regionOpportunityDraft = state.regionOpportunityQuery;
+      const query = state.regionOpportunityQuery;
       const host = document.querySelector('[data-role="commercial-body"]');
+      if (!query) {
+        state.regionTruckSearch = { query:"", status:"idle", rows:[], error:"" };
+        if (host) host.innerHTML = renderCommercialBody();
+        return;
+      }
+      const queryPoint = clientRelationLocationPoint(query);
+      if (!Array.isArray(queryPoint?.coords)) {
+        state.regionTruckSearch = { query, status:"error", rows:[], error:"Nie udało się rozpoznać lokalizacji rejonu." };
+        if (host) host.innerHTML = renderCommercialBody();
+        return;
+      }
+
+      state.regionTruckSearch = { query, status:"loading", rows:[], error:"" };
       if (host) host.innerHTML = renderCommercialBody();
+
+      try {
+        const sourceRows = regionOpportunitySourceRows(true);
+        const shortlist = sourceRows.map(source => {
+          const point = source.candidatePoints?.[0];
+          if (!Array.isArray(point) || !point.every(Number.isFinite)) return null;
+          const directKm = haversineKm(queryPoint.coords, point);
+          if (!Number.isFinite(directKm) || directKm > TRUCK_SEARCH_RADIUS_KM) return null;
+          return { source, coords:{ lat:Number(point[0]), lng:Number(point[1]) } };
+        }).filter(Boolean);
+
+        const routed = [];
+        for (let offset = 0; offset < shortlist.length; offset += 90) {
+          const chunk = shortlist.slice(offset, offset + 90);
+          const matrix = await requestTruckRouting("matrix", {
+            origin: { lat:Number(queryPoint.coords[0]), lng:Number(queryPoint.coords[1]) },
+            destinations: chunk.map(item => item.coords)
+          }, 26000);
+          const results = Array.isArray(matrix?.results) ? matrix.results : [];
+          chunk.forEach((item, index) => {
+            const result = results[index];
+            const distanceKm = Number(result?.distanceKm);
+            if (!result?.ok || !Number.isFinite(distanceKm) || distanceKm > TRUCK_SEARCH_RADIUS_KM) return;
+            const metrics = clientCommercialMetrics(item.source.client, item.source.rows);
+            routed.push({ ...item.source, items:item.source.rows, ...metrics, distanceKm, durationMin:Number(result.durationMin || 0) });
+          });
+        }
+        if (state.regionOpportunityQuery !== query) return;
+        state.regionTruckSearch = {
+          query,
+          status:"ready",
+          rows:routed.sort((a,b) => a.distanceKm - b.distanceKm || b.items.length - a.items.length).slice(0,30),
+          error:""
+        };
+      } catch (error) {
+        if (state.regionOpportunityQuery !== query) return;
+        state.regionTruckSearch = { query, status:"error", rows:[], error:String(error?.message || "Nie udało się policzyć tras ciężarowych.") };
+      }
+      const currentHost = document.querySelector('[data-role="commercial-body"]');
+      if (currentHost && state.commercialView === "region") currentHost.innerHTML = renderCommercialBody();
     }
 
     function handleRegionOpportunityKey(event, value) {
@@ -72550,13 +72695,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function showRegionOpportunitiesForRoute(routeId) {
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return;
-      state.regionOpportunityQuery = displayCity(route.unload) || route.unload || "";
-      state.regionOpportunityDraft = state.regionOpportunityQuery;
+      const query = displayCity(route.unload) || route.unload || "";
+      state.regionOpportunityQuery = query;
+      state.regionOpportunityDraft = query;
       state.commercialView = "region";
       state.commercialPanelOpen = true;
       state.contextMenu = null;
       syncRouteContextMenu();
       syncCommercialIntelligenceSection();
+      runRegionOpportunitySearch(query);
       requestAnimationFrame(() => document.getElementById("commercial-intelligence")?.scrollIntoView?.({ behavior: "smooth", block: "start" }));
     }
 
@@ -73291,14 +73438,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }).join("")}<div class="commercial-empty" data-commercial-search-empty ${visibleCount ? "hidden" : ""}>Brak historii spełniającej wybrane filtry.</div></div>` : `<div class="commercial-empty">Brak danych w historii. Stawki zapisują się automatycznie wraz ze zleceniem.</div>`}`;
       }
       if (state.commercialView === "region") {
-        const rows = regionOpportunityRows(state.regionOpportunityQuery, true);
+        const search = state.regionTruckSearch?.query === state.regionOpportunityQuery
+          ? state.regionTruckSearch
+          : { status:"idle", rows:[], error:"" };
+        const rows = Array.isArray(search.rows) ? search.rows : [];
         const draft = state.regionOpportunityDraft ?? state.regionOpportunityQuery ?? "";
         const login = String(state.user?.login || "").toUpperCase();
-        return `<div class="commercial-region-search"><input class="input" value="${attr(draft)}" placeholder="Wpisz rejon, np. Poznań lub 60-001" oninput="setRegionOpportunityDraft(this.value)" onkeydown="handleRegionOpportunityKey(event,this.value)"/><button class="btn" onclick="runRegionOpportunitySearch(document.querySelector('.commercial-region-search input')?.value)">Szukaj</button></div>${rows.length ? rows.map(group => {
-          const owner = String(group.client?.dispatcher || "").toUpperCase();
-          const canRequest = owner && owner !== login;
-          return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">ok. ${Math.round(group.distanceKm)} km · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Zapytaj o ładunek</button>` : ""}</div></div>`;
-        }).join("") : `<div class="commercial-empty">Wpisz miejscowość lub kod i wybierz „Szukaj”.</div>`}`;
+        const content = search.status === "loading"
+          ? `<div class="commercial-empty">Liczymy odległości po drogach dla pojazdu kat. C. Maksymalny promień: 150 km.</div>`
+          : search.status === "error"
+            ? `<div class="commercial-empty">${esc(search.error || "Nie udało się policzyć odległości ciężarowych.")}</div>`
+            : rows.length ? rows.map(group => {
+                const owner = String(group.client?.dispatcher || "").toUpperCase();
+                const canRequest = owner && owner !== login;
+                return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">${Math.round(group.distanceKm)} km po drogach · kat. C · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Zapytaj o ładunek</button>` : ""}</div></div>`;
+              }).join("")
+            : state.regionOpportunityQuery
+              ? `<div class="commercial-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`
+              : `<div class="commercial-empty">Wpisz miejscowość lub kod i wybierz „Szukaj”.</div>`;
+        return `<div class="commercial-region-search"><input class="input" value="${attr(draft)}" placeholder="Wpisz rejon, np. Poznań lub 60-001" oninput="setRegionOpportunityDraft(this.value)" onkeydown="handleRegionOpportunityKey(event,this.value)"/><button class="btn" onclick="runRegionOpportunitySearch(document.querySelector('.commercial-region-search input')?.value)">Szukaj</button></div>${content}`;
       }
       if (state.commercialView === "clients") return renderCommercialClientDatabases();
       if (state.commercialView === "requests") return renderClientLoadRequests();
@@ -75141,8 +75299,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncQueueTabOffsets() {
       const offset = queueDrawerOffset();
       document.querySelectorAll(".map-toggle-tab,.future-tab,.proposed-tab,.stats-tab").forEach(tab => {
+        // Najpierw zawsze kasujemy pozycję odziedziczoną po poprzednio otwartym drawerze.
+        // Dopiero potem nakładamy bieżący offset. Dzięki temu zamknięta zakładka nie
+        // może pozostać przesunięta po serii szybkich otwarć / zamknięć paneli.
+        tab.style.removeProperty("right");
         if (offset > 0) tab.style.right = `${offset}px`;
-        else tab.style.removeProperty("right");
       });
     }
 
@@ -76874,6 +77035,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function requiredPauseAfterRoute(route) {
       if (isFreeDayRoute(route)) return 0;
+      // Kafelki oszacowane dla kat. C zawierają już wymagane przerwy i odpoczynki.
+      if (route?.timelineWidthMode === "estimated" && Number(route?.estimatedTruckElapsedMin || 0) > 0) return 0;
       const duration = Math.max(0, routeGlobalDuration(route));
       if (duration >= 9) return 11;
       if (duration >= 4.5) return 0.75;
@@ -76940,9 +77103,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             // Nowo dodany kafelek pozostaje ok. 30% szerszy dla czytelności nazwy.
             // Po pierwszej ręcznej zmianie szerokości przechodzimy w tryb manualny:
             // wtedy widoczne krawędzie odpowiadają dokładnie pozycji wybranej kursorem.
-            const manualTimelineWidth = route.timelineWidthMode === "manual";
-            const displayWidth = manualTimelineWidth
-              ? exactWidth
+            const exactTimelineWidth = routeUsesExactTimelineWidth(route);
+            const displayWidth = exactTimelineWidth
+              ? Math.max(1.95, exactWidth)
               // Poprzednie minimum 1,95% było zbyt wąskie dla krótkich relacji.
               // Powiększamy minimalny świeży kafelek o kolejne 30%: 1,95 × 1,30 = 2,535%.
               : Math.max(2.535, exactWidth * 1.3);
@@ -76955,7 +77118,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 class="time-route continuous ${canEditThisRoute ? "can-resize" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
                 data-route-id="${attr(route.id)}"
                 data-can-resize="${canEditThisRoute ? "1" : "0"}"
-                data-width-mode="${manualTimelineWidth ? "manual" : "auto30"}"
+                data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
                 ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
@@ -78283,34 +78446,102 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return "distance-far";
     }
 
-    function quickRequestClientsForRoute(route, limit = 12) {
-      const historyIndex = clientHistoryIndex();
+    function quickRequestClientCandidates(route) {
+      if (!route) return [];
+      const point = routePointFromRoute(route, "unload");
+      if (!point) return [];
+      const origin = [Number(point.lat), Number(point.lng)];
+      if (!origin.every(Number.isFinite)) return [];
+
       const deduped = new Map();
-      nearestClientsForRoute(route, Math.max(24, Number(limit || 12) * 3)).forEach(item => {
-        const resolved = quickRequestClientOwner(item.client);
-        const targetClient = (state.clients || []).find(client => String(client.id || "") === resolved.requestClientId) || resolved.client || item.client;
+      (state.clients || []).forEach(client => {
+        const resolved = quickRequestClientOwner(client);
+        const targetClient = (state.clients || []).find(candidate => String(candidate.id || "") === resolved.requestClientId) || resolved.client || client;
+        const coords = clientCoords(targetClient) || clientCoords(client);
+        if (!coords || !coords.every(Number.isFinite)) return;
+        const straightKm = haversineKm(origin, coords);
+        // Najkrótsza odległość geograficzna jest dolną granicą drogi. Jeżeli już
+        // po prostej klient leży dalej niż 150 km, nie wysyłamy zbędnego zapytania do routera.
+        if (!Number.isFinite(straightKm) || straightKm > TRUCK_SEARCH_RADIUS_KM) return;
         const identity = normalizeClientNip(targetClient?.nip || "") || `${removePolishChars(targetClient?.name || "")}|${removePolishChars(targetClient?.address || "")}`;
         if (!identity || deduped.has(identity)) return;
-        const rows = clientHistoryRows(targetClient, historyIndex);
-        const metrics = clientCommercialMetrics(targetClient, rows);
         deduped.set(identity, {
           client: resolved.client || targetClient,
           requestClientId: resolved.requestClientId,
           ownerDispatcher: resolved.ownerDispatcher,
-          distanceKm: item.distanceKm,
-          items: rows,
-          ...metrics
+          coords: { lat: Number(coords[0]), lng: Number(coords[1]) }
         });
       });
-      return Array.from(deduped.values())
-        .sort((a, b) => a.distanceKm - b.distanceKm)
-        .slice(0, Math.max(1, Number(limit || 12)));
+      return Array.from(deduped.values());
+    }
+
+    async function loadTruckQuickClients(route) {
+      const routeId = String(route?.id || "");
+      if (!routeId) return;
+      const point = routePointFromRoute(route, "unload");
+      const origin = point ? { lat: Number(point.lat), lng: Number(point.lng) } : null;
+      if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
+        state.quickTruckClientSearch = { routeId, status: "error", rows: [], error: "Brak współrzędnych miejsca rozładunku." };
+        syncRouteContextMenu();
+        return;
+      }
+
+      const candidates = quickRequestClientCandidates(route);
+      state.quickTruckClientSearch = { routeId, status: "loading", rows: [], error: "" };
+      syncRouteContextMenu();
+      if (!candidates.length) {
+        state.quickTruckClientSearch = { routeId, status: "ready", rows: [], error: "" };
+        syncRouteContextMenu();
+        return;
+      }
+
+      try {
+        const routed = [];
+        for (let offset = 0; offset < candidates.length; offset += 90) {
+          const chunk = candidates.slice(offset, offset + 90);
+          const matrix = await requestTruckRouting("matrix", {
+            origin,
+            destinations: chunk.map(item => item.coords)
+          }, 26000);
+          const results = Array.isArray(matrix?.results) ? matrix.results : [];
+          chunk.forEach((item, index) => {
+            const result = results[index];
+            const distanceKm = Number(result?.distanceKm);
+            if (!result?.ok || !Number.isFinite(distanceKm) || distanceKm > TRUCK_SEARCH_RADIUS_KM) return;
+            routed.push({ ...item, distanceKm, durationMin: Number(result?.durationMin || 0) });
+          });
+        }
+
+        const historyIndex = clientHistoryIndex();
+        const rows = routed.map(item => {
+          const targetClient = (state.clients || []).find(client => String(client.id || "") === String(item.requestClientId || "")) || item.client;
+          const history = clientHistoryRows(targetClient, historyIndex);
+          const metrics = clientCommercialMetrics(targetClient, history);
+          return { ...item, items: history, ...metrics };
+        }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 30);
+
+        if (String(state.contextMenu?.routeId || "") !== routeId) return;
+        state.quickTruckClientSearch = { routeId, status: "ready", rows, error: "" };
+        syncRouteContextMenu();
+      } catch (error) {
+        if (String(state.contextMenu?.routeId || "") !== routeId) return;
+        state.quickTruckClientSearch = {
+          routeId,
+          status: "error",
+          rows: [],
+          error: String(error?.message || "Nie udało się policzyć odległości ciężarowych.")
+        };
+        syncRouteContextMenu();
+      }
     }
 
     function showRouteNearbyClients(routeId) {
       if (!state.contextMenu || state.contextMenu.routeId !== routeId) return;
       state.contextMenu.view = "clients";
+      const route = state.routes.find(item => item.id === routeId);
+      state.quickTruckClientSearch = { routeId, status: "loading", rows: [], error: "" };
       syncRouteContextMenu();
+      if (route) loadTruckQuickClients(route);
     }
 
     function showRouteContextMain(routeId) {
@@ -78331,12 +78562,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderRouteNearbyClientsContext(route) {
       const query = displayCity(route.unload) || route.unload || "";
-      const rows = quickRequestClientsForRoute(route, 10);
+      const search = state.quickTruckClientSearch?.routeId === route.id
+        ? state.quickTruckClientSearch
+        : { status: "idle", rows: [], error: "" };
+      const rows = Array.isArray(search.rows) ? search.rows : [];
       const login = String(state.user?.login || "").toUpperCase();
-      return `
-        <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
-        <div class="route-context-title">Klienci i ładunki w rejonie: ${esc(query || "—")}</div>
-        ${rows.length ? `
+      const body = search.status === "loading"
+        ? `<div class="route-context-empty">Liczymy trasy drogowe dla pojazdu kat. C do 150 km…</div>`
+        : search.status === "error"
+          ? `<div class="route-context-empty">${esc(search.error || "Nie udało się wyznaczyć odległości po drogach.")}<br><button type="button" onclick="loadTruckQuickClients(state.routes.find(item=>item.id==='${attr(route.id)}'))">Spróbuj ponownie</button></div>`
+          : rows.length ? `
           <div class="route-context-client-list">
             ${rows.map(item => {
               const owner = String(item.ownerDispatcher || item.client?.dispatcher || "").toUpperCase();
@@ -78355,14 +78590,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="route-context-client-name">${clientNameLink(item.client, item.client?.name || "Klient", owner)}</div>
                   <div class="route-context-client-actions">${action}</div>
                 </div>
-                <span class="route-context-client-distance">ok. ${Math.round(item.distanceKm)} km</span><br>
+                <span class="route-context-client-distance">${Math.round(item.distanceKm)} km po drogach · kat. C</span><br>
                 ${esc(item.client.address)}<br>
                 <span class="small">Śr. marża: <b>${money(item.avgMargin)}</b> · śr. stawka: <b>${item.avgRatePerKm > 0 ? `${item.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b></span>
-              </div>
-            `;
+              </div>`;
             }).join("")}
-          </div>
-        ` : `<div class="route-context-empty">Brak klientów z rozpoznaną lokalizacją.</div>`}
+          </div>`
+          : `<div class="route-context-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`;
+      return `
+        <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
+        <div class="route-context-title">Klienci i ładunki w rejonie: ${esc(query || "—")}</div>
+        ${body}
         <button onclick="showRegionOpportunitiesForRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Otwórz pełną analizę rejonu</button>
         <button onclick="enableClientsOnMapFromContext()"><span class="context-dot context-dot-empty"></span>Pokaż klientów na mapie</button>
       `;
@@ -79746,7 +79984,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const maxHour = Math.max(0.25, timelineMaxHour());
       const duration = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, routeGlobalDuration(route));
       const exactWidthPercent = Math.max(0.01, (duration / maxHour) * 100);
-      const visualWidthPercent = route.timelineWidthMode === "manual" ? exactWidthPercent : Math.max(2.535, exactWidthPercent * 1.3);
+      const visualWidthPercent = routeUsesExactTimelineWidth(route) ? Math.max(1.95, exactWidthPercent) : Math.max(2.535, exactWidthPercent * 1.3);
       const visualWidthHours = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, (visualWidthPercent / 100) * maxHour);
       const visibleWidthHours = Math.min(visualWidthHours, Math.max(ROUTE_DROP_SNAP_MINUTES / 60, maxHour - startGlobal));
       const centerGlobal = Math.min(maxHour, startGlobal + visibleWidthHours / 2);
@@ -80001,9 +80239,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const end = Math.max(start + 0.25, Math.min(maxHour, routeGlobalEnd(route)));
       const left = (start / maxHour) * 100;
       const exactWidth = Math.max(0.01, ((end - start) / maxHour) * 100);
-      const manualTimelineWidth = route?.timelineWidthMode === "manual";
-      const width = manualTimelineWidth
-        ? exactWidth
+      const exactTimelineWidth = routeUsesExactTimelineWidth(route);
+      const width = exactTimelineWidth
+        ? Math.max(1.95, exactWidth)
         : Math.max(2.535, exactWidth * 1.3);
       return { left, width: Math.min(width, Math.max(0.01, 100 - left)) };
     }
@@ -80012,7 +80250,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const element = forcedElement || routeButtonElement(route.id);
       if (!element) return;
       const geometry = routeTimelineDisplayGeometry(route);
-      element.dataset.widthMode = route?.timelineWidthMode === "manual" ? "manual" : "auto30";
+      element.dataset.widthMode = route?.timelineWidthMode === "manual" ? "manual" : route?.timelineWidthMode === "estimated" ? "estimated" : "auto30";
       element.style.left = `${geometry.left}%`;
       element.style.width = `${geometry.width}%`;
     }
@@ -81530,7 +81768,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false&alternatives=false`;
     }
 
-    async function fetchRoadLatLngs(points, signal) {
+    async function fetchOsrmRoadLatLngs(points, signal) {
       const valid = (points || []).filter(point => point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)));
       if (valid.length < 2) return null;
       const response = await fetch(buildOsrmRouteUrl(valid), signal ? { signal } : undefined);
@@ -81543,7 +81781,47 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .map(coord => [Number(coord[1]), Number(coord[0])])
         .filter(coord => Number.isFinite(coord[0]) && Number.isFinite(coord[1]));
       if (latLngs.length < 2) throw new Error("Zbyt mało punktów trasy");
-      return { latLngs, distanceKm: Number(route.distance || 0) / 1000, durationMin: Math.round(Number(route.duration || 0) / 60) };
+      return {
+        latLngs,
+        distanceKm: Number(route.distance || 0) / 1000,
+        durationMin: Math.round(Number(route.duration || 0) / 60),
+        fallback: true,
+        truckRouting: false,
+        source: "osrm-car-fallback"
+      };
+    }
+
+    async function fetchRoadLatLngs(points, signal) {
+      const valid = (points || []).filter(point => point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)));
+      if (valid.length < 2) return null;
+      try {
+        const result = await requestTruckRouting("route", {
+          points: valid.map(point => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+        });
+        const latLngs = Array.isArray(result?.latLngs)
+          ? result.latLngs.map(pair => [Number(pair?.[0]), Number(pair?.[1])]).filter(pair => pair.every(Number.isFinite))
+          : [];
+        if (!Number.isFinite(Number(result?.distanceKm)) || !Number.isFinite(Number(result?.durationMin))) {
+          throw new Error("Brak poprawnego wyniku routingu ciężarowego.");
+        }
+        return {
+          latLngs: latLngs.length >= 2 ? latLngs : valid.map(point => [Number(point.lat), Number(point.lng)]),
+          distanceKm: Number(result.distanceKm),
+          durationMin: Number(result.durationMin),
+          fallback: false,
+          truckRouting: true,
+          source: String(result.source || "tomtom-truck")
+        };
+      } catch (error) {
+        if (signal?.aborted) {
+          const abortError = new Error("Przerwano wyznaczanie trasy.");
+          abortError.name = "AbortError";
+          throw abortError;
+        }
+        const fallback = await fetchOsrmRoadLatLngs(valid, signal);
+        fallback.truckRoutingError = String(error?.message || "Routing ciężarowy niedostępny.");
+        return fallback;
+      }
     }
 
     async function drawApproachRoadSegment(layer, approach, origin, signal) {
@@ -81759,20 +82037,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         setKmInputIfAuto("new-loaded", loadedKm, "trasa załadunek-rozładunek");
         setNewRouteBaseKm(baseKm);
 
-        const durationMin = Number(routeRoad.durationMin || 0);
-        const timeText = durationMin >= 60
-          ? `${Math.floor(durationMin / 60)} h ${String(durationMin % 60).padStart(2, "0")} min`
-          : `${durationMin} min`;
+        const durationMin = Number(loadedRoad.durationMin || routeRoad.durationMin || 0);
+        const dutyEstimate = categoryCElapsedEstimate(durationMin);
+        const driveText = durationMin >= 60
+          ? `${Math.floor(durationMin / 60)} h ${String(Math.round(durationMin % 60)).padStart(2, "0")} min`
+          : `${Math.round(durationMin)} min`;
+        const elapsedText = dutyEstimate.elapsedMin >= 60
+          ? `${Math.floor(dutyEstimate.elapsedMin / 60)} h ${String(Math.round(dutyEstimate.elapsedMin % 60)).padStart(2, "0")} min`
+          : `${Math.round(dutyEstimate.elapsedMin)} min`;
         const usedFallback = Boolean(routeRoad.fallback || approachRoad.fallback || loadedRoad.fallback || baseRoad.fallback);
 
         const statusParts = [
-          `Trasa: ${routePlannerKmText(loadedKm)}`,
+          `Trasa kat. C: ${routePlannerKmText(loadedKm)}`,
+          `jazda: ${driveText}`,
+          dutyEstimate.breakMin > 0 ? `przerwy: ${dutyEstimate.breakMin} min` : "przerwy: 0 min",
+          dutyEstimate.restMin > 0 ? `odpoczynek: ${Math.round(dutyEstimate.restMin / 60)} h` : "odpoczynek: 0 h",
+          `kafelek: ok. ${elapsedText}`,
           `dolot: ${routePlannerKmText(approachKm)}`,
           baseKm > 0 ? `baza: ${routePlannerKmText(baseKm)}` : "baza: 0 km",
-          `koszt: ${money(Math.round((approachKm + loadedKm + baseKm) * CARRIER_RATE_PER_KM))}`,
-          `około ${timeText}`
+          `koszt: ${money(Math.round((approachKm + loadedKm + baseKm) * CARRIER_RATE_PER_KM))}`
         ];
-        setRoutePlannerStatus(`${statusParts.join(" · ")}.${usedFallback ? " Trasa liczona awaryjnie orientacyjnie, bo router drogowy nie odpowiedział." : ""}`, usedFallback);
+        setRoutePlannerStatus(`${statusParts.join(" · ")}.${usedFallback ? " Trasa liczona awaryjnie orientacyjnie, bo routing ciężarowy nie odpowiedział." : ""}`, usedFallback);
 
         if (state.routePlannerAutoFitNext) {
           const fitLatLngs = roadLatLngs.slice();
@@ -82284,6 +82569,57 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       ["load", "secondLoad", "unload", "secondUnload"].forEach(kind => scheduleRoutePointGeocode(route, kind, refresh));
     }
 
+    async function estimateNewRouteCategoryCTravel(loadedKmFallback = 0) {
+      // Przy zapisie czekamy na dokładniejsze współrzędne punktów, aby szerokość kafelka
+      // wynikała z tej samej trasy drogowej, którą później widzi spedytor.
+      await Promise.all(["load", "secondLoad", "unload", "secondUnload"].map(async kind => {
+        const value = String(document.getElementById(`new-${kind}`)?.value || "").trim();
+        if (!value) return null;
+        try { return await preciseCoordsForNewRoutePoint(kind); } catch (error) { return null; }
+      }));
+      const points = routeComponentPointsForNew("loaded").filter(validRoutePlannerPoint);
+      let driveMin = 0;
+      let distanceKm = 0;
+      let source = "";
+      let fallback = false;
+      let warning = "";
+
+      if (points.length >= 2) {
+        try {
+          const result = await requestTruckRouting("route", {
+            points: points.map(point => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+          }, 26000);
+          driveMin = Number(result?.durationMin || 0);
+          distanceKm = Number(result?.distanceKm || 0);
+          source = String(result?.source || "tomtom-truck");
+        } catch (error) {
+          warning = String(error?.message || "Routing ciężarowy niedostępny.");
+        }
+      }
+
+      if (!(driveMin > 0)) {
+        const km = Math.max(0, Number(loadedKmFallback || 0));
+        if (!(km > 0)) return null;
+        // Awaryjny szacunek pozwala zapisać relację nawet przy chwilowej awarii API,
+        // ale kafelek jest oznaczony jako oszacowany bez routingu ciężarowego.
+        driveMin = (km / 62) * 60;
+        distanceKm = km;
+        source = "distance-fallback";
+        fallback = true;
+      }
+
+      const duty = categoryCElapsedEstimate(driveMin);
+      const scheduledMin = Math.ceil(Math.max(15, duty.elapsedMin) / 15) * 15;
+      return {
+        ...duty,
+        elapsedMin: scheduledMin,
+        distanceKm,
+        source,
+        fallback,
+        warning
+      };
+    }
+
     async function saveNewRoute(event) {
       if (event && typeof event.preventDefault === "function") {
         event.preventDefault();
@@ -82364,6 +82700,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       const startHourValue = Number(state.prefill?.startHour ?? (freeDayValue ? 8 : 8));
+      const categoryCEstimate = freeDayValue || proposedMode ? null : await estimateNewRouteCategoryCTravel(loadedValue);
       const endDateValue = freeDayValue ? routeDate : (state.prefill?.endDate || routeDate);
       const endHourValue = freeDayValue ? 24 : Number(state.prefill?.endHour ?? Math.min(24, startHourValue + 12));
 
@@ -82412,7 +82749,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         routeSecondLoadCoords: secondLoadPointForSave,
         routeDestinationCoords: unloadPointForSave,
         routeSecondUnloadCoords: secondUnloadPointForSave,
-        truckProfile: "",
+        truckProfile: categoryCEstimate ? "category-c-generic" : "",
+        estimatedTruckDistanceKm: categoryCEstimate ? Number(categoryCEstimate.distanceKm || 0) : 0,
+        estimatedTruckDriveMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.driveMin || 0)) : 0,
+        estimatedTruckBreakMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.breakMin || 0)) : 0,
+        estimatedTruckRestMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.restMin || 0)) : 0,
+        estimatedTruckElapsedMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.elapsedMin || 0)) : 0,
+        truckRoutingSource: categoryCEstimate ? String(categoryCEstimate.source || "") : "",
+        truckRoutingFallback: Boolean(categoryCEstimate?.fallback),
+        timelineWidthMode: categoryCEstimate ? "estimated" : "auto30",
         startHour: startHourValue,
         endDate: endDateValue,
         endHour: endHourValue,
@@ -82426,6 +82771,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         visibilityBranch: visibilityBranchValue,
         bulkTotal: bulkCountValue
       };
+
+      if (!freeDayValue && categoryCEstimate?.elapsedMin > 0) {
+        const estimatedHours = Number(categoryCEstimate.elapsedMin) / 60;
+        setRouteGlobalEnd(route, Math.min(timelineMaxHour(), routeGlobalStart(route) + estimatedHours));
+        if (categoryCEstimate.fallback && categoryCEstimate.warning) {
+          showAppMessage("Trasa zapisana z awaryjnym szacunkiem czasu", categoryCEstimate.warning, "info");
+        }
+      }
 
       if (proposedMode) {
         if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
@@ -83616,6 +83969,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         applyCentralLoadRequestsData(message);
       } else if (message.type === "top-dragon-load-request-operation-result") {
         window.handleCentralLoadRequestOperationResult?.(message);
+      } else if (message.type === "top-dragon-truck-routing-result") {
+        handleTruckRoutingResult(message);
       } else if (message.type === "top-dragon-audit-data") {
         applyCentralAuditData(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
@@ -83792,6 +84147,170 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           window.location.origin
         );
       };
+
+      function canUseAdminDataTransfer() {
+        return Boolean(state.user && state.user.supabaseRole === "admin");
+      }
+
+      function renderAdminDataTransferModal() {
+        if (!canUseAdminDataTransfer()) return "";
+        return `
+          <div class="admin-transfer-backdrop" onclick="closeAdminDataTransfer(event)">
+            <section class="admin-transfer-modal" onclick="event.stopPropagation()" aria-label="Import i eksport danych TMS">
+              <div class="admin-transfer-head">
+                <div><h3>Import / eksport danych</h3><div class="small">Funkcja wyłącznie dla administratora</div></div>
+                <button type="button" class="btn" onclick="closeAdminDataTransfer()">Zamknij</button>
+              </div>
+              <div class="admin-transfer-body">
+                <div class="admin-transfer-group">
+                  <strong>Relacje</strong>
+                  <div class="small">Eksport zawiera pełne dane relacji wraz z identyfikatorem oddziału. Import aktualizuje rekord o tym samym ID lub dodaje nowy; nie usuwa pozostałych relacji.</div>
+                  <div class="admin-transfer-actions">
+                    <button type="button" class="btn btn-dark" onclick="adminExportData('relations')">Eksport relacji JSON</button>
+                    <button type="button" class="btn" onclick="adminChooseImport('relations')">Import relacji JSON</button>
+                  </div>
+                </div>
+                <div class="admin-transfer-group">
+                  <strong>Klienci</strong>
+                  <div class="small">Eksport zachowuje dane klienta, opiekuna oraz oddział. Import aktualizuje istniejących klientów lub dodaje nowych bez kasowania bazy.</div>
+                  <div class="admin-transfer-actions">
+                    <button type="button" class="btn btn-dark" onclick="adminExportData('clients')">Eksport klientów JSON</button>
+                    <button type="button" class="btn" onclick="adminChooseImport('clients')">Import klientów JSON</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>`;
+      }
+
+      window.openAdminDataTransfer = function() {
+        if (!canUseAdminDataTransfer()) {
+          showAppMessage("Brak uprawnień", "Import i eksport relacji oraz klientów jest dostępny wyłącznie dla administratora.", "error");
+          return;
+        }
+        state.adminDataTransferOpen = true;
+        replaceTransientElement(".admin-transfer-backdrop", renderAdminDataTransferModal());
+      };
+
+      window.closeAdminDataTransfer = function(event) {
+        if (event && event.target !== event.currentTarget) return;
+        state.adminDataTransferOpen = false;
+        document.querySelectorAll(".admin-transfer-backdrop").forEach(element => element.remove());
+      };
+
+      function downloadAdminJson(filename, payload) {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+
+      window.adminExportData = function(kind) {
+        if (!canUseAdminDataTransfer()) {
+          showAppMessage("Brak uprawnień", "Eksport danych jest dostępny wyłącznie dla administratora.", "error");
+          return;
+        }
+        const exportedAt = new Date().toISOString();
+        const type = kind === "clients" ? "clients" : "relations";
+        const items = type === "clients"
+          ? (state.clients || []).filter(client => client && !client.sample).map(client => ({
+              branchId: centralClientBranchId(client),
+              payload: centralSerializableClient(client)
+            })).filter(item => item.branchId && item.payload?.id)
+          : (state.routes || []).filter(route => route && !route.futureQueue && !route.proposedLoad).map(route => ({
+              branchId: centralRouteBranchId(route),
+              payload: centralSerializableRoute(route)
+            })).filter(item => item.branchId && item.payload?.id);
+        const payload = { format: "top-dragon-tms", version: 1, type, exportedAt, items };
+        const date = exportedAt.slice(0, 10);
+        downloadAdminJson(`top-dragon-${type}-${date}.json`, payload);
+        recordAuditOperation(`Eksport ${type === "clients" ? "klientów" : "relacji"}`, type, "", `${items.length} rekordów`);
+      };
+
+      window.adminChooseImport = function(kind) {
+        if (!canUseAdminDataTransfer()) {
+          showAppMessage("Brak uprawnień", "Import danych jest dostępny wyłącznie dla administratora.", "error");
+          return;
+        }
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "application/json,.json";
+        input.addEventListener("change", async () => {
+          const file = input.files?.[0];
+          if (file) await adminImportData(kind, file);
+        }, { once: true });
+        input.click();
+      };
+
+      async function adminImportData(kind, file) {
+        if (!canUseAdminDataTransfer()) return;
+        const expectedType = kind === "clients" ? "clients" : "relations";
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          if (parsed?.format !== "top-dragon-tms" || Number(parsed?.version) !== 1 || parsed?.type !== expectedType || !Array.isArray(parsed?.items)) {
+            throw new Error(`Plik nie jest prawidłowym eksportem ${expectedType === "clients" ? "klientów" : "relacji"} Top Dragon TMS.`);
+          }
+          let imported = 0;
+          let skipped = 0;
+
+          if (expectedType === "relations") {
+            const routes = Array.isArray(state.routes) ? state.routes.slice() : [];
+            parsed.items.forEach(entry => {
+              const branchId = String(entry?.branchId || "").trim();
+              const payload = entry?.payload && typeof entry.payload === "object" ? cloneData(entry.payload) : null;
+              const id = String(payload?.id || "").trim();
+              if (!branchId || !id || !payload || payload.futureQueue || payload.proposedLoad) { skipped += 1; return; }
+              payload.id = id;
+              try { Object.defineProperty(payload, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
+              catch (error) { payload._centralBranchId = branchId; }
+              const key = centralRelationKey(branchId, id);
+              const index = routes.findIndex(route => centralRelationKey(centralRouteBranchId(route), route?.id) === key);
+              if (index >= 0) routes[index] = payload; else routes.push(payload);
+              CENTRAL_RELATION_BASELINE.delete(key);
+              CENTRAL_RELATION_PENDING_DELETE.delete(key);
+              imported += 1;
+            });
+            state.routes = routes;
+            boardRenderCache = null;
+            invalidateCombinedClientHistoryCache();
+            scheduleCentralRelationsDiff(0);
+          } else {
+            const clients = Array.isArray(state.clients) ? state.clients.slice() : [];
+            parsed.items.forEach(entry => {
+              const branchId = String(entry?.branchId || "").trim();
+              const raw = entry?.payload && typeof entry.payload === "object" ? cloneData(entry.payload) : null;
+              const normalized = raw ? normalizeStoredClient(raw) : null;
+              const id = String(normalized?.id || "").trim();
+              if (!branchId || !id || !normalized) { skipped += 1; return; }
+              try { Object.defineProperty(normalized, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
+              catch (error) { normalized._centralBranchId = branchId; }
+              const key = centralClientKey(branchId, id);
+              const index = clients.findIndex(client => centralClientKey(centralClientBranchId(client), client?.id) === key);
+              if (index >= 0) clients[index] = normalized; else clients.push(normalized);
+              CENTRAL_CLIENT_BASELINE.delete(key);
+              CENTRAL_CLIENT_PENDING_DELETE.delete(key);
+              imported += 1;
+            });
+            state.clients = clients;
+            saveClientDatabaseToStorage();
+            invalidateRegionOpportunityCache();
+            scheduleCentralClientsDiff(0);
+          }
+
+          state.adminDataTransferOpen = false;
+          renderKeepingScroll();
+          recordAuditOperation(`Import ${expectedType === "clients" ? "klientów" : "relacji"}`, expectedType, "", `${imported} rekordów${skipped ? ` · pominięto ${skipped}` : ""}`);
+          showAppMessage("Import zakończony", `Zaimportowano ${imported} rekordów.${skipped ? ` Pominięto ${skipped} nieprawidłowych wpisów.` : ""}`, "success");
+        } catch (error) {
+          showAppMessage("Nie udało się zaimportować danych", String(error?.message || error), "error");
+        }
+      }
 
       let FLEET_OPERATION_BUSY = false;
       let LAST_FLEET_REQUEST_ID = "";
