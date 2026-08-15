@@ -70796,6 +70796,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!drawer) return false;
       drawer.classList.toggle("open", Boolean(isOpen));
       if (tab && tab.classList.contains("stats-tab")) tab.classList.toggle("btn-dark", Boolean(isOpen));
+      if (!isOpen && (tabSelector === ".future-tab" || tabSelector === ".proposed-tab")) {
+        requestAnimationFrame(syncQueueTabOffsets);
+      }
       return true;
     }
 
@@ -71004,6 +71007,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (changed) {
         syncFutureButton();
+        requestAnimationFrame(syncQueueTabOffsets);
       }
     }
 
@@ -75016,7 +75020,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function syncQueueTabOffsets() {
       const offset = queueDrawerOffset();
-      document.querySelectorAll(".map-toggle-tab,.future-tab,.proposed-tab,.stats-tab").forEach(tab => { tab.style.right = `${offset}px`; });
+      document.querySelectorAll(".map-toggle-tab,.future-tab,.proposed-tab,.stats-tab").forEach(tab => {
+        if (offset > 0) tab.style.right = `${offset}px`;
+        else tab.style.removeProperty("right");
+      });
     }
 
     function clearQueueDropStyles() {
@@ -83294,6 +83301,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralLoadRequestsTicker = setInterval(syncCentralLoadRequestsDiff, 800);
     }
 
+    function applyCentralAuditData(message) {
+      if (!isAdminUser()) return;
+      const rows = Array.isArray(message?.rows) ? message.rows : [];
+      state.auditLog = rows.map(row => ({
+        id: String(row?.id || ""),
+        at: String(row?.createdAt || ""),
+        actor: String(row?.actorName || "").toUpperCase(),
+        role: String(row?.actorRole || ""),
+        branch: String(row?.branchName || ""),
+        action: String(row?.action || ""),
+        entityType: String(row?.entityType || ""),
+        entityId: String(row?.entityId || ""),
+        details: String(row?.details || "")
+      })).filter(item => item.at && item.action);
+
+      const host = document.querySelector('[data-role="commercial-body"]');
+      if (host && state.commercialView === "audit") host.innerHTML = renderAuditHistory();
+    }
+
     window.addEventListener("message", event => {
       if (event.origin !== window.location.origin) return;
       const message = event.data || {};
@@ -83359,6 +83385,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         applyCentralLoadRequestsData(message);
       } else if (message.type === "top-dragon-load-request-operation-result") {
         window.handleCentralLoadRequestOperationResult?.(message);
+      } else if (message.type === "top-dragon-audit-data") {
+        applyCentralAuditData(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
         window.handleFleetOperationResult?.(message);
       } else if (message.type === "top-dragon-relation-usage-result") {
@@ -83384,6 +83412,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_LOAD_REQUESTS_READY = false;
         CENTRAL_LOAD_REQUEST_BASELINE.clear();
         CENTRAL_LOAD_REQUEST_PENDING_UPSERT.clear();
+        state.auditLog = [];
         render();
       }
     });
@@ -83739,6 +83768,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       invalidateFleetCaches();
 
       function loadAuditLog() {
+        if (EMBEDDED_MODE) return [];
         try {
           const rows = JSON.parse(localStorage.getItem(AUDIT_STORAGE_KEY) || "[]");
           return Array.isArray(rows) ? rows : [];
@@ -83754,6 +83784,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       rememberAllCurrentDriverRelationUsage();
 
       function saveAuditLog() {
+        if (EMBEDDED_MODE) return;
         try {
           localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify((state.auditLog || []).slice(0, AUDIT_MAX_ROWS)));
         } catch (error) {}
@@ -83771,6 +83802,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function recordAuditOperation(action, entityType = "", entityId = "", details = "", actor = null) {
         const user = actor || state.user;
         if (!user?.login) return;
+        const normalizedDetails = auditDetailString(details);
+
+        if (EMBEDDED_MODE) {
+          window.parent?.postMessage({
+            type: "top-dragon-audit-record",
+            action: String(action || "Operacja"),
+            entityType: String(entityType || "operacja"),
+            entityId: String(entityId || ""),
+            details: normalizedDetails
+          }, window.location.origin);
+          return;
+        }
+
         const entry = {
           id:`audit-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
           at:new Date().toISOString(),
@@ -83780,7 +83824,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           action:String(action || "Operacja"),
           entityType:String(entityType || ""),
           entityId:String(entityId || ""),
-          details:auditDetailString(details)
+          details:normalizedDetails
         };
         state.auditLog = [entry, ...(state.auditLog || [])].slice(0, AUDIT_MAX_ROWS);
         saveAuditLog();
@@ -83990,11 +84034,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.clearAuditHistory = function() {
-        if (!isAdminUser() || !window.confirm("Wyczyścić całą lokalną historię operacji?")) return;
-        state.auditLog = [];
-        saveAuditLog();
-        const host = document.querySelector('[data-role="commercial-body"]');
-        if (host) host.innerHTML = renderAuditHistory();
+        if (!isAdminUser()) return;
+        showAppMessage("Historia chroniona", "Centralna historia operacji nie może być usuwana z aplikacji.", "info");
       };
 
       window.exportAuditHistory = function() {
@@ -84019,13 +84060,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const actors = Array.from(new Set((state.auditLog || []).map(item => item.actor).filter(Boolean))).sort((a,b) => a.localeCompare(b,"pl"));
         const actions = Array.from(new Set((state.auditLog || []).map(item => item.action).filter(Boolean))).sort((a,b) => a.localeCompare(b,"pl"));
         return `<div class="audit-card">
-          <div class="admin-only-note"><b>Historia operacji</b><span>Rejestr obejmuje działania wykonywane w tej przeglądarce. Docelowa wersja online powinna zapisywać audyt po stronie serwera.</span></div>
+          <div class="admin-only-note"><b>Historia operacji</b><span>Centralny, nieusuwalny rejestr działań użytkowników zapisany w Supabase. Historia jest wspólna między komputerami i sesjami.</span></div>
           <div class="audit-toolbar" style="margin-top:12px;">
             <div><label class="field-label" style="margin-top:0;">Szukaj</label><input class="input" value="${attr(filters.query || "")}" placeholder="relacja, klient, kierowca" oninput="setAuditFilter('query',this.value)" /></div>
             <div><label class="field-label" style="margin-top:0;">Użytkownik</label><select class="select" onchange="setAuditFilter('actor',this.value)"><option value="">Wszyscy</option>${actors.map(actor => `<option value="${attr(actor)}" ${filters.actor === actor ? "selected" : ""}>${esc(actor)}</option>`).join("")}</select></div>
             <div><label class="field-label" style="margin-top:0;">Operacja</label><select class="select" onchange="setAuditFilter('action',this.value)"><option value="">Wszystkie</option>${actions.map(action => `<option value="${attr(action)}" ${filters.action === action ? "selected" : ""}>${esc(action)}</option>`).join("")}</select></div>
             <div><label class="field-label" style="margin-top:0;">Od / do</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"><input class="input" type="date" value="${attr(filters.dateFrom || "")}" onchange="setAuditFilter('dateFrom',this.value)" /><input class="input" type="date" value="${attr(filters.dateTo || "")}" onchange="setAuditFilter('dateTo',this.value)" /></div></div>
-            <div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn" type="button" onclick="clearAuditFilters()">Wyczyść filtry</button><button class="btn" type="button" onclick="exportAuditHistory()">Eksport</button><button class="btn danger" type="button" onclick="clearAuditHistory()">Wyczyść historię</button></div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn" type="button" onclick="clearAuditFilters()">Wyczyść filtry</button><button class="btn" type="button" onclick="window.parent?.postMessage({type:'top-dragon-audit-request'},window.location.origin)">Odśwież</button><button class="btn" type="button" onclick="exportAuditHistory()">Eksport</button></div>
           </div>
           <div class="small" style="margin-bottom:7px;">${rows.length} operacji</div>
           <div class="audit-list">${rows.length ? rows.slice(0,1000).map(item => `<div class="audit-row"><span>${esc(new Date(item.at).toLocaleString("pl-PL"))}</span><span>${queueDispatchers().includes(item.actor) ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.actor)}">${esc(item.actor)}</span>` : `<b>${esc(item.actor)}</b>`}</span><span class="audit-action">${esc(item.action)}</span><span class="audit-details">${esc(item.details || `${item.entityType} ${item.entityId}`.trim())}</span></div>`).join("") : `<div class="commercial-empty">Brak zapisanych operacji spełniających filtry.</div>`}</div>
@@ -84060,6 +84101,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.commercialView = next;
         state.commercialPanelOpen = true;
         syncCommercialIntelligenceSection();
+        if (next === "audit" && EMBEDDED_MODE) {
+          window.parent?.postMessage({ type: "top-dragon-audit-request" }, window.location.origin);
+        }
       };
 
       const originalRenderRateFilters = renderCommercialRateFilters;
