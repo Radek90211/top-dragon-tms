@@ -3755,6 +3755,48 @@
       color: #075985;
     }
 
+    .proposed-load-match {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 10px;
+      font-weight: 950;
+      border: 1px solid rgba(34, 197, 94, .32);
+      background: #ecfdf5;
+      color: #166534;
+      white-space: nowrap;
+    }
+
+    .proposed-load-match::before {
+      content: "✓";
+      display: inline-grid;
+      place-items: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #22c55e;
+      color: #fff;
+      font-size: 9px;
+      line-height: 1;
+    }
+
+    .proposed-load-dates {
+      display: flex;
+      gap: 6px 10px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.25;
+    }
+
+    .proposed-load-dates b {
+      color: var(--text);
+      font-weight: 900;
+    }
+
     .proposed-load-actions {
       display: flex;
       gap: 6px;
@@ -3788,6 +3830,16 @@
     .app.dark-mode .proposed-load-status.taken {
       background: #0c4a6e;
       color: #e0f2fe;
+    }
+
+    .app.dark-mode .proposed-load-match {
+      background: #052e16;
+      color: #bbf7d0;
+      border-color: #166534;
+    }
+
+    .app.dark-mode .proposed-load-dates b {
+      color: #e5e7eb;
     }
 
     .future-card-actions {
@@ -75064,8 +75116,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canModify = proposedLoadCanModify(route);
       const canTake = proposedLoadCanTake(route);
       const currentDrivers = takeOptions.map(item => item.driver);
+      const matchedDrivers = distances.filter(item => item.compatibility.ok && item.scheduleFit);
+      const hasVehicleMatch = matchedDrivers.length > 0;
       const statusLabel = "wolny";
-      const routeDateLabel = formatDateForInput(route.date || state.reportDate || START_DATE);
+      const loadDateLabel = formatDateForInput(route.date || state.reportDate || START_DATE);
+      const unloadDateLabel = formatDateForInput(routeEndDate(route) || route.endDate || route.date || state.reportDate || START_DATE);
       const routeKm = totalKm(route);
       const routeKmLabel = routeKm > 0 ? `${routeKm} km` : "dystans trasy: do wyliczenia";
       const detailsHidden = cardDetailsHidden("proposed", route.id);
@@ -75078,8 +75133,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
                 ${esc(displayLocationWithPostal(route.load) || route.load || "—")} → ${esc(displayLocationWithPostal(route.unload) || route.unload || "—")}
               </div>
+              <div class="proposed-load-dates">
+                <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
+                <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
+              </div>
               ${detailsHidden ? "" : `
-                <div class="proposed-load-meta">Data relacji: <b>${esc(routeDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))} · ${esc(routeKmLabel)}</div>
+                <div class="proposed-load-meta">${esc(routeKmLabel)}</div>
                 <div class="proposed-load-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'all')}</div>
                 ${renderRouteRequirements(route)}
               `}
@@ -75092,6 +75151,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </div>
             </div>
             <div style="display:grid;gap:5px;justify-items:end;">
+              ${hasVehicleMatch ? `<span class="proposed-load-match" title="Ładunek pasuje do ${matchedDrivers.length} pojazd${matchedDrivers.length === 1 ? "u" : "ów"} bez kolizji planu">${matchedDrivers.length === 1 ? "Dopasowany pojazd" : `Dopasowane: ${matchedDrivers.length}`}</span>` : ""}
               ${detailsHidden ? "" : `<span class="proposed-load-status">${esc(statusLabel)}</span>`}
               ${closest ? `<b>${Math.round(closest.distanceKm)} km po trasie${closest.distancePending ? "*" : ""}</b>` : ""}
             </div>
@@ -79091,7 +79151,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div>
           <label class="field-label" style="margin-top:0;">${esc(label)}</label>
-          <input id="route-number-${attr(route.id)}-${attr(field)}" data-route-number-field="${attr(field)}" class="input" type="number" value="${attr(value)}" ${disabled} oninput="updateRouteNumber('${attr(route.id)}','${attr(field)}',this.value)" onchange="commitRouteNumber('${attr(route.id)}')" />
+          <input id="route-number-${attr(route.id)}-${attr(field)}" data-route-number-field="${attr(field)}" class="input" type="number" value="${attr(value)}" ${disabled} oninput="updateRouteNumber('${attr(route.id)}','${attr(field)}',this.value)" onchange="commitRouteNumber('${attr(route.id)}','${attr(field)}')" />
         </div>
       `;
     }
@@ -79985,6 +80045,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         route.accountingCheck = false;
         if (route.accountingStatus === "Wprowadzone" || route.accountingStatus === "Niezgodności") route.accountingStatus = "Nowe";
       }
+
+      if (accountingStatus) syncCentralAccountingStatus(route);
 
       state.contextMenu = null;
       syncRouteContextMenu();
@@ -82587,6 +82649,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           route[field] = shouldNormalize ? normalizeLocation(value) : value;
           route.accountingCheck = route[field] === "Niezgodności" || route[field] === "Krytyczne";
           route.accountingFinal = route[field] === "Wprowadzone";
+          syncCentralAccountingStatus(route);
           updateRouteButtonStatus(route.id);
           syncDetailsPanel();
           syncBoardOnly();
@@ -82673,11 +82736,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.routeNumberCommitTimer = setTimeout(() => commitRouteNumber(routeId), 320);
     }
 
-    function commitRouteNumber(routeId) {
+    function commitRouteNumber(routeId, accountingField = "") {
       clearTimeout(state.routeNumberCommitTimer);
       state.routeNumberCommitTimer = null;
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return;
+      const isAccounting = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
+      if (isAccounting && ACCOUNTING_EDITABLE_NUMBER_FIELDS.has(accountingField)) {
+        const value = accountingField === "cost" ? Number(routeAutoCost(route) || 0) : Number(route[accountingField] || 0);
+        const patch = { [accountingField]: value };
+        if (accountingField === "oversizedCost") patch.oversizedTransport = Boolean(route.oversizedTransport);
+        syncCentralAccountingPatch(route, patch);
+      }
       scheduleRouteHistoryCapture(route);
       invalidateCombinedClientHistoryCache();
       scheduleUiSync({ board:true, unload:true, details:false });
@@ -83598,6 +83668,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         type: "top-dragon-relations-request",
         requestId: `relations-load-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       }, window.location.origin);
+    }
+
+    function syncCentralAccountingPatch(route, patch = {}) {
+      if (!EMBEDDED_MODE || !state.user || !route || !patch || typeof patch !== "object") return;
+      const isAccounting = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
+      if (!isAccounting) return;
+      const relationId = String(route.id || "").trim();
+      const branchId = centralRouteBranchId(route);
+      if (!relationId || !branchId) return;
+      window.parent?.postMessage({
+        type: "top-dragon-relation-accounting-update",
+        requestId: `relation-accounting-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        relationId,
+        branchId,
+        patch
+      }, window.location.origin);
+    }
+
+    function syncCentralAccountingStatus(route) {
+      if (!route) return;
+      syncCentralAccountingPatch(route, {
+        accountingStatus: String(route.accountingStatus || "Nowe"),
+        accountingFinal: Boolean(route.accountingFinal),
+        accountingCheck: Boolean(route.accountingCheck)
+      });
     }
 
     function applyCentralRelationsData(message) {
