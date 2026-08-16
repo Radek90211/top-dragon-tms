@@ -1601,6 +1601,69 @@ async function handleTruckRoutingRequestFromTms(message) {
   }
 }
 
+async function handleAiAnalyzerRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const kind = String(message?.kind || '').trim().toLowerCase()
+
+  const sendResult = (ok, data = {}, errorMessage = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-ai-analyzer-result',
+      requestId,
+      ok: Boolean(ok),
+      data: ok ? data : null,
+      message: String(errorMessage || data?.message || ''),
+    }, window.location.origin)
+  }
+
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError) throw sessionError
+    const token = sessionData?.session?.access_token
+    if (!token) throw new Error('Sesja użytkownika wygasła. Zaloguj się ponownie.')
+
+    const payload = message?.payload && typeof message.payload === 'object' ? message.payload : {}
+    let response
+
+    if (kind === 'pdf') {
+      const file = payload.file
+      if (!(file instanceof Blob)) throw new Error('Nie przekazano prawidłowego pliku PDF.')
+      const fileName = String(payload.fileName || file.name || 'zlecenie.pdf')
+      response = await fetch('/api/import-pdf', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': file.type || 'application/pdf',
+          'X-File-Name': encodeURIComponent(fileName),
+          'X-Reference-Date': String(payload.referenceDate || ''),
+        },
+        body: file,
+      })
+    } else if (kind === 'text') {
+      response = await fetch('/api/import-text-orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: String(payload.text || ''),
+          date: String(payload.date || ''),
+        }),
+      })
+    } else {
+      throw new Error('Nieobsługiwany typ analizy AI.')
+    }
+
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.message || `Analizator AI zwrócił HTTP ${response.status}.`)
+    }
+    sendResult(true, data)
+  } catch (error) {
+    sendResult(false, {}, error?.message || 'Nie udało się wykonać analizy AI.')
+  }
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -1633,7 +1696,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v23-loading-unloading-2h"
+        src="/tms.html?embedded=1&build=request-workflow-v25-gemini-ai"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1754,6 +1817,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-truck-routing-request') {
       await handleTruckRoutingRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-ai-analyzer-request') {
+      await handleAiAnalyzerRequestFromTms(event.data)
       return
     }
 
