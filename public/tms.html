@@ -68080,13 +68080,10 @@
     const INITIAL_PROPOSED_LOADS = [];
     const INITIAL_FUTURE_ROUTES = [];
 
-    // PDF_IMPORT_MODULE: endpoint backendu pozostaje pusty w statycznym HTML.
-    // Po wdrożeniu backendu ustaw tutaj np. "/api/import-pdf".
-    const PDF_ORDER_ANALYZER_ENDPOINT = "";
-
-    // TEXT_ORDER_AI_MODULE: endpoint backendu pozostaje pusty w statycznym HTML.
-    // Po wdrożeniu backendu ustaw tutaj np. "/api/import-text-orders".
-    const TEXT_ORDER_ANALYZER_ENDPOINT = "";
+    // ETAP 3L.1: Analizator AI działa wyłącznie przez bezpieczny backend Vercel.
+    // Klucz GEMINI_API_KEY nigdy nie trafia do iframe ani kodu przeglądarki.
+    const PDF_ORDER_ANALYZER_ENDPOINT = "/api/import-pdf";
+    const TEXT_ORDER_ANALYZER_ENDPOINT = "/api/import-text-orders";
 
 
     // MODUŁ: wspólna baza klientów i historia relacji.
@@ -68907,6 +68904,37 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       clearTimeout(pending.timer);
       if (message?.ok) pending.resolve(message.data || {});
       else pending.reject(new Error(String(message?.message || "Nie udało się wyznaczyć trasy ciężarowej.")));
+    }
+
+    // ETAP 3L.1: most iframe -> src/main.js -> chroniony endpoint AI.
+    const AI_ANALYZER_PENDING = new Map();
+
+    function requestAiAnalyzer(kind, payload = {}, timeoutMs = 90000) {
+      if (!EMBEDDED_MODE || !state.user) return Promise.reject(new Error("Analizator AI wymaga aktywnej sesji."));
+      const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          AI_ANALYZER_PENDING.delete(requestId);
+          reject(new Error("Przekroczono czas oczekiwania na analizę AI."));
+        }, Math.max(15000, Number(timeoutMs) || 90000));
+        AI_ANALYZER_PENDING.set(requestId, { resolve, reject, timer });
+        window.parent?.postMessage({
+          type: "top-dragon-ai-analyzer-request",
+          requestId,
+          kind: String(kind || ""),
+          payload
+        }, window.location.origin);
+      });
+    }
+
+    function handleAiAnalyzerResult(message) {
+      const requestId = String(message?.requestId || "");
+      const pending = AI_ANALYZER_PENDING.get(requestId);
+      if (!pending) return;
+      AI_ANALYZER_PENDING.delete(requestId);
+      clearTimeout(pending.timer);
+      if (message?.ok) pending.resolve(message.data || {});
+      else pending.reject(new Error(String(message?.message || "Nie udało się wykonać analizy AI.")));
     }
 
     const CATEGORY_C_LOADING_MIN = 120;
@@ -75670,6 +75698,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadTime: "10:00",
         unloadCity: "",
         unloadAddress: "",
+        client: "",
+        reference: "",
+        rate: 0,
+        currency: "",
+        confidence: 0,
         notes: "",
         reminders: ""
       };
@@ -75806,6 +75839,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadTime: delivery.time || delivery.hour || defaults.unloadTime,
         unloadCity: cityLabel(delivery) || defaults.unloadCity,
         unloadAddress: addressLabel(delivery) || defaults.unloadAddress,
+        client: String(payload.client || payload.customer || defaults.client || "").trim(),
+        reference: String(payload.reference || payload.orderReference || defaults.reference || "").trim(),
+        rate: Number(payload.rate || defaults.rate || 0),
+        currency: String(payload.currency || defaults.currency || "").trim().toUpperCase(),
+        confidence: Number(payload.confidence || 0),
         notes: listToText(payload.extraInfo || payload.notes || payload.uwagi) || defaults.notes,
         reminders: listToText(payload.reminders || payload.przypominajki) || defaults.reminders
       };
@@ -75820,30 +75858,33 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
 
-      if (!PDF_ORDER_ANALYZER_ENDPOINT) {
-        state.pdfImportStatus = "Ikona i formularz importu są gotowe. Do realnej analizy PDF trzeba podpiąć backend /api/import-pdf, żeby nie ujawniać klucza API w HTML.";
+      if (!EMBEDDED_MODE) {
+        state.pdfImportStatus = "Analizator AI jest dostępny w zalogowanej wersji produkcyjnej TMS.";
         state.pdfImportWarning = true;
         syncPdfImportUi();
         return;
       }
 
-      state.pdfImportStatus = "Analizuję PDF…";
+      state.pdfImportStatus = "Analizuję PDF przez AI…";
       state.pdfImportWarning = false;
       syncPdfImportUi();
 
       try {
-        const formData = new FormData();
-        formData.append("file", state.pdfImportFile, state.pdfImportFileName || "zlecenie.pdf");
-        const response = await fetch(PDF_ORDER_ANALYZER_ENDPOINT, { method: "POST", body: formData });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
+        const payload = await requestAiAnalyzer("pdf", {
+          file: state.pdfImportFile,
+          fileName: state.pdfImportFileName || "zlecenie.pdf",
+          referenceDate: state.reportDate || currentAppDate()
+        }, 110000);
         state.pdfImportData = normalizePdfOrderAnalysis(payload);
-        state.pdfImportStatus = "Analiza zakończona.";
+        const confidence = Number(state.pdfImportData?.confidence || 0);
+        state.pdfImportStatus = confidence > 0
+          ? `Analiza zakończona · pewność ${Math.round(confidence * 100)}%. Sprawdź dane w formularzu.`
+          : "Analiza zakończona. Sprawdź dane w formularzu.";
         state.pdfImportWarning = false;
         applyPdfImportToRouteForm();
         return;
       } catch (error) {
-        state.pdfImportStatus = `Nie udało się przeanalizować PDF: ${error?.message || error}. Sprawdź endpoint backendu.`;
+        state.pdfImportStatus = `Nie udało się przeanalizować PDF: ${error?.message || error}.`;
         state.pdfImportWarning = true;
       }
       syncPdfImportUi();
@@ -75878,8 +75919,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         endHour: pdfImportHour(data.unloadTime, 10),
         load: data.loadCity,
         unload: data.unloadCity,
-        notes: [data.notes, data.reminders].filter(Boolean).join("\n"),
-        client: "Zlecenie z PDF",
+        notes: [
+          data.reference ? `Ref.: ${data.reference}` : "",
+          data.currency && data.currency !== "PLN" && Number(data.rate || 0) > 0 ? `Stawka z dokumentu: ${data.rate} ${data.currency}` : "",
+          data.notes,
+          data.reminders
+        ].filter(Boolean).join("\n"),
+        client: data.client || "Zlecenie z PDF",
+        rate: (!data.currency || data.currency === "PLN") ? Number(data.rate || 0) : 0,
         visibilityScope: targetProposed ? "all" : "branch"
       };
       state.pdfImportOpen = false;
@@ -76074,8 +76121,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           startHour: textImportHour(pickup.time || pickup.hour || item.startTime || item.startHour, 12),
           endDate: normalizeTextImportDate(delivery.date || item.unloadDate || item.endDate, normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate())),
           endHour: textImportHour(delivery.time || delivery.hour || item.endTime || item.endHour, 10),
-          notes: Array.isArray(item.extraInfo || item.notes) ? (item.extraInfo || item.notes).join("\n") : String(item.extraInfo || item.notes || ""),
-          client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`
+          notes: [
+            item.reference ? `Ref.: ${item.reference}` : "",
+            item.currency && String(item.currency).toUpperCase() !== "PLN" && Number(item.rate || 0) > 0 ? `Stawka z wiadomości: ${item.rate} ${String(item.currency).toUpperCase()}` : "",
+            Array.isArray(item.extraInfo || item.notes) ? (item.extraInfo || item.notes).join("\n") : String(item.extraInfo || item.notes || "")
+          ].filter(Boolean).join("\n"),
+          client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`,
+          reference: String(item.reference || ""),
+          rate: (!item.currency || String(item.currency).toUpperCase() === "PLN") ? Number(item.rate || 0) : 0,
+          currency: String(item.currency || "").toUpperCase(),
+          confidence: Number(item.confidence || 0)
         };
       }).filter(Boolean);
     }
@@ -76126,10 +76181,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!textValue) { showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą."); return; }
       let parsed = [];
       try {
-        if (TEXT_ORDER_ANALYZER_ENDPOINT) {
-          const response = await fetch(TEXT_ORDER_ANALYZER_ENDPOINT, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ text:textValue, dispatcher:state.user?.login || "", date:state.reportDate || currentAppDate() }) });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          parsed = normalizeTextOrderAnalysis(await response.json());
+        if (EMBEDDED_MODE) {
+          const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 90000);
+          parsed = normalizeTextOrderAnalysis(payload);
         } else parsed = localTextOrderParser(textValue);
       } catch (error) { showAppMessage("Błąd analizy", String(error?.message || error)); return; }
       const item = parsed[0];
@@ -76160,22 +76214,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       try {
         let parsed = [];
-        if (TEXT_ORDER_ANALYZER_ENDPOINT) {
-          const response = await fetch(TEXT_ORDER_ANALYZER_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, dispatcher: state.user?.login || "", date: state.reportDate || currentAppDate() })
-          });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          parsed = normalizeTextOrderAnalysis(await response.json());
+        if (EMBEDDED_MODE) {
+          const payload = await requestAiAnalyzer("text", { text, date: state.reportDate || currentAppDate() }, 90000);
+          parsed = normalizeTextOrderAnalysis(payload);
         } else {
           parsed = localTextOrderParser(text);
         }
 
         if (!parsed.length) {
-          state.textImportStatus = TEXT_ORDER_ANALYZER_ENDPOINT
+          state.textImportStatus = EMBEDDED_MODE
             ? "AI nie zwróciło żadnej poprawnej relacji. Sprawdź treść wiadomości."
-            : "Nie udało się rozpoznać relacji lokalnym parserem. Po podpięciu backendu AI analiza będzie dokładniejsza.";
+            : "Nie udało się rozpoznać relacji lokalnym parserem.";
           state.textImportWarning = true;
           state.textImportPreview = [];
           syncTextImportUi();
@@ -83984,6 +84033,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.handleCentralLoadRequestOperationResult?.(message);
       } else if (message.type === "top-dragon-truck-routing-result") {
         handleTruckRoutingResult(message);
+      } else if (message.type === "top-dragon-ai-analyzer-result") {
+        handleAiAnalyzerResult(message);
       } else if (message.type === "top-dragon-audit-data") {
         applyCentralAuditData(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
