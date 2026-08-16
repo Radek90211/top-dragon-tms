@@ -74710,7 +74710,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function cardDetailsHidden(kind, id) {
       const store = kind === "future" ? state.futureHiddenDetails : state.proposedHiddenDetails;
-      return Boolean(store && store[id]);
+      // Domyślnie karty w kolejkach są zwinięte. Dopiero jawna wartość false
+      // oznacza, że użytkownik rozwinął szczegóły konkretnej pozycji.
+      if (!store || !Object.prototype.hasOwnProperty.call(store, id)) return true;
+      return Boolean(store[id]);
     }
 
     function domDataSelector(name, value) {
@@ -74746,11 +74749,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (kind === "future") {
         if (!state.futureHiddenDetails) state.futureHiddenDetails = {};
-        state.futureHiddenDetails[id] = !state.futureHiddenDetails[id];
+        state.futureHiddenDetails[id] = !cardDetailsHidden("future", id);
         if (!syncSingleCardDetails("future", id)) syncFuturePanel();
       } else {
         if (!state.proposedHiddenDetails) state.proposedHiddenDetails = {};
-        state.proposedHiddenDetails[id] = !state.proposedHiddenDetails[id];
+        state.proposedHiddenDetails[id] = !cardDetailsHidden("proposed", id);
         if (!syncSingleCardDetails("proposed", id)) syncProposedPanel();
       }
     }
@@ -74829,6 +74832,82 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function proposedRepositionHours(fromRoute, fromKind, toRoute, toKind) {
+      const fromPoint = operationalPointForRoute(fromRoute, fromKind);
+      const toPoint = operationalPointForRoute(toRoute, toKind);
+      if (!fromPoint || !toPoint) return 0;
+      const from = [Number(fromPoint.lat), Number(fromPoint.lng)];
+      const to = [Number(toPoint.lat), Number(toPoint.lng)];
+      if (!from.every(Number.isFinite) || !to.every(Number.isFinite)) return 0;
+      const km = preferredMainRoadKm(from, to);
+      // Ten sam konserwatywny fallback 62 km/h jest używany w kalkulatorze
+      // trasy kat. C, gdy dokładny routing ciężarowy jest chwilowo niedostępny.
+      return Number.isFinite(km) && km > 0 ? km / 62 : 0;
+    }
+
+    function proposedDriverScheduleConflict(driverId, route) {
+      if (!driverId || !route) return null;
+
+      const candidate = {
+        ...route,
+        id: `__proposed-fit-${route.id || "new"}-${driverId}`,
+        driverId,
+        futureQueue: false,
+        proposedLoad: false,
+        approvalStatus: "accepted"
+      };
+      const candidateStart = routeGlobalStart(candidate);
+      const candidateEnd = routeGlobalEnd(candidate);
+      const candidateEndWithPause = candidateEnd + requiredPauseAfterRoute(candidate);
+
+      const occupied = activeRoutes()
+        .filter(existing =>
+          existing &&
+          existing.driverId === driverId &&
+          existing.approvalStatus !== "rejected" &&
+          existing.id !== route.id &&
+          existing.sourceProposedId !== route.id
+        )
+        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
+
+      // 1) Bezpośrednia kolizja przedziałów czasu / wymaganej pauzy.
+      const directConflict = occupied.find(existing => {
+        const existingStart = routeGlobalStart(existing);
+        const existingEndWithPause = routeGlobalEnd(existing) + requiredPauseAfterRoute(existing);
+        return candidateStart < existingEndWithPause - ROUTE_OVERLAP_EPSILON_HOURS &&
+          candidateEndWithPause > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
+      });
+      if (directConflict) return directConflict;
+
+      // 2) Poprzednia relacja może kończyć się przed wolnym ładunkiem, ale kierowca
+      // musi jeszcze fizycznie dojechać z rozładunku na nowy załadunek.
+      const previous = [...occupied]
+        .filter(existing => routeGlobalEnd(existing) <= candidateStart + ROUTE_OVERLAP_EPSILON_HOURS)
+        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
+      if (previous) {
+        const readyAfterPrevious = routeGlobalEnd(previous)
+          + requiredPauseAfterRoute(previous)
+          + proposedRepositionHours(previous, "unload", candidate, "load");
+        if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) return previous;
+      }
+
+      // 3) Po wolnym ładunku musi zostać czas na dojazd do kolejnej zaplanowanej relacji.
+      const next = occupied
+        .filter(existing => routeGlobalStart(existing) >= candidateEnd - ROUTE_OVERLAP_EPSILON_HOURS)
+        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
+      if (next) {
+        const readyForNext = candidateEndWithPause
+          + proposedRepositionHours(candidate, "unload", next, "load");
+        if (readyForNext > routeGlobalStart(next) + ROUTE_OVERLAP_EPSILON_HOURS) return next;
+      }
+
+      return null;
+    }
+
+    function proposedLoadFitsDriverSchedule(driverId, route) {
+      return !proposedDriverScheduleConflict(driverId, route);
+    }
+
     function proposedDistancesForRoute(route, date = state.reportDate, options = {}) {
       const targetPoint = routePointFromRoute(route, "load");
       const loadTextForGeocode = [route?.loadAddress, route?.load].filter(Boolean).join(", ");
@@ -74852,18 +74931,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ? mainRoadDistanceKmForListing(position.coords, target)
             : { km: 9999, exact: false, pending: false };
           const compatibility = driverLoadCompatibility(driver, route);
+          const scheduleConflict = proposedDriverScheduleConflict(driver.id, route);
+          const scheduleFit = !scheduleConflict;
           return {
             driver,
             position,
             distanceKm: distanceInfo.km,
             distanceExact: distanceInfo.exact,
             distancePending: distanceInfo.pending,
-            compatibility
+            compatibility,
+            scheduleFit,
+            scheduleConflict
           };
         })
         .filter(item => {
           if (options.maxDistanceOnly && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM) return false;
           if (options.compatibleOnly && !item.compatibility.ok) return false;
+          if (options.scheduleFitOnly && !item.scheduleFit) return false;
           if (options.nearOnly && (item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM || !item.compatibility.ok)) return false;
           return true;
         })
@@ -74881,6 +74965,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return proposedDistancesForRoute(route, date, {
         maxDistanceOnly: true,
         compatibleOnly: true,
+        scheduleFitOnly: true,
         currentDispatcherOnly: true
       });
     }
@@ -74910,6 +74995,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           distances: proposedDistancesForRoute(route, date, {
             maxDistanceOnly: true,
             compatibleOnly: true,
+            scheduleFitOnly: true,
             currentDispatcherOnly: false
           })
         }))
@@ -74974,12 +75060,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const distances = allProposedDriversForLoad(route, distanceDate);
       const takeOptions = currentDispatcherProposedDriversForTake(route, distanceDate);
       const dispatcher = route.createdBy || "—";
-      const closest = distances.find(item => item.compatibility.ok) || distances[0];
+      const closest = distances.find(item => item.compatibility.ok && item.scheduleFit) || distances.find(item => item.scheduleFit) || null;
       const canModify = proposedLoadCanModify(route);
       const canTake = proposedLoadCanTake(route);
       const currentDrivers = takeOptions.map(item => item.driver);
       const statusLabel = "wolny";
       const routeDateLabel = formatDateForInput(route.date || state.reportDate || START_DATE);
+      const routeKm = totalKm(route);
+      const routeKmLabel = routeKm > 0 ? `${routeKm} km` : "dystans trasy: do wyliczenia";
       const detailsHidden = cardDetailsHidden("proposed", route.id);
 
       return `
@@ -74991,7 +75079,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${esc(displayLocationWithPostal(route.load) || route.load || "—")} → ${esc(displayLocationWithPostal(route.unload) || route.unload || "—")}
               </div>
               ${detailsHidden ? "" : `
-                <div class="proposed-load-meta">Data relacji: <b>${esc(routeDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))} · ${totalKm(route)} km</div>
+                <div class="proposed-load-meta">Data relacji: <b>${esc(routeDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))} · ${esc(routeKmLabel)}</div>
                 <div class="proposed-load-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'all')}</div>
                 ${renderRouteRequirements(route)}
               `}
@@ -75011,9 +75099,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${detailsHidden ? "" : `
             <div class="proposed-distance-list">
               ${distances.length ? distances.map(item => `
-                <div class="proposed-distance-row ${item.compatibility.ok ? "near" : ""}">
-                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${renderDriverBusyWarning(item.driver.id, distanceDate)}</span>
-                  <b>${Math.round(item.distanceKm)} km po trasie${item.distancePending ? "*" : ""}</b>
+                <div class="proposed-distance-row ${item.compatibility.ok && item.scheduleFit ? "near" : ""}">
+                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Relacja nie mieści się w aktualnym planie kierowcy" aria-label="Relacja nie mieści się w aktualnym planie kierowcy"></span>`}</span>
+                  <b>${item.scheduleFit ? `${Math.round(item.distanceKm)} km po trasie${item.distancePending ? "*" : ""}` : "kolizja planu"}</b>
                 </div>
               `).join("") : `<div class="proposed-distance-empty">Brak pojazdów w promieniu 150 km od punktu załadunku.</div>`}
             </div>
@@ -75139,6 +75227,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const driver = driverById(driverId);
       if (!driver || driver.dispatcher !== state.user.login) {
         showAppMessage("Wybierz pojazd", "Ładunek możesz pobrać wyłącznie na pojazd przypisany do Twojego spedytora.");
+        return;
+      }
+
+      const scheduleConflict = proposedDriverScheduleConflict(driver.id, proposed);
+      if (scheduleConflict) {
+        showAppMessage(
+          "Relacja nie mieści się w planie",
+          `${driver.driver} ma już zaplanowaną relację ${formatDateForInput(scheduleConflict.date)} ${hourLabel(Number(scheduleConflict.startHour ?? 0))}. Ten wolny ładunek nie może zostać przypisany temu kierowcy.`
+        );
+        syncProposedPanel();
         return;
       }
 
