@@ -1,7 +1,11 @@
 import { normalizeText, requireActiveUser, writeAudit } from './admin.js'
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-const DEFAULT_MODEL = 'gemini-2.5-flash-lite'
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite'
+const LEGACY_MODEL_ALIASES = new Map([
+  ['gemini-2.5-flash-lite', DEFAULT_MODEL],
+  ['models/gemini-2.5-flash-lite', DEFAULT_MODEL],
+])
 const ALLOWED_ROLES = new Set(['dispatcher', 'branch_manager', 'admin'])
 
 function clean(value) {
@@ -13,7 +17,9 @@ function geminiKey() {
 }
 
 function geminiModel() {
-  return clean(process.env.GEMINI_MODEL) || DEFAULT_MODEL
+  const configured = clean(process.env.GEMINI_MODEL)
+  if (!configured) return DEFAULT_MODEL
+  return LEGACY_MODEL_ALIASES.get(configured.toLowerCase()) || configured.replace(/^models\//i, '')
 }
 
 export async function requireAiUser(request) {
@@ -118,7 +124,6 @@ export async function runStructuredExtraction({ parts, schema, instructions }) {
       generationConfig: {
         responseMimeType: 'application/json',
         responseJsonSchema: schema,
-        temperature: 0.1,
       },
     }),
   })
