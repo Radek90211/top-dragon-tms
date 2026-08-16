@@ -75306,11 +75306,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!force && state.proposedLastSignalKey === key) return;
 
       state.proposedLastSignalKey = key;
-      const wasOpen = state.proposedPanelOpen;
-      state.proposedPanelOpen = true;
+      // Powiadomienie o wolnych ładunkach nie może samo otwierać prawego panelu.
+      // Użytkownik otwiera zakładkę „Wolne ładunki” wyłącznie ręcznie.
       if (!silent) playAttentionSound();
       showAttentionToast(`Wolne ładunki: ${count} pojazdów spełnia wymagania zgłoszonego załadunku. Odległości są widoczne dla wszystkich spedytorów.`);
-      if (!wasOpen) syncProposedPanel();
+      syncProposedPanel();
     }
 
     function isCurrentDispatcherDriver(driver) {
@@ -82942,19 +82942,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         (state.proposedLoads || []).filter(item => item.load === route.load && item.unload === route.unload && item.date === route.date).forEach(scheduleSavedRoutePointGeocodes);
         state.reportDate = route.date || state.reportDate || START_DATE;
-        state.proposedPanelOpen = true;
+        // Po zapisie wolnego ładunku panel ma pozostać zamknięty.
+        // Jest otwierany wyłącznie ręcznie z prawej zakładki.
+        // Ma to też znaczenie przy imporcie AI wielu relacji: renderowanie pełnego
+        // drawera po każdym zapisie potrafiło blokować główny wątek przeglądarki.
+        state.proposedPanelOpen = false;
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
         state.proposedEditId = null;
+        let aiBatchHasNext = false;
         if (continueAiBatch) {
-          continueAiTextImportBatchAfterSave();
+          aiBatchHasNext = continueAiTextImportBatchAfterSave();
         } else {
           state.addOpen = false;
           state.prefill = null;
           syncAddModal();
         }
-        scheduleUiSync({ board: true, unload: true, proposed: true });
-        notifyProposedLoadsIfNeeded();
+        // Wolny ładunek nie zmienia tablicy kierowców ani mapy. Aktualizujemy tylko
+        // lekką, zamkniętą zakładkę. Cięższe wyliczenie dopasowań wykonujemy raz
+        // po zakończeniu całej serii AI, a nie po każdej pozycji.
+        scheduleUiSync({ proposed: true });
+        if (!continueAiBatch || !aiBatchHasNext) {
+          setTimeout(() => notifyProposedLoadsIfNeeded(), 0);
+        }
         return;
       }
 
@@ -82991,8 +83001,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.prefill = null;
           syncAddModal();
         }
-        scheduleUiSync({ future: true, board: true, proposed: true });
-        notifyProposedLoadsIfNeeded();
+        // Planowana relacja również nie wymaga przebudowy całej tablicy przy każdym
+        // kroku importu AI. Aktualizujemy tylko jej prawą zakładkę.
+        scheduleUiSync({ future: true });
         return;
       }
 
