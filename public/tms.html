@@ -68909,8 +68909,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       else pending.reject(new Error(String(message?.message || "Nie udało się wyznaczyć trasy ciężarowej.")));
     }
 
-    const CATEGORY_C_LOADING_MIN = 60;
-    const CATEGORY_C_UNLOADING_MIN = 60;
+    const CATEGORY_C_LOADING_MIN = 120;
+    const CATEGORY_C_UNLOADING_MIN = 120;
 
     function categoryCElapsedEstimate(driveMinutes) {
       let remaining = Math.max(0, Math.ceil(Number(driveMinutes) || 0));
@@ -82058,11 +82058,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const statusParts = [
           `Trasa kat. C: ${routePlannerKmText(loadedKm)}`,
-          `załadunek: 1 h`,
+          `załadunek: 2 h`,
           `jazda: ${driveText}`,
           dutyEstimate.breakMin > 0 ? `przerwy: ${dutyEstimate.breakMin} min` : "przerwy: 0 min",
           dutyEstimate.restMin > 0 ? `odpoczynek: ${Math.round(dutyEstimate.restMin / 60)} h` : "odpoczynek: 0 h",
-          `rozładunek: 1 h`,
+          `rozładunek: 2 h`,
           `kafelek: ok. ${elapsedText}`,
           `dolot: ${routePlannerKmText(approachKm)}`,
           baseKm > 0 ? `baza: ${routePlannerKmText(baseKm)}` : "baza: 0 km",
