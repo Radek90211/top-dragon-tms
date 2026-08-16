@@ -68900,6 +68900,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const CENTRAL_RELATION_BASELINE = new Map();
     const CENTRAL_RELATION_PENDING_UPSERT = new Set();
     const CENTRAL_RELATION_PENDING_DELETE = new Set();
+    const CENTRAL_RELATION_PENDING_ACCOUNTING = new Map();
     let CENTRAL_RELATION_SYNC_TIMER = null;
     let CENTRAL_RELATION_ERROR_AT = 0;
 
@@ -83784,18 +83785,35 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function syncCentralAccountingPatch(route, patch = {}) {
       if (!EMBEDDED_MODE || !state.user || !route || !patch || typeof patch !== "object") return;
-      const isAccounting = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
+      const supabaseRole = String(state.user?.supabaseRole || "");
+      const isAccounting = supabaseRole === "accounting" || supabaseRole === "admin" || state.user?.role === "rozliczenia";
       if (!isAccounting) return;
       const relationId = String(route.id || "").trim();
       const branchId = centralRouteBranchId(route);
       if (!relationId || !branchId) return;
+      const requestId = `relation-accounting-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      CENTRAL_RELATION_PENDING_ACCOUNTING.set(requestId, {
+        key: centralRelationKey(branchId, relationId),
+        patch: cloneData(patch)
+      });
       window.parent?.postMessage({
         type: "top-dragon-relation-accounting-update",
-        requestId: `relation-accounting-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        requestId,
         relationId,
         branchId,
         patch
       }, window.location.origin);
+    }
+
+    function pendingCentralAccountingPatchForKey(key) {
+      const merged = {};
+      let found = false;
+      for (const pending of CENTRAL_RELATION_PENDING_ACCOUNTING.values()) {
+        if (!pending || pending.key !== key || !pending.patch || typeof pending.patch !== "object") continue;
+        Object.assign(merged, pending.patch);
+        found = true;
+      }
+      return found ? merged : null;
     }
 
     function syncCentralAccountingStatus(route) {
@@ -83833,11 +83851,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const localRoute = currentByKey.get(key) || null;
         const localFingerprint = localRoute ? centralRouteFingerprint(localRoute) : "";
+        const hasBaseline = CENTRAL_RELATION_BASELINE.has(key);
         const baselineFingerprint = CENTRAL_RELATION_BASELINE.get(key);
-        const localDirty = Boolean(localRoute) && (baselineFingerprint === undefined || localFingerprint !== baselineFingerprint);
+        const localDirty = Boolean(localRoute) && hasBaseline && localFingerprint !== baselineFingerprint;
         const localPending = CENTRAL_RELATION_PENDING_UPSERT.has(key);
-        // Nie nadpisujemy świeżej pozycji/szerokości starszą odpowiedzią z Supabase.
-        const route = (localPending || localDirty) && localRoute ? localRoute : payload;
+        const accountingViewer = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
+        const pendingAccountingPatch = pendingCentralAccountingPatchForKey(key);
+        // Pierwszy snapshot z Supabase jest źródłem prawdy. Lokalny stan chronimy
+        // tylko wtedy, gdy znamy już baseline i użytkownik ma rzeczywiście niezapisane
+        // zmiany operacyjne. W widoku Rozliczeń nie zachowujemy całej lokalnej relacji,
+        // ponieważ mogłaby zasłonić nowszy status/pozycję z innej sesji.
+        let route = (localPending || (!accountingViewer && localDirty)) && localRoute ? localRoute : payload;
+        // Podczas oczekiwania na RPC Rozliczeń nakładamy wyłącznie dozwolony patch
+        // księgowy na świeży snapshot serwera, zamiast chronić cały stary payload.
+        if (pendingAccountingPatch) route = { ...route, ...pendingAccountingPatch };
         try {
           Object.defineProperty(route, "_centralBranchId", {
             value: branchId,
@@ -83850,7 +83877,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         merged.push(route);
 
-        if (!CENTRAL_RELATION_PENDING_UPSERT.has(key) && !localDirty) {
+        if (!CENTRAL_RELATION_PENDING_UPSERT.has(key) && (accountingViewer || !localDirty)) {
           CENTRAL_RELATION_BASELINE.set(key, centralRouteFingerprint(payload));
         }
       });
@@ -83955,13 +83982,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       if (message?.action === "archive") CENTRAL_RELATION_PENDING_DELETE.delete(key);
       else if (message?.action === "upsert") CENTRAL_RELATION_PENDING_UPSERT.delete(key);
+      else if (message?.action === "accounting") CENTRAL_RELATION_PENDING_ACCOUNTING.delete(String(message?.requestId || ""));
 
       if (message?.ok) {
         if (message?.action === "upsert") scheduleCentralRelationsDiff(0);
+        if (message?.action === "accounting") setTimeout(requestCentralRelations, 80);
         return;
       }
 
       if (message?.action === "upsert") CENTRAL_RELATION_BASELINE.delete(key);
+      if (message?.action === "accounting") setTimeout(requestCentralRelations, 120);
       const now = Date.now();
       if (now - CENTRAL_RELATION_ERROR_AT > 12000) {
         CENTRAL_RELATION_ERROR_AT = now;
@@ -84445,6 +84475,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_RELATION_BASELINE.clear();
         CENTRAL_RELATION_PENDING_UPSERT.clear();
         CENTRAL_RELATION_PENDING_DELETE.clear();
+        CENTRAL_RELATION_PENDING_ACCOUNTING.clear();
         CENTRAL_CLIENTS_READY = false;
         CENTRAL_CLIENT_BASELINE.clear();
         CENTRAL_CLIENT_PENDING_UPSERT.clear();
@@ -85360,7 +85391,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ? DRIVERS
           : DRIVERS.filter(driver => driver.dispatcher === state.user.login);
       };
-      canEditAccountingFields = function(route) { return Boolean(route && (state.user?.role === "rozliczenia" || isAdminUser())); };
+      canEditAccountingFields = function(route) {
+        return Boolean(route && (state.user?.role === "rozliczenia" || String(state.user?.supabaseRole || "") === "admin"));
+      };
       canEditBoardRoute = function(route) {
         if (!route) return false;
         if (isAdminUser()) return true;
