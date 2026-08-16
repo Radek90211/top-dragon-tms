@@ -5590,36 +5590,48 @@
     .client-load-request-section-title { display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px;font-size:12px;font-weight:900;color:#334155; }
     .client-load-request-summary { display:flex;gap:6px;flex-wrap:wrap;margin:0 0 9px; }
     .client-load-request-summary span { display:inline-flex;border-radius:999px;padding:4px 7px;background:#fff;border:1px solid #dbe3ee;color:#475569;font-size:9px;font-weight:900; }
-    .client-load-request-list { display:grid;gap:10px; }
-    .client-load-request-row { display:block;padding:0;background:#fff;border:1px solid #dbe3ee;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.04); }
-    .client-load-request-head { display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc; }
+    .client-load-request-list { display:grid;gap:5px; }
+    /* 3L.14: karty zapytań są celowo ok. 50% niższe od poprzedniej wersji. */
+    .client-load-request-row { display:block;padding:0;background:#fff;border:1px solid #dbe3ee;border-left-width:4px;border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(15,23,42,.035); }
+    .client-load-request-row.status-new { border-left-color:#60a5fa; }
+    .client-load-request-row.status-contacting { border-left-color:#facc15; }
+    .client-load-request-row.status-available { border-left-color:#86efac; }
+    .client-load-request-row.status-unavailable { border-left-color:#fca5a5; }
+    .client-load-request-row.status-closed { border-left-color:#cbd5e1; }
+    .client-load-request-head { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;border-bottom:1px solid #e2e8f0;background:#f8fafc; }
+    .client-load-request-row.status-new .client-load-request-head { background:#eff6ff; }
+    .client-load-request-row.status-contacting .client-load-request-head { background:#fefce8; }
+    .client-load-request-row.status-available .client-load-request-head { background:#f0fdf4; }
+    .client-load-request-row.status-unavailable .client-load-request-head { background:#fef2f2; }
     .client-load-request-main { min-width:0; }
-    .client-load-request-main strong { display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px; }
-    .client-load-request-meta { margin-top:4px;font-size:10px;line-height:1.45;color:#64748b; }
-    .client-load-request-grid { display:grid;grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(280px,1.35fr);gap:0; }
-    .client-load-request-box { min-width:0;padding:10px 12px;border-right:1px solid #e2e8f0; }
+    .client-load-request-main strong { display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11px; }
+    .client-load-request-meta { margin-top:1px;font-size:9px;line-height:1.25;color:#64748b; }
+    .client-load-request-grid { display:grid;grid-template-columns:minmax(175px,.85fr) minmax(190px,.95fr) minmax(300px,1.45fr);gap:0; }
+    .client-load-request-box { min-width:0;padding:5px 9px;border-right:1px solid #e2e8f0; }
     .client-load-request-box:last-child { border-right:0; }
-    .client-load-request-box-title { margin-bottom:6px;font-size:9px;letter-spacing:.04em;text-transform:uppercase;font-weight:950;color:#64748b; }
-    .client-load-request-note { font-size:11px;line-height:1.45;color:#475569; }
-    .client-load-request-actions { display:flex;gap:5px;justify-content:flex-end;align-items:center;flex-wrap:wrap;padding:8px 12px;border-top:1px solid #e2e8f0;background:#fbfdff; }
-    .client-load-request-status { display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#334155; }
+    .client-load-request-box-title { margin-bottom:3px;font-size:8px;letter-spacing:.04em;text-transform:uppercase;font-weight:950;color:#64748b; }
+    .client-load-request-note { font-size:10px;line-height:1.25;color:#475569; }
+    .client-load-request-actions { display:flex;gap:4px;justify-content:flex-end;align-items:center;flex-wrap:wrap;padding:4px 9px;border-top:1px solid #e2e8f0;background:#fbfdff; }
+    .client-load-request-status { display:inline-flex;align-items:center;border-radius:999px;padding:2px 6px;font-size:8px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#334155; }
     .client-load-request-status.status-new { background:#dbeafe;color:#1d4ed8; }
-    .client-load-request-status.status-contacting { background:#fef3c7;color:#92400e; }
+    .client-load-request-status.status-contacting { background:#fef08a;color:#854d0e; }
     .client-load-request-status.status-available { background:#dcfce7;color:#166534; }
-    .client-load-request-status.status-unavailable,.client-load-request-status.status-closed { background:#f1f5f9;color:#64748b; }
+    .client-load-request-status.status-unavailable { background:#fee2e2;color:#991b1b; }
+    .client-load-request-status.status-closed { background:#f1f5f9;color:#64748b; }
     .client-load-request-shared { margin-top:0; }
     .client-load-request-participants { display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px; }
     .client-load-request-participant { display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border:1px solid #dbe3ee;border-radius:999px;background:#f8fafc;font-size:10px;font-weight:800; }
-    .client-load-request-response { margin-top:4px;padding:8px 10px;border-left:3px solid #22c55e;border-radius:7px;background:#f0fdf4;color:#166534; }
-    .client-load-request-response-grid { display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:5px 10px; }
+    .client-load-request-response { margin-top:2px;padding:4px 7px;border-left:3px solid #22c55e;border-radius:6px;background:#f0fdf4;color:#166534; }
+    .client-load-request-response-grid { display:grid;grid-template-columns:minmax(0,1fr) 100px;gap:2px 7px;font-size:9px;line-height:1.25; }
     .client-load-request-response-grid .full { grid-column:1 / -1; }
     .client-load-request-response-grid b { color:inherit; }
-    .client-load-request-response-form { display:grid;grid-template-columns:minmax(180px,1.4fr) 120px;gap:7px;margin-top:7px; }
-    .client-load-request-response-form .full { grid-column:1 / -1; }
-    .client-load-request-response-form .field-label { margin:0 0 3px;font-size:9px; }
-    .client-load-request-response-form textarea.input { min-height:58px;resize:vertical; }
-    .client-load-request-response-form .btn { grid-column:1 / -1;justify-self:end;white-space:nowrap; }
-    .client-load-request-waiting { padding:8px 9px;border:1px dashed #cbd5e1;border-radius:8px;background:#f8fafc;color:#64748b;font-size:10px;line-height:1.4; }
+    .client-load-request-response-form { display:grid;grid-template-columns:minmax(140px,1.1fr) 90px minmax(180px,1.35fr) auto;gap:4px;align-items:end;margin-top:4px; }
+    .client-load-request-response-form .full { grid-column:auto; }
+    .client-load-request-response-form .field-label { margin:0 0 2px;font-size:8px; }
+    .client-load-request-response-form .input { min-height:28px;padding-top:4px;padding-bottom:4px;font-size:10px; }
+    .client-load-request-response-form textarea.input { min-height:28px;height:28px;resize:vertical; }
+    .client-load-request-response-form .btn { grid-column:auto;justify-self:end;white-space:nowrap;min-height:28px;padding:5px 8px;font-size:9px; }
+    .client-load-request-waiting { padding:4px 6px;border:1px dashed #cbd5e1;border-radius:6px;background:#f8fafc;color:#64748b;font-size:9px;line-height:1.2; }
     .commercial-tab-alert { display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:5px;padding:0 5px;border-radius:999px;background:#dc2626;color:#fff;font-size:9px;font-weight:950;vertical-align:1px; }
     .commercial-tab.active .commercial-tab-alert { background:#fff;color:#991b1b; }
     .commercial-region-row { align-items:center; }
@@ -5630,7 +5642,7 @@
     .app.dark-mode .client-load-request-head,.app.dark-mode .client-load-request-actions,.app.dark-mode .client-load-request-waiting { background:#0f172a;border-color:#334155;color:#94a3b8; }
     .app.dark-mode .client-load-request-box { border-color:#334155; }
     @media (max-width:1000px) { .client-load-request-grid { grid-template-columns:1fr 1fr; } .client-load-request-box:last-child { grid-column:1 / -1;border-top:1px solid #e2e8f0; } }
-    @media (max-width:900px) { .commercial-region-actions { align-items:flex-start;flex-direction:column; } .commercial-region-actions .commercial-meta { text-align:left; } .client-load-request-response-form { grid-template-columns:1fr; } .client-load-request-response-form .full,.client-load-request-response-form .btn { grid-column:1; } }
+    @media (max-width:1100px) { .commercial-region-actions { align-items:flex-start;flex-direction:column; } .commercial-region-actions .commercial-meta { text-align:left; } .client-load-request-response-form { grid-template-columns:1fr 90px; } .client-load-request-response-form .full { grid-column:1 / -1; } .client-load-request-response-form .btn { grid-column:1 / -1; } }
     .app.dark-mode .client-load-request-form,.app.dark-mode .client-load-request-row { background:#111827;border-color:#334155; }
     .app.dark-mode .client-load-request-section-title,.app.dark-mode .client-load-request-note { color:#cbd5e1; }
     .app.dark-mode .client-load-request-meta,.app.dark-mode .client-load-request-box-title { color:#94a3b8; }
@@ -69154,6 +69166,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       textImportBatch: [],
       textImportBatchIndex: 0,
       textImportBatchTarget: "future",
+      aiTextBatchRouteEstimate: null,
+      aiAnalyzerBusyKind: "",
+      aiAnalyzerLastElapsedMs: 0,
       aiImportTarget: "future",
       aiImportMode: "choose",
       queueDragOverTarget: "",
@@ -73215,7 +73230,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function clientLoadRequestStatusLabel(status) {
-      return ({ new:"Nowe", contacting:"Kontakt z klientem", available:"Ładunek dostępny", unavailable:"Brak ładunku", closed:"Zamknięte" })[status] || "Nowe";
+      return ({ new:"Nowe zapytanie", contacting:"W trakcie weryfikacji", available:"Ładunek dostępny", unavailable:"Brak ładunków", closed:"Archiwalne" })[status] || "Nowe zapytanie";
     }
 
     function clientLoadRequestParticipants(item) {
@@ -73245,11 +73260,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return clientLoadRequestParticipants(item).some(participant => participant.dispatcher === normalized);
     }
 
+    function clientLoadRequestAnsweredAt(item) {
+      return String(item?.responseAt || item?.updatedAt || item?.createdAt || "");
+    }
+
+    function clientLoadRequestExpired(item, nowMs = Date.now()) {
+      if (!["available", "unavailable", "closed"].includes(String(item?.status || ""))) return false;
+      const answeredMs = Date.parse(clientLoadRequestAnsweredAt(item));
+      return Number.isFinite(answeredMs) && nowMs - answeredMs >= 2 * 60 * 60 * 1000;
+    }
+
     function clientLoadRequestVisibleRows() {
-      const priority = { new:0, contacting:1, available:2, unavailable:3, closed:4 };
+      const activePriority = { new:0, contacting:0, available:1, unavailable:1, closed:2 };
       return (state.clientLoadRequests || [])
+        .filter(item => !clientLoadRequestExpired(item))
         .slice()
-        .sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+        .sort((a, b) => {
+          const pa = activePriority[a.status] ?? 9;
+          const pb = activePriority[b.status] ?? 9;
+          if (pa !== pb) return pa - pb;
+          const aTime = pa === 1 ? clientLoadRequestAnsweredAt(a) : String(a.updatedAt || a.createdAt || "");
+          const bTime = pb === 1 ? clientLoadRequestAnsweredAt(b) : String(b.updatedAt || b.createdAt || "");
+          return String(bTime).localeCompare(String(aTime));
+        });
     }
 
     function clientLoadRequestDateLabel(value) {
@@ -73273,17 +73306,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const participants = clientLoadRequestParticipants(item);
       const isOwner = login === owner;
       const isParticipant = clientLoadRequestIsParticipant(item, login);
-      const canAdminister = state.user?.role === "rozliczenia" || state.user?.role === "admin";
+      const canAdminister = state.user?.role === "admin";
       const canRespond = isOwner || state.user?.role === "admin";
       const participantBadges = participants.length
         ? participants.map(participant => `<span class="client-load-request-participant"><span class="dispatcher-map-badge ${dispatcherBadgeClass(participant.dispatcher)}">${esc(participant.dispatcher)}</span>${participant.driverName ? `<span>${esc(participant.driverName)}</span>` : ""}</span>`).join("")
         : `<span class="small">Brak zgłoszonych pojazdów</span>`;
       const ownerActions = (isOwner || canAdminister) && ["new", "contacting"].includes(item.status)
-        ? `<button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','contacting')">Kontaktuję klienta</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunku</button>`
-        : "";
-      const closeAction = (isOwner || isParticipant || canAdminister) && item.status !== "closed"
-        ? `<button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','closed')">Zamknij</button>`
-        : "";
+        ? `<button type="button" class="btn-mini" ${item.status === "contacting" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','contacting')">W trakcie weryfikacji</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','available')">Ładunek dostępny</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunków</button>`
+        : (isOwner || canAdminister) && ["available", "unavailable"].includes(item.status)
+          ? `<button type="button" class="btn-mini" ${item.status === "available" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','available')">Ładunek dostępny</button><button type="button" class="btn-mini" ${item.status === "unavailable" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunków</button>`
+          : "";
+      const closeAction = "";
       const responseRelation = String(item.responseRelation || "").trim();
       const responseRate = Number(item.responseRate || 0);
       const responseComment = String(item.responseComment || item.responseMessage || "").trim();
@@ -73294,7 +73327,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const responseComposer = canRespond && item.status !== "closed"
         ? `<div class="client-load-request-response-form"><div><label class="field-label">Relacja</label><input id="client-load-response-relation-${attr(item.id)}" class="input" value="${attr(responseRelation)}" placeholder="np. Łódź → Poznań"></div><div><label class="field-label">Stawka [PLN]</label><input id="client-load-response-rate-${attr(item.id)}" class="input" type="number" min="0" step="10" value="${responseRate > 0 ? attr(responseRate) : ""}" placeholder="0"></div><div class="full"><label class="field-label">Komentarz opiekuna</label><textarea id="client-load-response-comment-${attr(item.id)}" class="input" placeholder="np. 24 t, załadunek od 13:00, klient czeka na potwierdzenie">${esc(responseComment)}</textarea></div><button type="button" class="btn btn-dark" onclick="sendClientLoadRequestResponse('${attr(item.id)}')">Zapisz odpowiedź dla spedytorów</button></div>`
         : "";
-      return `<div class="client-load-request-row">
+      return `<div class="client-load-request-row status-${attr(item.status)}">
         <div class="client-load-request-head">
           <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "—"}</div></div>
           <div class="client-load-request-meta">Aktualizacja: ${item.updatedAt ? esc(new Date(item.updatedAt).toLocaleString("pl-PL")) : "—"}</div>
@@ -73312,8 +73345,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rows = clientLoadRequestVisibleRows();
       const waiting = rows.filter(item => ["new", "contacting"].includes(item.status)).length;
       const available = rows.filter(item => item.status === "available").length;
-      const closed = rows.filter(item => ["unavailable", "closed"].includes(item.status)).length;
-      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>Do odpowiedzi: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Zamknięte / brak: ${closed}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak zapytań. Zapytanie wyślesz z zakładki „Klienci i ładunki w rejonie” albo prawym przyciskiem myszy na kafelku relacji.</div>`}</div>`;
+      const unavailable = rows.filter(item => item.status === "unavailable").length;
+      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci i ładunki w rejonie”.</div>`}</div>`;
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
@@ -73347,7 +73380,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         location: normalizedLocation
       };
       const mergeKey = clientLoadRequestMergeKey(candidate);
-      const existing = (state.clientLoadRequests || []).find(item => clientLoadRequestMergeKey(item) === mergeKey && !["closed", "unavailable"].includes(item.status));
+      const existing = (state.clientLoadRequests || []).find(item => clientLoadRequestMergeKey(item) === mergeKey && ["new", "contacting"].includes(item.status));
       if (existing) {
         const participants = clientLoadRequestParticipants(existing);
         const alreadyJoined = participants.some(participant => participant.dispatcher === requesterDispatcher);
@@ -73405,16 +73438,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!request) return;
       const login = String(state.user?.login || "").toUpperCase();
       const isOwner = login === request.ownerDispatcher;
-      const isParticipant = clientLoadRequestIsParticipant(request, login);
-      const canAdminister = state.user?.role === "rozliczenia" || state.user?.role === "admin";
+      const canAdminister = state.user?.role === "admin";
       const ownerAllowed = (isOwner || canAdminister) && ["contacting", "available", "unavailable", "closed"].includes(status);
-      const requesterAllowed = isParticipant && status === "closed";
-      if (!ownerAllowed && !requesterAllowed) {
-        showAppMessage("Brak uprawnień", "Status może zmienić opiekun klienta, zainteresowany spedytor lub administrator.", "error");
+      if (!ownerAllowed) {
+        showAppMessage("Brak uprawnień", "Status może zmienić opiekun klienta lub administrator.", "error");
         return;
       }
       const now = new Date().toISOString();
-      state.clientLoadRequests = (state.clientLoadRequests || []).map(item => item.id === requestId ? { ...item, status, updatedAt:now, updatedBy:login } : item);
+      const terminal = ["available", "unavailable"].includes(status);
+      state.clientLoadRequests = (state.clientLoadRequests || []).map(item => item.id === requestId ? {
+        ...item,
+        status,
+        responseAt: terminal ? now : item.responseAt,
+        responseAuthor: terminal ? login : item.responseAuthor,
+        updatedAt:now,
+        updatedBy:login
+      } : item);
       saveClientLoadRequests();
       const host = document.querySelector('[data-role="commercial-body"]');
       if (host) host.innerHTML = renderCommercialBody();
@@ -76074,6 +76113,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderPdfImportModal() {
       const target = state.aiImportTarget === "proposed" ? "proposed" : "future";
+      const aiBusy = Boolean(state.aiAnalyzerBusyKind);
+      const pdfBusy = state.aiAnalyzerBusyKind === "pdf";
+      const textBusy = state.aiAnalyzerBusyKind === "text";
       return `
         <div class="pdf-import-backdrop" onclick="closePdfImportOnBackdrop(event)">
           <section class="pdf-import-modal" onclick="event.stopPropagation()" aria-label="Asystent AI relacji">
@@ -76090,14 +76132,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <section class="ai-import-source-card">
                   <h3>Import zlecenia</h3>
                   <input id="pdf-import-file" type="file" accept="application/pdf,.pdf" hidden onchange="handlePdfImportFileChange(event)" />
-                  <button class="btn btn-dark" type="button" onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
+                  <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
                   <div class="pdf-import-status ${state.pdfImportWarning ? "warning" : ""}">${esc(state.pdfImportStatus || "Wybierz plik PDF ze zleceniem.")}</div>
-                  ${state.pdfImportFileName ? `<button class="btn" type="button" onclick="analyzePdfOrder()">Analizuj zlecenie</button>` : ""}
+                  ${state.pdfImportFileName ? `<button class="btn" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${pdfBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
                 </section>
                 <section class="ai-import-source-card">
                   <h3>Wiadomość od klienta</h3>
-                  <textarea id="text-import-orders" class="textarea ai-import-textarea" placeholder="Wklej wiadomość z relacją…" oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
-                  <button class="btn btn-dark" type="button" onclick="analyzeTextOrdersToQueue()">Analizuj tekst</button>
+                  <textarea id="text-import-orders" class="textarea ai-import-textarea" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość z relacją…" oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
+                  <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj tekst"}</button>
                 </section>
               </div>
             </div>
@@ -76209,6 +76251,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function aiElapsedLabel(value) {
+      const ms = Math.max(0, Number(value || 0));
+      if (!(ms > 0)) return "";
+      return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+    }
+
+    function setAiAnalyzerBusy(kind = "") {
+      state.aiAnalyzerBusyKind = String(kind || "");
+      syncTextImportUi();
+      syncPdfImportUi();
+    }
+
     async function analyzePdfOrder() {
       savePdfImportFormToState();
       if (!state.pdfImportFile) {
@@ -76224,30 +76278,34 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         syncPdfImportUi();
         return;
       }
+      if (state.aiAnalyzerBusyKind) return;
 
       state.pdfImportStatus = "Analizuję PDF przez AI…";
       state.pdfImportWarning = false;
-      syncPdfImportUi();
+      setAiAnalyzerBusy("pdf");
+      const clientStartedAt = performance.now();
 
       try {
         const payload = await requestAiAnalyzer("pdf", {
           file: state.pdfImportFile,
           fileName: state.pdfImportFileName || "zlecenie.pdf",
           referenceDate: state.reportDate || currentAppDate()
-        }, 110000);
+        }, 70000);
         state.pdfImportData = normalizePdfOrderAnalysis(payload);
         const confidence = Number(state.pdfImportData?.confidence || 0);
+        state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
+        const elapsed = aiElapsedLabel(state.aiAnalyzerLastElapsedMs);
         state.pdfImportStatus = confidence > 0
-          ? `Analiza zakończona · pewność ${Math.round(confidence * 100)}%. Sprawdź dane w formularzu.`
-          : "Analiza zakończona. Sprawdź dane w formularzu.";
+          ? `Analiza zakończona${elapsed ? ` w ${elapsed}` : ""} · pewność ${Math.round(confidence * 100)}%. Sprawdź dane w formularzu.`
+          : `Analiza zakończona${elapsed ? ` w ${elapsed}` : ""}. Sprawdź dane w formularzu.`;
         state.pdfImportWarning = false;
         applyPdfImportToRouteForm();
-        return;
       } catch (error) {
         state.pdfImportStatus = `Nie udało się przeanalizować PDF: ${error?.message || error}.`;
         state.pdfImportWarning = true;
+      } finally {
+        setAiAnalyzerBusy("");
       }
-      syncPdfImportUi();
     }
 
     function pdfImportHour(value, fallback = 12) {
@@ -76305,6 +76363,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderTextImportModal() {
       const preview = Array.isArray(state.textImportPreview) ? state.textImportPreview : [];
+      const aiBusy = Boolean(state.aiAnalyzerBusyKind);
+      const textBusy = state.aiAnalyzerBusyKind === "text";
       return `
         <div class="pdf-import-backdrop text-import-backdrop" onclick="closeTextImportOnBackdrop(event)">
           <section class="pdf-import-modal" onclick="event.stopPropagation()" aria-label="Analiza tekstu z relacjami">
@@ -76318,7 +76378,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="ai-import-target"><label><input type="radio" name="text-import-target" value="future" ${state.aiImportTarget !== "proposed" ? "checked" : ""} onchange="state.aiImportTarget='future'" /> Planowane relacje</label><label><input type="radio" name="text-import-target" value="proposed" ${state.aiImportTarget === "proposed" ? "checked" : ""} onchange="state.aiImportTarget='proposed'" /> Wolne ładunki</label></div>
               <div class="pdf-import-upload">
                 <label class="field-label" style="margin-top:0;">Treść wiadomości od klienta</label>
-                <textarea id="text-import-orders" class="textarea" style="min-height:210px;" placeholder="Np. 15.06 Warszawa 00-001 -> Białystok 15-001, załadunek 08:00, rozładunek 16:00\nŁódź 90-001 -> Rzeszów 35-001, 20.06, 12:00">${esc(state.textImportText || "")}</textarea>
+                <textarea id="text-import-orders" class="textarea" style="min-height:210px;" ${aiBusy ? "disabled" : ""} placeholder="Np. 15.06 Warszawa 00-001 -> Białystok 15-001, załadunek 08:00, rozładunek 16:00\nŁódź 90-001 -> Rzeszów 35-001, 20.06, 12:00">${esc(state.textImportText || "")}</textarea>
               </div>
               <div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus || "")}</div>
               ${preview.length ? `
@@ -76339,7 +76399,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="pdf-import-foot">
               <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                 <button class="btn" type="button" onclick="closeTextImport()">Anuluj</button>
-                <button class="btn btn-dark" type="button" onclick="analyzeTextOrdersToQueue()">Analizuj i otwórz formularz</button>
+                <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj i otwórz formularz"}</button>
               </div>
             </div>
           </section>
@@ -76540,6 +76600,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.textImportBatch = [];
       state.textImportBatchIndex = 0;
       state.textImportBatchTarget = "future";
+      state.aiTextBatchRouteEstimate = null;
     }
 
     function aiTextImportBatchPrefill(item, index, total, target) {
@@ -76556,6 +76617,84 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function aiTextBatchRouteEstimateSignature() {
+      const value = id => String(document.getElementById(id)?.value || "").trim();
+      return [
+        value("new-load"), value("new-load-address"),
+        value("new-second-load"), value("new-second-load-address"),
+        value("new-unload"), value("new-unload-address"),
+        value("new-second-unload"), value("new-second-unload-address"),
+        value("new-route-waypoints"), value("new-loaded")
+      ].join("|");
+    }
+
+    async function estimateAiTextBatchRouteInBackground(signature, loadedKm = 0) {
+      // Prefetch nie może modyfikować ukrytych współrzędnych formularza, bo użytkownik
+      // może w tym samym czasie poprawić lokalizację. Operujemy wyłącznie na lokalnym snapshotcie.
+      const secondLoad = String(document.getElementById("new-second-load")?.value || "").trim();
+      const secondUnload = String(document.getElementById("new-second-unload")?.value || "").trim();
+      const waypoints = routePlannerStoredWaypoints();
+      if (secondLoad || secondUnload || waypoints.length) return { ok: false, reason: "complex-route" };
+
+      const snapshotPoint = async kind => {
+        const fast = fastStoredCoordsForNewRoutePoint(kind);
+        if (fast && Number.isFinite(Number(fast.lat)) && Number.isFinite(Number(fast.lng))) return fast;
+        const full = routePlannerFullAddress(kind);
+        if (!full) return null;
+        const precise = await geocodePolandAddress(full);
+        return precise ? { lat: Number(precise.lat), lng: Number(precise.lng), label: precise.label || full } : null;
+      };
+
+      const [origin, destination] = await Promise.all([snapshotPoint("load"), snapshotPoint("unload")]);
+      if (!origin || !destination) return { ok: false, reason: "coords-not-ready" };
+      if (signature !== aiTextBatchRouteEstimateSignature()) return { ok: false, reason: "form-changed" };
+
+      const result = await requestTruckRouting("route", {
+        points: [origin, destination].map(point => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+      }, 26000);
+      const driveMin = Number(result?.durationMin || 0);
+      if (!(driveMin > 0)) return { ok: false, reason: "no-routing" };
+      const duty = categoryCElapsedEstimate(driveMin);
+      return {
+        ok: true,
+        value: {
+          ...duty,
+          elapsedMin: Math.ceil(Math.max(15, duty.elapsedMin) / 15) * 15,
+          distanceKm: Number(result?.distanceKm || loadedKm || 0),
+          source: String(result?.source || "tomtom-truck"),
+          fallback: false,
+          warning: ""
+        }
+      };
+    }
+
+    function prefetchAiTextBatchRouteEstimate(index) {
+      state.aiTextBatchRouteEstimate = null;
+      if (state.textImportBatchTarget !== "future") return;
+      setTimeout(() => {
+        if (!state.addOpen || !state.prefill?.aiTextBatch || Number(state.textImportBatchIndex || 0) !== Number(index)) return;
+        const signature = aiTextBatchRouteEstimateSignature();
+        if (!signature) return;
+        const loadedKm = Number(document.getElementById("new-loaded")?.value || 0);
+        const promise = estimateAiTextBatchRouteInBackground(signature, loadedKm)
+          .catch(error => ({ ok: false, error }));
+        state.aiTextBatchRouteEstimate = { index: Number(index), signature, promise };
+      }, 120);
+    }
+
+    async function categoryCEstimateForNewRoute({ freeDayValue, proposedMode, futureMode, loadedValue }) {
+      if (freeDayValue || proposedMode) return null;
+      const prefetch = state.prefill?.aiTextBatch && futureMode ? state.aiTextBatchRouteEstimate : null;
+      const signature = prefetch ? aiTextBatchRouteEstimateSignature() : "";
+      if (prefetch && Number(prefetch.index) === Number(state.textImportBatchIndex || 0) && prefetch.signature === signature) {
+        const result = await prefetch.promise;
+        state.aiTextBatchRouteEstimate = null;
+        if (result?.ok && result.value) return result.value;
+      }
+      state.aiTextBatchRouteEstimate = null;
+      return estimateNewRouteCategoryCTravel(loadedValue);
+    }
+
     function openAiTextImportBatchItem(index) {
       const batch = Array.isArray(state.textImportBatch) ? state.textImportBatch : [];
       if (!batch.length || index < 0 || index >= batch.length) return false;
@@ -76567,6 +76706,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncTextImportUi();
       syncPdfImportUi();
       syncAddModal();
+      prefetchAiTextBatchRouteEstimate(index);
       return true;
     }
 
@@ -76603,19 +76743,41 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     async function analyzeTextOrdersToQueue() {
       const textValue = saveTextImportState();
       if (!textValue) { showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą."); return; }
+      if (state.aiAnalyzerBusyKind) return;
       let parsed = [];
+      state.textImportStatus = "Analizuję wiadomość przez AI…";
+      state.textImportWarning = false;
+      setAiAnalyzerBusy("text");
+      const clientStartedAt = performance.now();
       try {
         if (EMBEDDED_MODE) {
-          const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 90000);
+          const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 70000);
           parsed = normalizeTextOrderAnalysis(payload);
-        } else parsed = localTextOrderParser(textValue);
-      } catch (error) { showAppMessage("Błąd analizy", String(error?.message || error)); return; }
-      if (!parsed.length) { showAppMessage("Nie rozpoznano relacji", "Uzupełnij tekst o miejsce załadunku i rozładunku."); return; }
+          state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
+        } else {
+          parsed = localTextOrderParser(textValue);
+          state.aiAnalyzerLastElapsedMs = Math.max(0, performance.now() - clientStartedAt);
+        }
+        if (!parsed.length) {
+          state.textImportStatus = "AI nie rozpoznało poprawnej relacji. Uzupełnij tekst o miejsce załadunku i rozładunku.";
+          state.textImportWarning = true;
+          showAppMessage("Nie rozpoznano relacji", "Uzupełnij tekst o miejsce załadunku i rozładunku.");
+          return;
+        }
 
-      state.textImportBatch = parsed;
-      state.textImportBatchIndex = 0;
-      state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
-      openAiTextImportBatchItem(0);
+        const elapsed = aiElapsedLabel(state.aiAnalyzerLastElapsedMs);
+        state.textImportStatus = `Rozpoznano ${parsed.length} ${parsed.length === 1 ? "relację" : "relacji"}${elapsed ? ` w ${elapsed}` : ""}.`;
+        state.textImportBatch = parsed;
+        state.textImportBatchIndex = 0;
+        state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
+        openAiTextImportBatchItem(0);
+      } catch (error) {
+        state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
+        state.textImportWarning = true;
+        showAppMessage("Błąd analizy", String(error?.message || error));
+      } finally {
+        setAiAnalyzerBusy("");
+      }
     }
 
     async function analyzeTextOrdersToProposed() {
@@ -79181,7 +79343,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
           <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
-          ${canSendQuickClientLoadRequest() ? `<button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-green"></span>Szybkie zapytanie o ładunek</button>` : ""}
           <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci i ładunki w rejonie</button>
           ${renderOtherDispatcherContextNotice(route)}
           <div class="route-context-title">Status spedytora</div>
@@ -83260,7 +83421,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       const startHourValue = Number(state.prefill?.startHour ?? (freeDayValue ? 8 : 8));
-      const categoryCEstimate = freeDayValue || proposedMode ? null : await estimateNewRouteCategoryCTravel(loadedValue);
+      const categoryCEstimate = await categoryCEstimateForNewRoute({ freeDayValue, proposedMode, futureMode, loadedValue });
       const endDateValue = freeDayValue ? routeDate : (state.prefill?.endDate || routeDate);
       const endHourValue = freeDayValue ? 24 : Number(state.prefill?.endHour ?? Math.min(24, startHourValue + 12));
 
@@ -84525,6 +84686,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     if (!window.__topDragonCentralLoadRequestsTicker) {
       window.__topDragonCentralLoadRequestsTicker = setInterval(syncCentralLoadRequestsDiff, 800);
     }
+    // 3L.14: co minutę prosimy parent o świeży snapshot. Parent przed odczytem
+    // archiwizuje czerwone/zielone odpowiedzi starsze niż 2 godziny.
+    if (!window.__topDragonLoadRequestArchiveTicker) {
+      window.__topDragonLoadRequestArchiveTicker = setInterval(() => {
+        if (EMBEDDED_MODE && state.user) requestCentralLoadRequests();
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "requests") host.innerHTML = renderCommercialBody();
+      }, 60000);
+    }
 
     function applyCentralAuditData(message) {
       if (!isAdminUser()) return;
@@ -85001,6 +85171,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function syncCentralRelationUsage() {
         if (!EMBEDDED_MODE || !state.user) return;
+        // 3L.14: Rozliczenia mają globalny podgląd relacji, ale nie są rolą operacyjną
+        // i nie mogą rejestrować historii użycia floty. Sam odczyt relacji nie może
+        // powodować błędnego wywołania RPC register_fleet_relation_usage.
+        const supabaseRole = String(state.user?.supabaseRole || "");
+        if (supabaseRole === "accounting" || state.user?.role === "rozliczenia") return;
+        if (supabaseRole && !["dispatcher", "branch_manager", "admin"].includes(supabaseRole)) return;
+        if (!supabaseRole && !["spedytor", "admin"].includes(state.user?.role)) return;
 
         relationUsageCandidates().forEach(candidate => {
           if (
