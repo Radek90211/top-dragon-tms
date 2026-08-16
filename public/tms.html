@@ -3513,6 +3513,15 @@
       align-items: center;
     }
 
+    .stats-custom-range {
+      display: grid;
+      grid-template-columns: minmax(145px, 1fr) minmax(145px, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .stats-custom-range label { display: grid; gap: 4px; }
+    .stats-custom-range label span { font-size: 11px; font-weight: 850; color: var(--muted); }
+
     .stats-section {
       border: 1px solid var(--border);
       border-radius: 14px;
@@ -4790,6 +4799,7 @@
     @media (max-width: 760px) {
       .stats-drawer { width: 100vw !important; }
       .stats-toolbar { grid-template-columns: 1fr; }
+      .stats-custom-range { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: 1fr; }
     }
 
@@ -69027,6 +69037,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       statsPanelOpen: false,
       statsDate: currentAppDate(),
       statsRange: "day",
+      statsCustomFrom: currentAppDate(),
+      statsCustomTo: currentAppDate(),
+      statsCustomDraftFrom: currentAppDate(),
+      statsCustomDraftTo: currentAppDate(),
       proposedEditId: null,
       proposedLastSignalKey: "",
       selectedRouteId: null,
@@ -69880,9 +69894,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeOversizeBadge(route) {
-      return route?.oversizedTransport || Number(route?.oversizedCost || 0) > 0
-        ? `<span class="time-route-oversize-badge" title="Transport gabarytowy">GAB</span>`
-        : "";
+      // 3L.12: informacja o gabarycie pozostaje w szczegółach/rozliczeniach,
+      // ale nie jest już wyświetlana na kafelku relacji.
+      return "";
     }
 
     function routeClientProximityBadge(route) {
@@ -73465,6 +73479,48 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       try { localStorage.setItem(clientLoadRequestSeenStorageKey(), String(value)); } catch (error) {}
     }
 
+    function clientLoadRequestNotifiedStorageKey(login = state.user?.login) {
+      return `${CLIENT_LOAD_REQUEST_STORAGE_KEY}:notified:${String(login || "").toUpperCase()}`;
+    }
+
+    function clientLoadRequestNotificationVersion(item) {
+      return [
+        String(item?.updatedAt || item?.createdAt || ""),
+        String(item?.updatedBy || "").toUpperCase(),
+        String(item?.status || ""),
+        String(item?.responseAt || "")
+      ].join("::");
+    }
+
+    function loadClientLoadRequestNotifiedVersions(login = state.user?.login) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(clientLoadRequestNotifiedStorageKey(login)) || "{}");
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function clientLoadRequestNeedsNotification(item, login, notifiedVersions = null) {
+      const id = String(item?.id || "").trim();
+      if (!id) return false;
+      const versions = notifiedVersions || loadClientLoadRequestNotifiedVersions(login);
+      return String(versions[id] || "") !== clientLoadRequestNotificationVersion(item);
+    }
+
+    function rememberClientLoadRequestNotifications(rows, login = state.user?.login) {
+      const normalizedLogin = String(login || "").toUpperCase();
+      if (!normalizedLogin || !Array.isArray(rows) || !rows.length) return;
+      const versions = loadClientLoadRequestNotifiedVersions(normalizedLogin);
+      rows.forEach(item => {
+        const id = String(item?.id || "").trim();
+        if (id) versions[id] = clientLoadRequestNotificationVersion(item);
+      });
+      const entries = Object.entries(versions);
+      const trimmed = entries.length > 500 ? Object.fromEntries(entries.slice(-500)) : versions;
+      try { localStorage.setItem(clientLoadRequestNotifiedStorageKey(normalizedLogin), JSON.stringify(trimmed)); } catch (error) {}
+    }
+
     function clientLoadRequestUnreadRows() {
       const login = String(state.user?.login || "").toUpperCase();
       if (!login) return [];
@@ -73484,9 +73540,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function notifyUnreadClientLoadRequests() {
-      const relevant = clientLoadRequestUnreadRows();
-      if (!relevant.length) return;
       const login = String(state.user?.login || "").toUpperCase();
+      const notifiedVersions = loadClientLoadRequestNotifiedVersions(login);
+      const relevant = clientLoadRequestUnreadRows().filter(item => clientLoadRequestNeedsNotification(item, login, notifiedVersions));
+      if (!relevant.length) return;
       const incomingCount = relevant.filter(item => String(item.ownerDispatcher || "").toUpperCase() === login).length;
       const responseCount = relevant.length - incomingCount;
       const parts = [];
@@ -73494,12 +73551,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (responseCount) parts.push(`${responseCount} ${responseCount === 1 ? "nowa odpowiedź" : "nowe odpowiedzi"}`);
       showAttentionToast(`Zapytania o ładunek: ${parts.join(" · ")}`);
       playAttentionSound();
+      rememberClientLoadRequestNotifications(relevant, login);
     }
 
     function notifyClientLoadRequestChanges(previousRows, nextRows) {
       const login = String(state.user?.login || "").toUpperCase();
       if (!login) return;
       const seenAt = clientLoadRequestSeenAt(login);
+      const notifiedVersions = loadClientLoadRequestNotifiedVersions(login);
       const previousById = new Map((previousRows || []).map(item => [item.id, item]));
       const changed = (nextRows || []).filter(item => {
         const updatedAt = String(item.updatedAt || item.createdAt || "");
@@ -73509,7 +73568,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const changedBy = String(item.updatedBy || item.requesterDispatcher || "").toUpperCase();
         const incoming = String(item.ownerDispatcher || "").toUpperCase() === login && changedBy !== login;
         const response = clientLoadRequestIsParticipant(item, login) && changedBy !== login;
-        return incoming || response;
+        return (incoming || response) && clientLoadRequestNeedsNotification(item, login, notifiedVersions);
       });
       if (!changed.length) return;
       const incoming = changed.some(item => String(item.ownerDispatcher || "").toUpperCase() === login);
@@ -73518,6 +73577,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ? `Nowe zapytanie o ładunek: ${first.clientName || "klient"}${changed.length > 1 ? ` (+${changed.length - 1})` : ""}`
         : `Nowa odpowiedź na zapytanie: ${first.clientName || "klient"}${changed.length > 1 ? ` (+${changed.length - 1})` : ""}`);
       playAttentionSound();
+      rememberClientLoadRequestNotifications(changed, login);
       showAppMessage(incoming ? "Nowe zapytanie do Twojego klienta" : "Odpowiedź na zapytanie", changed.length === 1 ? `${first.clientName} · ${clientLoadRequestStatusLabel(first.status)}` : `${changed.length} nowych informacji w zapytaniach.`, "info");
       syncCommercialIntelligenceSection();
     }
@@ -75701,6 +75761,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function statsRangeLabel(range = state.statsRange || "day") {
+      if (range === "custom") return "wybrany okres";
       return range === "week" ? "tydzień" : range === "month" ? "miesiąc" : "dzień";
     }
 
@@ -75728,7 +75789,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
     }
 
+    function statsCustomDateRange(from = state.statsCustomFrom, to = state.statsCustomTo) {
+      let start = String(from || statsSelectedDate() || START_DATE).slice(0, 10);
+      let end = String(to || start).slice(0, 10);
+      if (start > end) [start, end] = [end, start];
+      const dates = [];
+      let cursor = start;
+      let guard = 0;
+      while (cursor <= end && guard < 3660) {
+        dates.push(cursor);
+        cursor = addDaysToIso(cursor, 1);
+        guard += 1;
+      }
+      return dates.length ? dates : [statsSelectedDate() || START_DATE];
+    }
+
     function statsDateRange(range = state.statsRange || "day", date = statsSelectedDate()) {
+      if (range === "custom") return statsCustomDateRange();
       if (range === "week") return weekDaysForDate(date);
       if (range === "month") return monthDaysForDate(date);
       return [date || START_DATE];
@@ -75794,6 +75871,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return target;
     }
 
+    function sortStatsRows(rows) {
+      return (rows || []).slice().sort((a, b) => b.profit - a.profit || b.count - a.count || String(a.name).localeCompare(String(b.name), "pl"));
+    }
+
     function groupStatsBy(routes, keyFn) {
       const map = new Map();
       routes.forEach(route => {
@@ -75801,9 +75882,30 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!map.has(key)) map.set(key, emptyStatsTotals());
         addRouteStats(map.get(key), route);
       });
-      return Array.from(map.entries())
-        .map(([name, totals]) => ({ name, ...totals }))
-        .sort((a, b) => b.profit - a.profit || b.count - a.count || String(a.name).localeCompare(String(b.name), "pl"));
+      return sortStatsRows(Array.from(map.entries()).map(([name, totals]) => ({ name, ...totals })));
+    }
+
+    function statsRowsIncludingZero(rows, names) {
+      const map = new Map((rows || []).map(row => [String(row?.name || ""), row]));
+      (names || []).forEach(name => {
+        const key = String(name || "").trim();
+        if (key && !map.has(key)) map.set(key, { name:key, ...emptyStatsTotals() });
+      });
+      return sortStatsRows(Array.from(map.values()));
+    }
+
+    function statsDispatcherName(route) {
+      const raw = String(route?.ownerDispatcher || route?.createdBy || driverById(route?.driverId)?.dispatcher || "").trim();
+      if (!raw) return "—";
+      const normalized = raw.toUpperCase();
+      const user = USERS.find(item => String(item?.login || "").toUpperCase() === normalized || String(item?.name || "").toUpperCase() === normalized);
+      return String(user?.name || user?.login || raw);
+    }
+
+    function statsVehicleName(driver) {
+      const registration = String(driver?.tractorReg || "").trim().toUpperCase();
+      const brand = String(driver?.vehicleBrand || "").trim();
+      return registration ? `${registration}${brand ? ` · ${brand}` : ""}` : "";
     }
 
     function statsTotalsForRoutes(routes) {
@@ -75878,10 +75980,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const dates = statsDateRange(range, date);
       const routes = routesForStatsDates(dates);
       const totals = statsTotalsForRoutes(routes);
-      const byDispatcher = groupStatsBy(routes, route => driverById(route.driverId)?.dispatcher || route.ownerDispatcher || route.createdBy || "—");
+      const dispatcherNames = USERS
+        .filter(user => user?.role === "spedytor")
+        .map(user => String(user?.name || user?.login || "").trim())
+        .filter(Boolean);
+      const vehicleNames = DRIVERS.map(statsVehicleName).filter(Boolean);
+      const byDispatcher = statsRowsIncludingZero(groupStatsBy(routes, statsDispatcherName), dispatcherNames);
       const byCarrier = groupStatsBy(routes, route => driverById(route.driverId)?.carrier || "—");
       const byBranch = groupStatsBy(routes, route => statsRouteBranch(route));
       const byDriver = groupStatsBy(routes, route => driverById(route.driverId)?.driver || route.driverId || "—");
+      const byVehicle = statsRowsIncludingZero(groupStatsBy(routes, route => statsVehicleName(driverById(route.driverId)) || "Brak przypisanego pojazdu"), vehicleNames);
       const accountingIssues = routes.filter(statsRouteHasAccountingIssue);
       const noKm = routes.filter(route => !Number(route.loadedKm || 0) && !Number(route.approachKm || 0));
       const noRate = routes.filter(route => !Number(route.rate || 0));
@@ -75910,6 +76018,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         byCarrier,
         byBranch,
         byDriver,
+        byVehicle,
         accountingIssues,
         noKm,
         noRate,
@@ -76704,20 +76813,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           <div class="stats-drawer-body">
             <div class="stats-toolbar">
-              ${renderDateStepper(stats.date, "shiftStatsDate(-1)", "shiftStatsDate(1)", "Dzień statystyk")}
+              ${stats.range === "custom" ? `
+                <div class="stats-custom-range">
+                  <label><span>Od</span><input class="input" type="date" value="${attr(state.statsCustomDraftFrom || state.statsCustomFrom || stats.date)}" onchange="setStatsCustomDraft('from',this.value)" /></label>
+                  <label><span>Do</span><input class="input" type="date" value="${attr(state.statsCustomDraftTo || state.statsCustomTo || stats.date)}" onchange="setStatsCustomDraft('to',this.value)" /></label>
+                  <button class="btn btn-dark" type="button" onclick="applyStatsCustomRange()">Generuj</button>
+                </div>` : renderDateStepper(stats.date, "shiftStatsDate(-1)", "shiftStatsDate(1)", "Dzień statystyk")}
               <div class="stats-range-actions">
                 <button class="btn ${stats.range === "day" ? "toggle-active" : "toggle-inactive"}" type="button" onclick="setStatsRange('day')">Dzień</button>
                 <button class="btn ${stats.range === "week" ? "toggle-active" : "toggle-inactive"}" type="button" onclick="setStatsRange('week')">Tydzień</button>
                 <button class="btn ${stats.range === "month" ? "toggle-active" : "toggle-inactive"}" type="button" onclick="setStatsRange('month')">Miesiąc</button>
+                <button class="btn ${stats.range === "custom" ? "toggle-active" : "toggle-inactive"}" type="button" onclick="setStatsRange('custom')">Wybrany okres</button>
               </div>
             </div>
             ${renderStatsMetricGrid(stats)}
             ${renderStatsFocus(stats)}
             ${renderStatsList("Finanse", "Najważniejsze wartości dla wybranego zakresu", financeRows)}
-            ${renderStatsTable("Spedytorzy", "Porównanie wartości według relacji, zysku, kosztu, km i dolotu", stats.byDispatcher, 12)}
+            ${renderStatsTable("Spedytorzy", "Statystyki każdego spedytora w wybranym okresie", stats.byDispatcher, Math.max(12, stats.byDispatcher.length))}
+            ${renderStatsTable("Pojazdy", "Statystyki każdego pojazdu według numeru rejestracyjnego", stats.byVehicle, Math.max(12, stats.byVehicle.length))}
             ${renderStatsTable("Przewoźnicy", "Porównanie kosztów, zysku, km i dolotów", stats.byCarrier, 12)}
             ${renderStatsTable("Oddziały", "Porównanie oddziałów według wartości w kolumnach", stats.byBranch, 8)}
-            ${renderStatsTable("Kierowcy i pojazdy", "Relacje, km, zysk i dolot", stats.byDriver, 12)}
+            ${renderStatsTable("Kierowcy", "Relacje, km, zysk i dolot każdego kierowcy", stats.byDriver, Math.max(12, stats.byDriver.length))}
             ${renderStatsList("Dane do uzupełnienia", "Szybka kontrola pól finansowych i statusów", dataQualityRows)}
           </div>
         </aside>
@@ -76741,9 +76857,38 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function setStatsRange(range) {
-      const nextRange = ["day", "week", "month"].includes(range) ? range : "day";
-      if (state.statsRange === nextRange) return;
+      const nextRange = ["day", "week", "month", "custom"].includes(range) ? range : "day";
+      if (nextRange === "custom") {
+        state.statsCustomDraftFrom = state.statsCustomFrom || statsSelectedDate();
+        state.statsCustomDraftTo = state.statsCustomTo || statsSelectedDate();
+      }
+      if (state.statsRange === nextRange) {
+        if (nextRange === "custom") scheduleStatsPanelSync();
+        return;
+      }
       state.statsRange = nextRange;
+      scheduleStatsPanelSync();
+    }
+
+    function setStatsCustomDraft(side, value) {
+      const normalized = String(value || "").slice(0, 10);
+      if (side === "from") state.statsCustomDraftFrom = normalized;
+      else state.statsCustomDraftTo = normalized;
+    }
+
+    function applyStatsCustomRange() {
+      let from = String(state.statsCustomDraftFrom || state.statsCustomFrom || statsSelectedDate()).slice(0, 10);
+      let to = String(state.statsCustomDraftTo || state.statsCustomTo || from).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        showAppMessage("Nieprawidłowy okres", "Wybierz datę początkową i końcową statystyk.", "error");
+        return;
+      }
+      if (from > to) [from, to] = [to, from];
+      state.statsCustomFrom = from;
+      state.statsCustomTo = to;
+      state.statsCustomDraftFrom = from;
+      state.statsCustomDraftTo = to;
+      state.statsRange = "custom";
       scheduleStatsPanelSync();
     }
 
@@ -79494,6 +79639,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.reportDate = currentAppDate();
       state.nearestDate = currentAppDate();
       state.statsDate = currentAppDate();
+      state.statsCustomFrom = currentAppDate();
+      state.statsCustomTo = currentAppDate();
+      state.statsCustomDraftFrom = currentAppDate();
+      state.statsCustomDraftTo = currentAppDate();
       render();
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
@@ -79508,7 +79657,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
       setTimeout(deliverPendingClientOwnerAlerts, 160);
-      setTimeout(notifyUnreadClientLoadRequests, 220);
+      // W trybie produkcyjnym czekamy na autorytatywny snapshot z Supabase.
+      // Nie powiadamiamy na podstawie potencjalnie starej kopii localStorage.
+      if (!EMBEDDED_MODE) setTimeout(notifyUnreadClientLoadRequests, 220);
     }
 
     function login(event) {
@@ -84282,7 +84433,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const pendingId = local ? String(local.id || "") : requestId;
         const pending = CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(pendingId) || CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(requestId);
         const baseline = CENTRAL_LOAD_REQUEST_BASELINE.get(requestId);
-        const localDirty = Boolean(local) && (baseline === undefined || centralLoadRequestFingerprint(local) !== baseline);
+        // 3L.12: pierwszy snapshot z Supabase jest autorytatywny. Stara kopia z localStorage
+        // nie może zostać uznana za „nową zmianę” i odesłana z powrotem do bazy.
+        const localDirty = wasReady && baseline !== undefined && Boolean(local) && centralLoadRequestFingerprint(local) !== baseline;
         const item = (pending || localDirty) && local ? local : payload;
         item.id = requestId;
         merged.push(item);
@@ -84294,7 +84447,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const mergeKey = clientLoadRequestMergeKey(item);
         if (!id) return;
         if (remoteIds.has(id) || (mergeKey && remoteMergeKeys.has(mergeKey))) return;
-        if (!wasReady || CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(id)) merged.push(item);
+        // Lokalny wpis nieobecny w centralnym snapshotcie zachowujemy tylko wtedy,
+        // gdy faktycznie oczekuje na zapis. Nie przywracamy starych rekordów z localStorage.
+        if (CENTRAL_LOAD_REQUEST_PENDING_UPSERT.has(id)) merged.push(item);
       });
 
       for (const id of Array.from(CENTRAL_LOAD_REQUEST_BASELINE.keys())) {
