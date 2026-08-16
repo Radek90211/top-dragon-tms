@@ -69084,6 +69084,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       textImportStatus: "Wklej wiadomość od klienta z jedną lub wieloma relacjami. Po analizie ładunki trafią do zakładki Wolne ładunki.",
       textImportWarning: false,
       textImportPreview: [],
+      textImportBatch: [],
+      textImportBatchIndex: 0,
+      textImportBatchTarget: "future",
       aiImportTarget: "future",
       aiImportMode: "choose",
       queueDragOverTarget: "",
@@ -76176,6 +76179,70 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function clearAiTextImportBatch() {
+      state.textImportBatch = [];
+      state.textImportBatchIndex = 0;
+      state.textImportBatchTarget = "future";
+    }
+
+    function aiTextImportBatchPrefill(item, index, total, target) {
+      const targetProposed = target === "proposed";
+      return {
+        ...item,
+        proposedLoad: targetProposed,
+        futureQueue: !targetProposed,
+        visibilityScope: targetProposed ? "all" : "branch",
+        bulkCount: 1,
+        aiTextBatch: true,
+        aiTextBatchIndex: index,
+        aiTextBatchTotal: total
+      };
+    }
+
+    function openAiTextImportBatchItem(index) {
+      const batch = Array.isArray(state.textImportBatch) ? state.textImportBatch : [];
+      if (!batch.length || index < 0 || index >= batch.length) return false;
+      state.textImportBatchIndex = index;
+      state.prefill = aiTextImportBatchPrefill(batch[index], index, batch.length, state.textImportBatchTarget);
+      state.textImportOpen = false;
+      state.pdfImportOpen = false;
+      state.addOpen = true;
+      syncTextImportUi();
+      syncPdfImportUi();
+      syncAddModal();
+      return true;
+    }
+
+    function continueAiTextImportBatchAfterSave() {
+      if (!state.prefill?.aiTextBatch) return false;
+      const batch = Array.isArray(state.textImportBatch) ? state.textImportBatch : [];
+      const nextIndex = Number(state.textImportBatchIndex || 0) + 1;
+      if (nextIndex < batch.length) {
+        openAiTextImportBatchItem(nextIndex);
+        return true;
+      }
+      const total = batch.length;
+      clearAiTextImportBatch();
+      state.addOpen = false;
+      state.prefill = null;
+      syncAddModal();
+      showAppMessage("Import AI zakończony", `Przejrzano i zapisano ${total} ${total === 1 ? "relację" : "relacji"}.`);
+      return false;
+    }
+
+    function skipAiTextImportBatchItem() {
+      if (!state.prefill?.aiTextBatch) return;
+      const batch = Array.isArray(state.textImportBatch) ? state.textImportBatch : [];
+      const nextIndex = Number(state.textImportBatchIndex || 0) + 1;
+      if (nextIndex < batch.length) {
+        disposeNewRoutePlanner();
+        openAiTextImportBatchItem(nextIndex);
+        return;
+      }
+      clearAiTextImportBatch();
+      closeAdd();
+    }
+
     async function analyzeTextOrdersToQueue() {
       const textValue = saveTextImportState();
       if (!textValue) { showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą."); return; }
@@ -76186,17 +76253,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           parsed = normalizeTextOrderAnalysis(payload);
         } else parsed = localTextOrderParser(textValue);
       } catch (error) { showAppMessage("Błąd analizy", String(error?.message || error)); return; }
-      const item = parsed[0];
-      if (!item) { showAppMessage("Nie rozpoznano relacji", "Uzupełnij tekst o miejsce załadunku i rozładunku."); return; }
-      const targetProposed = state.aiImportTarget === "proposed";
-      state.prefill = { ...item, proposedLoad:targetProposed, futureQueue:!targetProposed, visibilityScope:targetProposed ? "all" : "branch", bulkCount:1 };
-      state.textImportOpen = false;
-      state.pdfImportOpen = false;
-      state.addOpen = true;
-      syncTextImportUi();
-      syncPdfImportUi();
-      syncAddModal();
-      if (parsed.length > 1) showAppMessage("Rozpoznano kilka relacji", `Otworzono pierwszą z ${parsed.length} relacji. Pozostałe możesz dodać po zapisaniu pierwszej.`);
+      if (!parsed.length) { showAppMessage("Nie rozpoznano relacji", "Uzupełnij tekst o miejsce załadunku i rozładunku."); return; }
+
+      state.textImportBatch = parsed;
+      state.textImportBatchIndex = 0;
+      state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
+      openAiTextImportBatchItem(0);
     }
 
     async function analyzeTextOrdersToProposed() {
@@ -78945,7 +79007,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const editingProposed = Boolean(proposedMode && state.proposedEditId);
       const driverOptions = state.user?.role === "spedytor" ? DRIVERS.filter(driver => driver.dispatcher === state.user.login) : DRIVERS;
       const modalTitle = editingProposed ? "Edytuj wolny ładunek" : proposedMode ? "Dodaj wolny ładunek" : editingFuture ? "Edytuj planowaną relację" : futureMode ? "Dodaj planowaną relację" : "Dodaj trasę";
-      const modalHint = "";
+      const aiBatchActive = Boolean(prefill.aiTextBatch && Number(prefill.aiTextBatchTotal || 0) > 0);
+      const aiBatchIndex = Math.max(0, Number(prefill.aiTextBatchIndex || 0));
+      const aiBatchTotal = Math.max(0, Number(prefill.aiTextBatchTotal || 0));
+      const modalHint = aiBatchActive ? `Analizator AI · relacja ${aiBatchIndex + 1} z ${aiBatchTotal}. Sprawdź dane przed zapisem.` : "";
       return `
         <div class="modal-backdrop" onclick="saveNewRouteOnBackdrop(event)">
           <form class="modal" onsubmit="saveNewRoute(event)" onclick="event.stopPropagation()">
@@ -79109,8 +79174,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
 
             <div class="modal-foot">
-              <button type="button" class="btn" onclick="closeAdd()">Anuluj</button>
-              <button class="btn btn-dark">${editingProposed ? "Zapisz zmiany" : proposedMode ? "Zapisz w wolnych" : editingFuture ? "Zapisz zmiany" : futureMode ? "Zapisz w przyszłych" : "Zapisz trasę"}</button>
+              ${aiBatchActive ? `<button type="button" class="btn" onclick="skipAiTextImportBatchItem()">Pomiń tę relację</button>` : ""}
+              <button type="button" class="btn" onclick="closeAdd()">${aiBatchActive ? "Anuluj całą serię" : "Anuluj"}</button>
+              <button class="btn btn-dark">${aiBatchActive ? (aiBatchIndex + 1 < aiBatchTotal ? "Zapisz i następna" : "Zapisz ostatnią") : (editingProposed ? "Zapisz zmiany" : proposedMode ? "Zapisz w wolnych" : editingFuture ? "Zapisz zmiany" : futureMode ? "Zapisz w przyszłych" : "Zapisz trasę")}</button>
             </div>
           </form>
         </div>
@@ -82404,12 +82470,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function closeAdd() {
+      const cancelAiBatch = Boolean(state.prefill?.aiTextBatch);
       disposeNewRoutePlanner();
       state.addOpen = false;
       state.prefill = null;
       state.newRouteBaseKm = 0;
       state.futureEditId = null;
       state.proposedEditId = null;
+      if (cancelAiBatch) clearAiTextImportBatch();
       syncAddModal();
     }
 
@@ -82875,11 +82943,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         (state.proposedLoads || []).filter(item => item.load === route.load && item.unload === route.unload && item.date === route.date).forEach(scheduleSavedRoutePointGeocodes);
         state.reportDate = route.date || state.reportDate || START_DATE;
         state.proposedPanelOpen = true;
+        const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
-        state.addOpen = false;
-        state.prefill = null;
         state.proposedEditId = null;
-        syncAddModal();
+        if (continueAiBatch) {
+          continueAiTextImportBatchAfterSave();
+        } else {
+          state.addOpen = false;
+          state.prefill = null;
+          syncAddModal();
+        }
         scheduleUiSync({ board: true, unload: true, proposed: true });
         notifyProposedLoadsIfNeeded();
         return;
@@ -82907,12 +82980,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
 
         (state.futureRoutes || []).filter(item => item.load === route.load && item.unload === route.unload && item.date === route.date).forEach(scheduleSavedRoutePointGeocodes);
+        const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
-        state.addOpen = false;
-        state.prefill = null;
         state.futureEditId = null;
         state.proposedEditId = null;
-        syncAddModal();
+        if (continueAiBatch) {
+          continueAiTextImportBatchAfterSave();
+        } else {
+          state.addOpen = false;
+          state.prefill = null;
+          syncAddModal();
+        }
         scheduleUiSync({ future: true, board: true, proposed: true });
         notifyProposedLoadsIfNeeded();
         return;
