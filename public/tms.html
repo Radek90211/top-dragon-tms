@@ -76734,9 +76734,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function futureRouteCanDelete(route) {
+      return Boolean(state.user?.role === "spedytor" && route?.createdBy === state.user.login);
+    }
+
     function renderFutureRouteCard(route) {
       const canDrag = futureCardCanDrag(route);
       const canEdit = Boolean(state.user?.role === "spedytor" && route.createdBy === state.user.login);
+      const canDelete = futureRouteCanDelete(route);
       const dispatcher = route.createdBy || route.ownerDispatcher || "—";
       const dueSoon = upcomingFutureRoutesForDispatcher(dispatcher).some(item => item.id === route.id);
       const allDistances = futureDistancesForRoute(route);
@@ -76770,7 +76775,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${closest ? `<b style="font-size:11px;white-space:nowrap;">${Math.round(closest.distanceKm)} km</b>` : ""}
             </div>
           </div>
-          ${detailsHidden ? `<div class="future-card-actions"><button class="btn-mini" type="button" onclick="toggleCardDetails(event, 'future', '${attr(route.id)}')">Pokaż szczegóły</button></div>` : `
+          ${detailsHidden ? `<div class="future-card-actions"><button class="btn-mini" type="button" onclick="toggleCardDetails(event, 'future', '${attr(route.id)}')">Pokaż szczegóły</button>${canDelete ? `<button class="btn-mini" type="button" onclick="deleteFutureRoute(event, '${attr(route.id)}')">Usuń</button>` : ""}</div>` : `
           <div class="proposed-distance-list">
             ${allDistances.length ? allDistances.map(item => `
               <div class="proposed-distance-row ${item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM ? "near" : ""}">
@@ -76792,6 +76797,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="future-card-actions">
             <button class="btn-mini" type="button" onclick="toggleCardDetails(event, 'future', '${attr(route.id)}')">Ukryj szczegóły</button>
             ${canEdit ? `<button class="btn-mini" type="button" onclick="openEditFutureRoute(event, '${attr(route.id)}')">Edytuj</button>` : ""}
+            ${canDelete ? `<button class="btn-mini" type="button" onclick="deleteFutureRoute(event, '${attr(route.id)}')">Usuń</button>` : ""}
           </div>
           `}
         </div>
@@ -76814,6 +76820,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.prefill = { ...route, futureQueue: true };
       state.addOpen = true;
       syncAddModal();
+    }
+
+    function deleteFutureRoute(event, routeId) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      const route = (state.futureRoutes || []).find(item => item.id === routeId);
+      if (!route) return;
+      if (!futureRouteCanDelete(route)) {
+        showAppMessage("Brak uprawnień", "Planowaną relację może usunąć tylko jej autor lub uprawniony przełożony.");
+        return;
+      }
+      state.futureRoutes = (state.futureRoutes || []).filter(item => item.id !== routeId);
+      if (state.futureEditId === routeId) state.futureEditId = null;
+      syncFuturePanel();
+      scheduleCentralLoadQueueDiff(0);
     }
 
     function toggleFuturePanel(force = null) {
@@ -85277,6 +85300,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
+      futureRouteCanDelete = function(route) {
+        if (!route || !state.user) return false;
+        if (state.user.supabaseRole === "admin") return true;
+        if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
+        return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
+      };
       futureCardCanDrag = function(route) {
         if (!route || !state.user) return false;
         if (state.user.supabaseRole === "admin") return true;
@@ -85334,6 +85363,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         rememberDriverRelationUsage(route);
         const result = original.apply(this,args);
         if (route && !state.routes.some(item => item.id === route.id)) recordAuditOperation("Usunięto relację", "route", route.id, auditRouteText(route));
+        return result;
+      });
+      wrapOperation("deleteFutureRoute", original => function(event, id, ...rest) {
+        const route = (state.futureRoutes||[]).find(item => item.id === id);
+        rememberDriverRelationUsage(route);
+        const result = original.call(this,event,id,...rest);
+        if (route && !(state.futureRoutes||[]).some(item => item.id === id)) recordAuditOperation("Usunięto planowaną relację", "futureRoute", id, auditRouteText(route));
         return result;
       });
       wrapOperation("deleteProposedLoad", original => function(event, id, ...rest) {
