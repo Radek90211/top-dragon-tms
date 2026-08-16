@@ -1284,9 +1284,21 @@ async function archiveCentralLoadQueueFromTms(message) {
 async function loadCentralLoadRequests() {
   if (!currentProfile) return []
 
+  // 3L.14: terminalna odpowiedź pozostaje na dole aktywnej listy przez 2 godziny,
+  // a następnie jest centralnie archiwizowana. RPC jest housekeepingiem i nie
+  // zmienia treści odpowiedzi ani autora.
+  const { error: archiveError } = await supabase.rpc('archive_expired_tms_load_requests')
+  if (archiveError) {
+    const message = String(archiveError.message || '')
+    if (!message.includes('archive_expired_tms_load_requests') && !message.includes('Could not find the function')) {
+      console.warn('Nie udało się wykonać archiwizacji zapytań o ładunek:', archiveError)
+    }
+  }
+
   const { data, error } = await supabase
     .from('tms_load_requests')
     .select('request_ref, merge_key, payload, status, is_open, updated_at')
+    .eq('is_open', true)
     .order('updated_at', { ascending: true })
     .limit(500)
 
@@ -1731,7 +1743,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v34-notify-global-accounting-stats"
+        src="/tms.html?embedded=1&build=request-workflow-v36-load-request-statuses"
         title="Top Dragon TMS"
       ></iframe>
     </main>
