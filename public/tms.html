@@ -68909,12 +68909,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       else pending.reject(new Error(String(message?.message || "Nie udało się wyznaczyć trasy ciężarowej.")));
     }
 
+    const CATEGORY_C_LOADING_MIN = 60;
+    const CATEGORY_C_UNLOADING_MIN = 60;
+
     function categoryCElapsedEstimate(driveMinutes) {
       let remaining = Math.max(0, Math.ceil(Number(driveMinutes) || 0));
       const driveMin = remaining;
+      const loadingMin = CATEGORY_C_LOADING_MIN;
+      const unloadingMin = CATEGORY_C_UNLOADING_MIN;
       let breakMin = 0;
       let restMin = 0;
-      let elapsedMin = 0;
+      let elapsedMin = loadingMin;
       while (remaining > 0) {
         const dayDrive = Math.min(9 * 60, remaining);
         elapsedMin += dayDrive;
@@ -68928,7 +68933,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           elapsedMin += 11 * 60;
         }
       }
-      return { driveMin, breakMin, restMin, elapsedMin };
+      elapsedMin += unloadingMin;
+      return { driveMin, loadingMin, unloadingMin, breakMin, restMin, elapsedMin };
     }
 
     const state = {
@@ -69388,6 +69394,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeUsesExactTimelineWidth(route) {
       return route?.timelineWidthMode === "manual" || route?.timelineWidthMode === "estimated";
+    }
+
+    // 3K.6: szerokość kafelka oszacowanego z routingu kat. C nadal wynika z
+    // realnego czasu przejazdu + przerw, ale otrzymuje wcześniejsze +30%
+    // powiększenia wizualnego. Dzięki temu automatyczne wyliczenie czasu nie
+    // powoduje nagłego zwężenia świeżo dodanego kafelka na widoku 14-dniowym.
+    function routeTimelineDisplayWidthPercent(route, exactWidthPercent) {
+      const exact = Math.max(0.01, Number(exactWidthPercent || 0.01));
+      if (route?.timelineWidthMode === "manual") return Math.max(1.95, exact);
+      if (route?.timelineWidthMode === "estimated") return Math.max(2.535, exact * 1.3);
+      return Math.max(2.535, exact * 1.3);
     }
 
     function snapToQuarterHour(value) {
@@ -77103,12 +77120,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             // Nowo dodany kafelek pozostaje ok. 30% szerszy dla czytelności nazwy.
             // Po pierwszej ręcznej zmianie szerokości przechodzimy w tryb manualny:
             // wtedy widoczne krawędzie odpowiadają dokładnie pozycji wybranej kursorem.
-            const exactTimelineWidth = routeUsesExactTimelineWidth(route);
-            const displayWidth = exactTimelineWidth
-              ? Math.max(1.95, exactWidth)
-              // Poprzednie minimum 1,95% było zbyt wąskie dla krótkich relacji.
-              // Powiększamy minimalny świeży kafelek o kolejne 30%: 1,95 × 1,30 = 2,535%.
-              : Math.max(2.535, exactWidth * 1.3);
+            const displayWidth = routeTimelineDisplayWidthPercent(route, exactWidth);
             const hasOverlap = routes.some(other => routesActuallyOverlap(route, other));
             const hasPauseConflict = false;
 
@@ -79984,7 +79996,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const maxHour = Math.max(0.25, timelineMaxHour());
       const duration = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, routeGlobalDuration(route));
       const exactWidthPercent = Math.max(0.01, (duration / maxHour) * 100);
-      const visualWidthPercent = routeUsesExactTimelineWidth(route) ? Math.max(1.95, exactWidthPercent) : Math.max(2.535, exactWidthPercent * 1.3);
+      const visualWidthPercent = routeTimelineDisplayWidthPercent(route, exactWidthPercent);
       const visualWidthHours = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, (visualWidthPercent / 100) * maxHour);
       const visibleWidthHours = Math.min(visualWidthHours, Math.max(ROUTE_DROP_SNAP_MINUTES / 60, maxHour - startGlobal));
       const centerGlobal = Math.min(maxHour, startGlobal + visibleWidthHours / 2);
@@ -80239,10 +80251,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const end = Math.max(start + 0.25, Math.min(maxHour, routeGlobalEnd(route)));
       const left = (start / maxHour) * 100;
       const exactWidth = Math.max(0.01, ((end - start) / maxHour) * 100);
-      const exactTimelineWidth = routeUsesExactTimelineWidth(route);
-      const width = exactTimelineWidth
-        ? Math.max(1.95, exactWidth)
-        : Math.max(2.535, exactWidth * 1.3);
+      const width = routeTimelineDisplayWidthPercent(route, exactWidth);
       return { left, width: Math.min(width, Math.max(0.01, 100 - left)) };
     }
 
@@ -82049,9 +82058,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const statusParts = [
           `Trasa kat. C: ${routePlannerKmText(loadedKm)}`,
+          `załadunek: 1 h`,
           `jazda: ${driveText}`,
           dutyEstimate.breakMin > 0 ? `przerwy: ${dutyEstimate.breakMin} min` : "przerwy: 0 min",
           dutyEstimate.restMin > 0 ? `odpoczynek: ${Math.round(dutyEstimate.restMin / 60)} h` : "odpoczynek: 0 h",
+          `rozładunek: 1 h`,
           `kafelek: ok. ${elapsedText}`,
           `dolot: ${routePlannerKmText(approachKm)}`,
           baseKm > 0 ? `baza: ${routePlannerKmText(baseKm)}` : "baza: 0 km",
@@ -82752,8 +82763,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         truckProfile: categoryCEstimate ? "category-c-generic" : "",
         estimatedTruckDistanceKm: categoryCEstimate ? Number(categoryCEstimate.distanceKm || 0) : 0,
         estimatedTruckDriveMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.driveMin || 0)) : 0,
+        estimatedTruckLoadingMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.loadingMin || CATEGORY_C_LOADING_MIN)) : 0,
         estimatedTruckBreakMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.breakMin || 0)) : 0,
         estimatedTruckRestMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.restMin || 0)) : 0,
+        estimatedTruckUnloadingMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.unloadingMin || CATEGORY_C_UNLOADING_MIN)) : 0,
         estimatedTruckElapsedMin: categoryCEstimate ? Math.round(Number(categoryCEstimate.elapsedMin || 0)) : 0,
         truckRoutingSource: categoryCEstimate ? String(categoryCEstimate.source || "") : "",
         truckRoutingFallback: Boolean(categoryCEstimate?.fallback),
