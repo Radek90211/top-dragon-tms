@@ -72133,11 +72133,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function setDriverPrivateColor(driverId, color) {
       const driver = driverById(driverId);
-      if (!canSetDriverPrivateColor(driver) || FLEET_OPERATION_BUSY) return;
+      if (!canSetDriverPrivateColor(driver) || state.driverColorOperationBusy) return;
       const allowed = new Set(DRIVER_PRIVATE_COLOR_OPTIONS.map(item => item.value));
       const normalized = String(color || "").toLowerCase();
       if (!allowed.has(normalized)) return;
-      FLEET_OPERATION_BUSY = true;
+      state.driverColorOperationBusy = true;
       const requestId = `driver-color-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
       state.driverColorPickerId = null;
       syncDriverColorPicker();
@@ -77841,8 +77841,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           <div class="left-cell sticky-b driver-row-cell carrier-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:2;grid-row:${row};">${esc(driver.carrier)}</div>
           <div class="left-cell driver-cell sticky-c driver-row-cell driver-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:3;grid-row:${row};">
+            ${canSetDriverPrivateColor(driver) ? `<button type="button" class="driver-color-btn ${driverPrivateColorClass(driver)}" title="Oznacz cały wiersz kolorem — widoczne tylko dla Ciebie" aria-label="Oznacz kierowcę kolorem" onclick="openDriverColorPicker(event,'${attr(driver.id)}')">${driverColorIconSvg()}</button>` : ""}
             <div class="driver-main-info">
-              <div class="driver-name-row"><span class="driver-name">${esc(driver.driver)}</span>${canSetDriverPrivateColor(driver) ? `<button type="button" class="driver-color-btn ${driverPrivateColorClass(driver)}" title="Oznacz cały wiersz kolorem — widoczne tylko dla Ciebie" aria-label="Oznacz kierowcę kolorem" onclick="openDriverColorPicker(event,'${attr(driver.id)}')">${driverColorIconSvg()}</button>` : ""}</div>
+              <div class="driver-name-row"><span class="driver-name">${esc(driver.driver)}</span></div>
               <span class="driver-week">Tydz.: ${week.km} km · ${money(week.profit)}</span>
             </div>
             ${renderDriverSensitiveBlock(driver)}
@@ -85052,7 +85053,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .stats-dispatcher-scope { display:flex; align-items:end; gap:8px; min-width:190px; }
     .stats-dispatcher-scope label { display:grid; gap:4px; min-width:210px; }
     .stats-scope-label { font-size:11px; font-weight:850; color:var(--muted); }
-    .driver-color-btn { width:22px; height:22px; min-width:22px; border:1px solid #cbd5e1; border-radius:7px; display:inline-grid; place-items:center; padding:0; background:#fff; cursor:pointer; color:#475569; }
+    .driver-color-btn { position:absolute; top:4px; left:4px; z-index:8; width:22px; height:22px; min-width:22px; border:1px solid #cbd5e1; border-radius:7px; display:grid; place-items:center; padding:0; background:#fff; cursor:pointer; color:#475569; box-shadow:0 1px 2px rgba(15,23,42,.08); }
     .driver-color-btn svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.8; }
     .driver-color-backdrop { position:fixed; inset:0; z-index:2147483500; background:rgba(15,23,42,.24); display:grid; place-items:center; padding:18px; }
     .driver-color-popup { width:min(460px,96vw); border:1px solid var(--border); border-radius:16px; background:var(--card); box-shadow:var(--shadow); padding:14px; }
@@ -85974,6 +85975,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         FLEET_OPERATION_BUSY = false;
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
+        if (action === "color") state.driverColorOperationBusy = false;
         const text = String(message?.message || (ok ? "Operacja zakończona." : "Operacja nie powiodła się."));
         const successTitle = action === "delete" ? "Usunięto zestaw" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "import" ? "Import floty zakończony" : "Zapisano zestaw";
         showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
