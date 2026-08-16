@@ -1696,7 +1696,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v26-gemini-multi-route"
+        src="/tms.html?embedded=1&build=request-workflow-v28-ai-batch-freeze-fix"
         title="Top Dragon TMS"
       ></iframe>
     </main>
