@@ -919,6 +919,41 @@ async function upsertCentralRelationFromTms(message) {
   }
 }
 
+async function updateCentralRelationAccountingFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const relationId = String(message?.relationId || '').trim()
+  const patch = message?.patch && typeof message.patch === 'object' ? message.patch : null
+  const branchId = String(
+    currentProfile?.role === 'admin'
+      ? (message?.branchId || currentProfile?.branch_id || '')
+      : (currentProfile?.branch_id || '')
+  ).trim()
+
+  if (!relationId || !branchId || !patch) {
+    sendRelationOperationResult(requestId, false, 'accounting', relationId, branchId, 'Brak danych statusu rozliczeń.')
+    return
+  }
+
+  if (!['accounting', 'admin'].includes(String(currentProfile?.role || ''))) {
+    sendRelationOperationResult(requestId, false, 'accounting', relationId, branchId, 'Status rozliczeń może zmieniać tylko grupa Rozliczenia.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('patch_tms_relation_accounting', {
+      p_branch_id: branchId,
+      p_relation_ref: relationId,
+      p_patch: patch,
+    })
+    if (error) throw error
+
+    await syncCentralRelationsToTms()
+    sendRelationOperationResult(requestId, true, 'accounting', relationId, branchId, 'Status rozliczeń został zsynchronizowany.')
+  } catch (error) {
+    sendRelationOperationResult(requestId, false, 'accounting', relationId, branchId, error?.message || 'Nie udało się zapisać statusu rozliczeń.')
+  }
+}
+
 async function archiveCentralRelationFromTms(message) {
   const requestId = String(message?.requestId || '')
   const relationId = String(message?.relationId || '').trim()
@@ -1696,7 +1731,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v29-proposed-schedule-fit"
+        src="/tms.html?embedded=1&build=request-workflow-v30-accounting-visible-load-dates-match"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1862,6 +1897,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-relation-upsert') {
       await upsertCentralRelationFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-accounting-update') {
+      await updateCentralRelationAccountingFromTms(event.data)
       return
     }
 
