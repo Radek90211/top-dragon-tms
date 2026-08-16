@@ -804,7 +804,7 @@ async function loadCentralRelations() {
     .eq('active', true)
     .order('updated_at', { ascending: true })
 
-  if (currentProfile.role !== 'admin') {
+  if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
     if (!currentProfile.branch_id) return []
     query = query.eq('branch_id', currentProfile.branch_id)
   }
@@ -924,7 +924,7 @@ async function updateCentralRelationAccountingFromTms(message) {
   const relationId = String(message?.relationId || '').trim()
   const patch = message?.patch && typeof message.patch === 'object' ? message.patch : null
   const branchId = String(
-    currentProfile?.role === 'admin'
+    ['admin', 'accounting'].includes(String(currentProfile?.role || ''))
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -993,7 +993,7 @@ async function loadCentralClients() {
     .eq('active', true)
     .order('updated_at', { ascending: true })
 
-  if (currentProfile.role !== 'admin') {
+  if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
     if (!currentProfile.branch_id) return []
     query = query.eq('branch_id', currentProfile.branch_id)
   }
@@ -1731,7 +1731,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v33-accounting-realtime"
+        src="/tms.html?embedded=1&build=request-workflow-v34-notify-global-accounting-stats"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1748,7 +1748,9 @@ async function renderDashboard(user) {
       role: profile.role,
       supabaseRole: profile.role,
       branchId: profile.branch_id || '',
-      branch: branchName === 'Brak oddziału' ? '' : branchName,
+      branch: profile.role === 'accounting'
+        ? 'Wszystkie oddziały'
+        : (branchName === 'Brak oddziału' ? '' : branchName),
     },
   }
 
