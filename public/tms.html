@@ -67688,17 +67688,6 @@
 
     const ANON_PHONE = "797797563";
 
-    const DISPATCHER_DRIVER_COUNTS = [
-      { dispatcher: "TOM", count: 5 },
-      { dispatcher: "NATI", count: 4 },
-      { dispatcher: "MARC", count: 7 },
-      { dispatcher: "DAN", count: 12 },
-      { dispatcher: "BART", count: 8 },
-      { dispatcher: "RADEK", count: 2 },
-      { dispatcher: "MATI", count: 5 },
-      { dispatcher: "MARIO", count: 9 }
-    ];
-
     const DRIVER_BASE_POOL = [];
 
     const DRIVER_NAME_POOL = [];
@@ -67727,7 +67716,7 @@
 
     function applyStoredDriverAssignments() {
       const assignments = loadDriverAssignments();
-      const allowed = new Set(DISPATCHER_DRIVER_COUNTS.map(item => item.dispatcher));
+      const allowed = new Set(queueDispatchers());
       DRIVERS.forEach(driver => {
         driver.homeDispatcher = DRIVER_HOME_DISPATCHERS.get(driver.id) || driver.dispatcher;
         const assigned = String(assignments[driver.id] || "").trim();
@@ -68659,7 +68648,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!sharedDbIsConfigured()) return;
       try {
         const rows = await sharedDbRequest(SUPABASE_DRIVER_ASSIGNMENT_TABLE, { query: "?select=driver_id,dispatcher,updated_at" });
-        const allowed = new Set(DISPATCHER_DRIVER_COUNTS.map(item => item.dispatcher));
+        const allowed = new Set(queueDispatchers());
         const assignments = loadDriverAssignments();
         (rows || []).forEach(row => {
           const driver = driverById(row.driver_id);
@@ -70115,15 +70104,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return DRIVER_BY_ID_CACHE.get(id) || null;
     }
 
+    function driverOperationallyVisible(driver) {
+      return Boolean(driver && !driver.fleetHidden);
+    }
+
+    function operationalDrivers() {
+      return DRIVERS.filter(driverOperationallyVisible);
+    }
+
 
     function activeRoutes() {
       return boardRenderCache?.activeRoutes || state.routes.filter(route => !route.futureQueue);
     }
 
     function visibleDriversForCurrentUser() {
+      const drivers = operationalDrivers();
       return state.user?.role === "rozliczenia" || !state.onlyMine
-        ? DRIVERS
-        : DRIVERS.filter(driver => driver.dispatcher === state.user.login);
+        ? drivers
+        : drivers.filter(driver => driver.dispatcher === state.user.login);
     }
 
     function routeStatusGlobalMoment(route) {
@@ -71219,14 +71217,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
 
-    const ACCOUNTING_EDITABLE_NUMBER_FIELDS = new Set(["approachKm", "loadedKm", "baseKm", "rate", "oversizedCost", "cost"]);
-
     function canEditAccountingFields(route) {
       return Boolean(route && state.user?.role === "rozliczenia");
     }
 
     function canEditRouteFinancials(route) {
-      return canEditBoardRoute(route) || canEditAccountingFields(route);
+      return canEditBoardRoute(route);
     }
 
     function canEditBoardRoute(route) {
@@ -71249,7 +71245,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function blockAccountingOperationMessage() {
-      showAppMessage("Widok rozliczeń", "Rozliczenia mogą kontrolować status, kilometry, stawkę, koszt i zysk, ale nie mogą operacyjnie przesuwać ani usuwać relacji na tablicach spedytorów.");
+      showAppMessage("Widok rozliczeń", "Rozliczenia mają podgląd danych relacji i mogą zmieniać wyłącznie status rozliczeń. Pozostałe wartości są tylko do odczytu.");
     }
 
     function formDisabledAttr(route) {
@@ -71469,7 +71465,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
                   ${["spedytor","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
                   ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
-                  ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdminDataTransfer()" title="Importuj lub eksportuj relacje i klientów">Import / eksport</button>` : ""}
+                  ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdminDataTransfer()" title="Importuj lub eksportuj relacje, klientów i pojazdy">Import / eksport</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
                   <span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">
@@ -72092,10 +72088,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncDriverTransferPopup();
     }
 
+    function eligibleDriverTransferDispatchers(driver) {
+      if (!driver) return [];
+      const branchId = String(driver.branchId || state.user?.branchId || "").trim();
+      const seen = new Set();
+      return USERS
+        .filter(user => user && user.role === "spedytor" && user.login)
+        .filter(user => !branchId || String(user.branchId || "").trim() === branchId)
+        .map(user => String(user.login || "").trim())
+        .filter(login => login && !seen.has(login) && seen.add(login))
+        .sort((a, b) => a.localeCompare(b, "pl"));
+    }
+
     function renderDriverTransferPopup() {
       const driver = state.driverTransferPopupId ? driverById(state.driverTransferPopupId) : null;
       if (!driver || !canTransferDriver(driver)) return "";
-      const dispatchers = DISPATCHER_DRIVER_COUNTS.map(item => item.dispatcher);
+      const dispatchers = eligibleDriverTransferDispatchers(driver);
       const homeDispatcher = driver.homeDispatcher || DRIVER_HOME_DISPATCHERS.get(driver.id) || driver.dispatcher;
       return `
         <div class="driver-transfer-backdrop" onclick="closeDriverTransferPopup()">
@@ -72130,7 +72138,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
       const target = String(document.getElementById("driver-transfer-dispatcher")?.value || "").trim();
-      const allowed = new Set(DISPATCHER_DRIVER_COUNTS.map(item => item.dispatcher));
+      const allowed = new Set(eligibleDriverTransferDispatchers(driver));
       if (!allowed.has(target)) {
         showAppMessage("Nieprawidłowy spedytor", "Wybierz spedytora z listy.");
         return;
@@ -72351,7 +72359,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function clientAlertVehiclePositions() {
       const date = state.nearestDate || currentAppDate();
-      return DRIVERS.map(driver => ({
+      return operationalDrivers().map(driver => ({
         driver,
         position: driverPositionForDate(driver.id, date)
       })).filter(item => Array.isArray(item.position?.coords));
@@ -73346,7 +73354,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const waiting = rows.filter(item => ["new", "contacting"].includes(item.status)).length;
       const available = rows.filter(item => item.status === "available").length;
       const unavailable = rows.filter(item => item.status === "unavailable").length;
-      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci i ładunki w rejonie”.</div>`}</div>`;
+      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci w rejonie”.</div>`}</div>`;
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
@@ -73428,7 +73436,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function submitClientLoadRequest(event) {
       event?.preventDefault?.();
-      showAppMessage("Zapytania z rejonu", "Wybierz klienta w zakładce „Klienci i ładunki w rejonie”.", "info");
+      showAppMessage("Zapytania z rejonu", "Wybierz klienta w zakładce „Klienci w rejonie”.", "info");
     }
 
     function setClientLoadRequestStatus(requestId, status) {
@@ -73650,8 +73658,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ? `<div class="commercial-empty">${esc(search.error || "Nie udało się policzyć odległości ciężarowych.")}</div>`
             : rows.length ? rows.map(group => {
                 const owner = String(group.client?.dispatcher || "").toUpperCase();
-                const canRequest = owner && owner !== login;
-                return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">${Math.round(group.distanceKm)} km po drogach · kat. C · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Zapytaj o ładunek</button>` : ""}</div></div>`;
+                const canRequest = canSendQuickClientLoadRequest() && owner && owner !== login;
+                return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">${Math.round(group.distanceKm)} km po drogach · kat. C · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Szybkie zapytanie o ładunek</button>` : ""}</div></div>`;
               }).join("")
             : state.regionOpportunityQuery
               ? `<div class="commercial-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`
@@ -73664,7 +73672,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderCommercialIntelligence() {
-      const tabs = [["rates", "Historia"], ["region", "Klienci i ładunki w rejonie"], ["requests", "Zapytania o ładunek"]];
+      const tabs = [["rates", "Historia"], ["region", "Klienci w rejonie"], ["requests", "Zapytania o ładunek"]];
       if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
       return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
     }
@@ -74601,9 +74609,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
 
+      const activeDrivers = operationalDrivers();
       const drivers = state.user?.role === "spedytor" && state.onlyMine
-        ? DRIVERS.filter(driver => driver.dispatcher === state.user.login)
-        : DRIVERS;
+        ? activeDrivers.filter(driver => driver.dispatcher === state.user.login)
+        : activeDrivers;
       const requirements = {
         loadHeightM: Number(String(state.nearestLoadHeight || "").replace(",", ".") || 0) || 0,
         requirePolishDriver: Boolean(state.nearestRequirePolishDriver)
@@ -75137,9 +75146,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       const target = [Number(targetPoint.lat), Number(targetPoint.lng)];
 
+      const activeDrivers = operationalDrivers();
       const drivers = options.currentDispatcherOnly && state.user?.role === "spedytor"
-        ? DRIVERS.filter(driver => driver.dispatcher === state.user.login)
-        : DRIVERS;
+        ? activeDrivers.filter(driver => driver.dispatcher === state.user.login)
+        : activeDrivers;
 
       return drivers
         .map(driver => {
@@ -77550,6 +77560,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
     function isDriverVisibleOnBoard(driver) {
+      if (!driverOperationallyVisible(driver)) return false;
       return !(state.user?.role === "spedytor" && state.onlyMine && driver.dispatcher !== state.user.login);
     }
 
@@ -77859,12 +77870,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
     function isMapDriverVisible(driverId) {
+      const driver = driverById(driverId);
+      if (!driverOperationallyVisible(driver)) return false;
       const filters = state.mapVisibleDriverIds || {};
       return filters[driverId] !== false;
     }
 
     function visibleMapDriverCount() {
-      return DRIVERS.filter(driver => isMapDriverVisible(driver.id)).length;
+      return operationalDrivers().filter(driver => isMapDriverVisible(driver.id)).length;
     }
 
     function setMapDriverVisible(driverId, checked) {
@@ -77898,10 +77911,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderMapVehicleFilter() {
       if (!state.mapVehicleFilterOpen) return "";
-      const groups = queueDispatchers().map(dispatcher => ({ dispatcher, drivers: DRIVERS.filter(driver => driver.dispatcher === dispatcher) })).filter(group => group.drivers.length);
+      const activeDrivers = operationalDrivers();
+      const groups = queueDispatchers().map(dispatcher => ({ dispatcher, drivers: activeDrivers.filter(driver => driver.dispatcher === dispatcher) })).filter(group => group.drivers.length);
       return `
         <div class="map-vehicle-filter" onclick="event.stopPropagation()">
-          <div class="map-vehicle-filter-head"><b>Pojazdy widoczne na mapie</b><span class="map-filter-count">${visibleMapDriverCount()} / ${DRIVERS.length}</span></div>
+          <div class="map-vehicle-filter-head"><b>Pojazdy widoczne na mapie</b><span class="map-filter-count">${visibleMapDriverCount()} / ${operationalDrivers().length}</span></div>
           <div class="map-filter-actions"><button type="button" class="btn-mini" onclick="setAllMapDriversVisible(true)">Wszystkie</button><button type="button" class="btn-mini" onclick="setAllMapDriversVisible(false)">Żadne</button><button type="button" class="btn-mini" onclick="showOnlyMyMapDrivers()">Moje auta</button></div>
           ${groups.map(group => `
             <div class="map-filter-group">
@@ -78848,7 +78862,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function driverBaseMapPoints() {
       const groups = new Map();
-      DRIVERS.forEach(driver => {
+      operationalDrivers().forEach(driver => {
         const base = String(driver.base || "").replace(/\s+/g, " ").trim();
         if (!base) return;
         const key = removePolishChars(base);
@@ -79279,7 +79293,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               const canAsk = canSendQuickClientLoadRequest();
               const canSendQuickRequest = canAsk && owner && owner !== login;
               const action = canSendQuickRequest
-                ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.requestClientId || item.client.id)}')">Wyślij zapytanie</button>`
+                ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.requestClientId || item.client.id)}')">Szybkie zapytanie o ładunek</button>`
                 : canAsk && owner === login
                   ? `<span class="route-context-client-state">Twój klient</span>`
                   : owner
@@ -79300,7 +79314,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           : `<div class="route-context-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`;
       return `
         <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
-        <div class="route-context-title">Klienci i ładunki w rejonie: ${esc(query || "—")}</div>
+        <div class="route-context-title">Klienci w rejonie: ${esc(query || "—")}</div>
         ${body}
         <button onclick="showRegionOpportunitiesForRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Otwórz pełną analizę rejonu</button>
         <button onclick="enableClientsOnMapFromContext()"><span class="context-dot context-dot-empty"></span>Pokaż klientów na mapie</button>
@@ -79328,8 +79342,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (state.user.role === "rozliczenia") {
         return `
           <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
-            <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
-            <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci i ładunki w rejonie</button>
+            <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Pokaż szczegóły</button>
+            <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
             ${renderOtherDispatcherContextNotice(route)}
             <div class="route-context-title">Status rozliczeń</div>
             <button onclick="setRouteStatus('${attr(route.id)}','accountingCheck')"><span class="context-dot context-dot-yellow"></span>Do weryfikacji / niezgodność</button>
@@ -79343,7 +79357,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
           <button onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
-          <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci i ładunki w rejonie</button>
+          <button onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
           ${renderOtherDispatcherContextNotice(route)}
           <div class="route-context-title">Status spedytora</div>
           <button onclick="setRouteStatus('${attr(route.id)}','dispatcherSms')"><span class="context-dot context-dot-yellow"></span>SMS wysłany / w trakcie realizacji</button>
@@ -79465,10 +79479,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             <section class="section">
               <div class="grid-2">
-                <details class="details-inline-collapse">
+                ${canEdit ? `<details class="details-inline-collapse">
                   <summary>Data: ${esc(formatDateForInput(route.date || START_DATE))}</summary>
                   ${renderDateStepper(route.date || START_DATE, `shiftRouteDate('${attr(route.id)}', -1)`, `shiftRouteDate('${attr(route.id)}', 1)`, "Data relacji")}
-                </details>
+                </details>` : `<div><label class="field-label" style="margin-top:0;">Data</label><div class="input" aria-readonly="true">${esc(formatDateForInput(route.date || START_DATE))}</div></div>`}
                 ${state.user.role === "rozliczenia" ? `
                 <div>
                   <label class="field-label" style="margin-top:0;">Status rozliczeń</label>
@@ -79507,7 +79521,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${renderFreightProfitabilityCalculator(route)}
             </section>
 
-            ${route.sourceProposedId ? `
+            ${route.sourceProposedId && canEdit ? `
               <section class="section" style="border-color:#bfdbfe;background:#eff6ff;">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
                   <div>
@@ -79521,8 +79535,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             ${!canDelete ? `
               <section class="section section-soft">
-                <b>Edycja zablokowana</b>
-                <div class="small">Ta relacja znajduje się na tablicy innego spedytora. Możesz ją podejrzeć, ale nie edytować ani usuwać.</div>
+                <b>${state.user.role === "rozliczenia" ? "Podgląd tylko do odczytu" : "Edycja zablokowana"}</b>
+                <div class="small">${state.user.role === "rozliczenia" ? "Rozliczenia mogą zmieniać wyłącznie status rozliczeń. Trasa, klient, daty, kilometry, stawka, koszt i pozostałe wartości relacji są tylko do odczytu." : "Ta relacja znajduje się na tablicy innego spedytora. Możesz ją podejrzeć, ale nie edytować ani usuwać."}</div>
               </section>
             ` : ""}
 
@@ -79582,7 +79596,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const futureMode = Boolean(prefill.futureQueue);
       const editingFuture = Boolean(futureMode && state.futureEditId);
       const editingProposed = Boolean(proposedMode && state.proposedEditId);
-      const driverOptions = state.user?.role === "spedytor" ? DRIVERS.filter(driver => driver.dispatcher === state.user.login) : DRIVERS;
+      const activeDrivers = operationalDrivers();
+      const driverOptions = state.user?.role === "spedytor" ? activeDrivers.filter(driver => driver.dispatcher === state.user.login) : activeDrivers;
       const modalTitle = editingProposed ? "Edytuj wolny ładunek" : proposedMode ? "Dodaj wolny ładunek" : editingFuture ? "Edytuj planowaną relację" : futureMode ? "Dodaj planowaną relację" : "Dodaj trasę";
       const aiBatchActive = Boolean(prefill.aiTextBatch && Number(prefill.aiTextBatchTotal || 0) > 0);
       const aiBatchIndex = Math.max(0, Number(prefill.aiTextBatchIndex || 0));
@@ -83142,13 +83157,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!route) return;
       const numericValue = Number(value || 0);
       if (!canEditBoardRoute(route)) {
-        if (ACCOUNTING_EDITABLE_NUMBER_FIELDS.has(field) && canEditAccountingFields(route)) {
-          if (field !== "cost") route[field] = numericValue;
-          if (field === "oversizedCost") route.oversizedTransport = numericValue > 0;
-          applyAutomaticCarrierCost(route);
-          syncRouteFinancePreview(route);
-          return;
-        }
         if (state.user?.role === "rozliczenia") blockAccountingOperationMessage();
         else blockForeignRouteEditMessage();
         return;
@@ -83166,13 +83174,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.routeNumberCommitTimer = null;
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return;
-      const isAccounting = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
-      if (isAccounting && ACCOUNTING_EDITABLE_NUMBER_FIELDS.has(accountingField)) {
-        const value = accountingField === "cost" ? Number(routeAutoCost(route) || 0) : Number(route[accountingField] || 0);
-        const patch = { [accountingField]: value };
-        if (accountingField === "oversizedCost") patch.oversizedTransport = Boolean(route.oversizedTransport);
-        syncCentralAccountingPatch(route, patch);
-      }
       scheduleRouteHistoryCapture(route);
       invalidateCombinedClientHistoryCache();
       scheduleUiSync({ board:true, unload:true, details:false });
@@ -84992,6 +84993,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <button type="button" class="btn" onclick="adminChooseImport('clients')">Import klientów JSON</button>
                   </div>
                 </div>
+                <div class="admin-transfer-group">
+                  <strong>Pojazdy</strong>
+                  <div class="small">Eksport zawiera pojazd, przypisanego kierowcę, przewoźnika, naczepę, spedytora, oddział oraz informację, czy zestaw jest ukryty. Eksport nie zmienia danych floty.</div>
+                  <div class="admin-transfer-actions">
+                    <button type="button" class="btn btn-dark" onclick="adminExportData('vehicles')">Eksport pojazdów JSON</button>
+                  </div>
+                </div>
               </div>
             </section>
           </div>`;
@@ -84999,7 +85007,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.openAdminDataTransfer = function() {
         if (!canUseAdminDataTransfer()) {
-          showAppMessage("Brak uprawnień", "Import i eksport relacji oraz klientów jest dostępny wyłącznie dla administratora.", "error");
+          showAppMessage("Brak uprawnień", "Import i eksport relacji i klientów oraz eksport pojazdów są dostępne wyłącznie dla administratora.", "error");
           return;
         }
         state.adminDataTransferOpen = true;
@@ -85024,26 +85032,62 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         setTimeout(() => URL.revokeObjectURL(url), 0);
       }
 
+      function vehicleExportItemFromDriver(driver) {
+        if (!driver || !driver.tractorReg) return null;
+        const dispatcherUser = USERS.find(user => user.role === "spedytor" && user.login === driver.dispatcher);
+        return {
+          assignmentId: String(driver.dbAssignmentId || driver.id || ""),
+          branchId: String(driver.branchId || dispatcherUser?.branchId || ""),
+          assignedDispatcherId: String(dispatcherUser?.supabaseId || ""),
+          dispatcher: String(driver.dispatcher || ""),
+          hidden: Boolean(driver.fleetHidden),
+          carrier: {
+            id: String(driver.carrierEntityId || ""),
+            name: String(driver.carrier || "")
+          },
+          driver: {
+            id: String(driver.driverEntityId || ""),
+            fullName: String(driver.driver || "")
+          },
+          vehicle: {
+            id: String(driver.vehicleEntityId || ""),
+            registrationNo: String(driver.tractorReg || ""),
+            brand: String(driver.vehicleBrand || "")
+          },
+          trailer: driver.trailerReg ? {
+            id: String(driver.trailerEntityId || ""),
+            registrationNo: String(driver.trailerReg || ""),
+            heightM: Number(driver.trailerHeight || 0) || null
+          } : null
+        };
+      }
+
       window.adminExportData = function(kind) {
         if (!canUseAdminDataTransfer()) {
           showAppMessage("Brak uprawnień", "Eksport danych jest dostępny wyłącznie dla administratora.", "error");
           return;
         }
         const exportedAt = new Date().toISOString();
-        const type = kind === "clients" ? "clients" : "relations";
-        const items = type === "clients"
-          ? (state.clients || []).filter(client => client && !client.sample).map(client => ({
-              branchId: centralClientBranchId(client),
-              payload: centralSerializableClient(client)
-            })).filter(item => item.branchId && item.payload?.id)
-          : (state.routes || []).filter(route => route && !route.futureQueue && !route.proposedLoad).map(route => ({
-              branchId: centralRouteBranchId(route),
-              payload: centralSerializableRoute(route)
-            })).filter(item => item.branchId && item.payload?.id);
+        const type = kind === "clients" ? "clients" : kind === "vehicles" ? "vehicles" : "relations";
+        let items = [];
+        if (type === "clients") {
+          items = (state.clients || []).filter(client => client && !client.sample).map(client => ({
+            branchId: centralClientBranchId(client),
+            payload: centralSerializableClient(client)
+          })).filter(item => item.branchId && item.payload?.id);
+        } else if (type === "vehicles") {
+          items = DRIVERS.map(vehicleExportItemFromDriver).filter(Boolean);
+        } else {
+          items = (state.routes || []).filter(route => route && !route.futureQueue && !route.proposedLoad).map(route => ({
+            branchId: centralRouteBranchId(route),
+            payload: centralSerializableRoute(route)
+          })).filter(item => item.branchId && item.payload?.id);
+        }
         const payload = { format: "top-dragon-tms", version: 1, type, exportedAt, items };
         const date = exportedAt.slice(0, 10);
         downloadAdminJson(`top-dragon-${type}-${date}.json`, payload);
-        recordAuditOperation(`Eksport ${type === "clients" ? "klientów" : "relacji"}`, type, "", `${items.length} rekordów`);
+        const exportLabel = type === "clients" ? "klientów" : type === "vehicles" ? "pojazdów" : "relacji";
+        recordAuditOperation(`Eksport ${exportLabel}`, type, "", `${items.length} rekordów`);
       };
 
       window.adminChooseImport = function(kind) {
@@ -85305,6 +85349,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             customFleet: true,
             supabaseFleet: true,
             relationLocked: Boolean(row.relationLocked),
+            fleetHidden: Boolean(row.hidden),
             createdBy: String(creatorUser?.login || "").toUpperCase(),
             createdAt: String(row.createdAt || ""),
             branchId: String(row.branchId || "")
@@ -85331,7 +85376,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
         const text = String(message?.message || (ok ? "Operacja zakończona." : "Operacja nie powiodła się."));
-        showAppMessage(ok ? (action === "delete" ? "Usunięto zestaw" : "Zapisano zestaw") : "Błąd floty", text, ok ? "success" : "error");
+        const successTitle = action === "delete" ? "Usunięto zestaw" : action === "visibility" ? "Widoczność floty zmieniona" : "Zapisano zestaw";
+        showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
       };
@@ -85453,7 +85499,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Wysokość naczepy</label><input id="fleet-height" class="input" type="number" min="1" max="4.3" step="0.05" value="1.30" /></div>
               <div><label class="field-label" style="margin-top:0;">Narodowość kierowcy</label><select id="fleet-nationality" class="select"><option>PL</option><option>UA</option><option>BY</option><option>LT</option><option>SK</option><option>CZ</option></select></div>
               <div class="wide"><label class="field-label" style="margin-top:0;">Baza kierowcy</label><input id="fleet-base" class="input" list="locations-list" placeholder="miejscowość lub kod" /></div>
-              <div class="fleet-form-actions wide"><button type="button" class="btn" onclick="refreshFleetFromSupabase()">Odśwież flotę</button><button type="submit" class="btn btn-dark" ${FLEET_OPERATION_BUSY ? "disabled" : ""}>${FLEET_OPERATION_BUSY ? "Zapisywanie…" : "Dodaj zestaw"}</button></div>
+              <div class="fleet-form-actions wide"><button type="button" class="btn" onclick="refreshFleetFromSupabase()">Odśwież flotę</button><button type="button" class="btn" onclick="exportFleetVehicles()">Eksport pojazdów</button><button type="submit" class="btn btn-dark" ${FLEET_OPERATION_BUSY ? "disabled" : ""}>${FLEET_OPERATION_BUSY ? "Zapisywanie…" : "Dodaj zestaw"}</button></div>
             </form>
           </div>
           <div class="fleet-form-card">
@@ -85466,10 +85512,45 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 : hasRelationHistory
                   ? `<button type="button" class="btn-mini danger fleet-delete-locked" disabled title="Usunięcie zablokowane: kierowca lub pojazd występuje w historii relacji.">Usuń</button>`
                   : `<button type="button" class="btn-mini danger" onclick="removeFleetDriver('${attr(driver.id)}')">Usuń</button>`;
-              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${deleteControl}</div></div>`;
+              const canChangeVisibility = Boolean(driver.supabaseFleet && (isAdminUser() || driver.dispatcher === state.user.login));
+              const visibilityControl = canChangeVisibility
+                ? `<button type="button" class="btn-mini" onclick="setFleetDriverHidden('${attr(driver.id)}', ${driver.fleetHidden ? "false" : "true"})" title="${driver.fleetHidden ? "Przywróć pojazd do planu, mapy i dopasowań" : "Ukryj nieaktywny pojazd z planu, mapy i dopasowań"}">${driver.fleetHidden ? "Pokaż" : "Ukryj"}</button>`
+                : "";
+              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}${driver.fleetHidden ? ` · <b>ukryty</b>` : ""}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${visibilityControl}${deleteControl}</div></div>`;
             }).join("") : `<div class="commercial-empty">Brak dodanych kierowców, pojazdów i przewoźników.</div>`}</div>
           </div>
         </div>`;
+      };
+
+      window.exportFleetVehicles = function() {
+        if (!state.user || !["spedytor", "admin"].includes(state.user.role)) {
+          showAppMessage("Brak uprawnień", "Nie możesz eksportować floty.", "error");
+          return;
+        }
+        const drivers = (isAdminUser() ? DRIVERS : DRIVERS.filter(driver => driver.dispatcher === state.user.login));
+        const items = drivers.map(vehicleExportItemFromDriver).filter(Boolean);
+        const exportedAt = new Date().toISOString();
+        const payload = { format: "top-dragon-tms", version: 1, type: "vehicles", exportedAt, items };
+        downloadAdminJson(`top-dragon-vehicles-${exportedAt.slice(0, 10)}.json`, payload);
+        recordAuditOperation("Eksport pojazdów", "vehicles", "", `${items.length} rekordów`);
+        showAppMessage("Eksport gotowy", `Wyeksportowano ${items.length} ${items.length === 1 ? "pojazd" : "pojazdów"}.`, "success");
+      };
+
+      window.setFleetDriverHidden = function(driverId, hidden) {
+        const driver = driverById(driverId);
+        if (!driver?.supabaseFleet || FLEET_OPERATION_BUSY) return;
+        if (!isAdminUser() && !(state.user?.role === "spedytor" && driver.dispatcher === state.user.login)) {
+          showAppMessage("Brak uprawnień", "Możesz ukrywać wyłącznie własne pojazdy.", "error");
+          return;
+        }
+        FLEET_OPERATION_BUSY = true;
+        const requestId = `fleet-visibility-${Date.now()}`;
+        window.parent?.postMessage({
+          type: "top-dragon-fleet-visibility",
+          requestId,
+          assignmentId: driver.dbAssignmentId || driver.id,
+          hidden: Boolean(hidden)
+        }, window.location.origin);
       };
 
       window.refreshFleetFromSupabase = function() {
@@ -85655,7 +85736,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       renderCommercialIntelligence = function() {
-        const tabs = [["rates","Historia"],["region","Klienci i ładunki w rejonie"],["requests","Zapytania o ładunek"]];
+        const tabs = [["rates","Historia"],["region","Klienci w rejonie"],["requests","Zapytania o ładunek"]];
         if (["spedytor","admin"].includes(state.user?.role)) tabs.push(["fleet","Kierowcy i pojazdy"]);
         if (isAdminUser()) tabs.push(["audit","Historia operacji"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
@@ -85719,9 +85800,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       visibleDriversForCurrentUser = function() {
+        const drivers = operationalDrivers();
         return isAdminUser() || state.user?.role === "rozliczenia" || !state.onlyMine
-          ? DRIVERS
-          : DRIVERS.filter(driver => driver.dispatcher === state.user.login);
+          ? drivers
+          : drivers.filter(driver => driver.dispatcher === state.user.login);
       };
       canEditAccountingFields = function(route) {
         return Boolean(route && (state.user?.role === "rozliczenia" || String(state.user?.supabaseRole || "") === "admin"));
