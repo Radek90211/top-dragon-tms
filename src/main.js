@@ -711,6 +711,7 @@ async function loadFleetData() {
       created_by,
       created_at,
       active,
+      hidden,
       carrier:carriers!fleet_assignments_carrier_id_fkey(id,name),
       driver:drivers!fleet_assignments_driver_id_fkey(id,full_name,phone,identity_document_number,nationality,base_location,created_by),
       vehicle:vehicles!fleet_assignments_vehicle_id_fkey(id,registration_no,brand,description,created_by),
@@ -753,6 +754,7 @@ async function loadFleetData() {
       createdBy: assignment.created_by || '',
       createdAt: assignment.created_at || '',
       relationLocked,
+      hidden: Boolean(assignment.hidden),
       carrier: carrier ? { id: carrier.id, name: carrier.name || '' } : null,
       driver: driver ? {
         id: driver.id,
@@ -1607,6 +1609,37 @@ async function deleteFleetSetFromTms(message) {
   }
 }
 
+async function setFleetVisibilityFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const assignmentId = String(message?.assignmentId || '').trim()
+  const hidden = Boolean(message?.hidden)
+
+  if (!assignmentId) {
+    sendFleetOperationResult(requestId, false, 'visibility', 'Brak identyfikatora zestawu.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('set_fleet_assignment_hidden', {
+      p_assignment_id: assignmentId,
+      p_hidden: hidden,
+    })
+    if (error) throw error
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(
+      requestId,
+      true,
+      'visibility',
+      hidden
+        ? 'Pojazd został ukryty z planu, mapy i dopasowań. Historia pozostała zachowana.'
+        : 'Pojazd został ponownie pokazany w planie, na mapie i w dopasowaniach.'
+    )
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'visibility', error?.message || 'Nie udało się zmienić widoczności pojazdu.')
+  }
+}
+
 async function handleTruckRoutingRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
 
@@ -1743,7 +1776,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v36-load-request-statuses"
+        src="/tms.html?embedded=1&build=request-workflow-v38-fleet-export-visibility-transfer-filter"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1888,6 +1921,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-fleet-delete') {
       await deleteFleetSetFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-visibility') {
+      await setFleetVisibilityFromTms(event.data)
       return
     }
 
