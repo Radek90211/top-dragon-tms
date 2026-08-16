@@ -74814,6 +74814,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const PROPOSED_LOAD_DISTANCE_PREFETCH_BUFFER_KM = 25;
     const ROAD_DISTANCE_CACHE = new Map();
     const ROAD_DISTANCE_PENDING = new Set();
+    const ROAD_DISTANCE_FAILED_UNTIL = new Map();
+    const ROAD_DISTANCE_QUEUE = [];
+    const ROAD_DISTANCE_MAX_CONCURRENT = 4;
+    let ROAD_DISTANCE_ACTIVE = 0;
     let roadDistanceRefreshTimer = null;
 
     function roadDistanceCoordKey(coords) {
@@ -74845,60 +74849,109 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }, 180);
     }
 
+    function runRoadDistanceQueue() {
+      while (ROAD_DISTANCE_ACTIVE < ROAD_DISTANCE_MAX_CONCURRENT && ROAD_DISTANCE_QUEUE.length) {
+        const task = ROAD_DISTANCE_QUEUE.shift();
+        if (!task) break;
+        ROAD_DISTANCE_ACTIVE += 1;
+        Promise.resolve().then(async () => {
+          try {
+            const result = await requestTruckRouting("route", { points: [task.from, task.to] }, 22000);
+            const km = Number(result?.distanceKm || 0);
+            const durationMin = Number(result?.durationMin || 0);
+            if (Number.isFinite(km) && km > 0 && Number.isFinite(durationMin) && durationMin > 0) {
+              ROAD_DISTANCE_CACHE.set(task.key, {
+                km,
+                durationHours: durationMin / 60,
+                source: String(result?.source || "tomtom-truck")
+              });
+              ROAD_DISTANCE_FAILED_UNTIL.delete(task.key);
+            } else {
+              ROAD_DISTANCE_FAILED_UNTIL.set(task.key, Date.now() + 15000);
+            }
+          } catch (error) {
+            // Brak wyniku TomTom nie może tworzyć fałszywego dopasowania. Krótki
+            // cooldown chroni backend przed pętlą ponowień podczas awarii API.
+            ROAD_DISTANCE_FAILED_UNTIL.set(task.key, Date.now() + 15000);
+          } finally {
+            ROAD_DISTANCE_PENDING.delete(task.key);
+            ROAD_DISTANCE_ACTIVE = Math.max(0, ROAD_DISTANCE_ACTIVE - 1);
+            scheduleRoadDistancePanelRefresh();
+            runRoadDistanceQueue();
+          }
+        });
+      }
+    }
+
     function scheduleRoadDistanceLookup(a, b, key) {
       if (!key || ROAD_DISTANCE_CACHE.has(key) || ROAD_DISTANCE_PENDING.has(key)) return;
+      if (Number(ROAD_DISTANCE_FAILED_UNTIL.get(key) || 0) > Date.now()) return;
       const from = routePointFromCoords(a);
       const to = routePointFromCoords(b);
       if (!from || !to) return;
 
       ROAD_DISTANCE_PENDING.add(key);
-      window.setTimeout(async () => {
-        try {
-          const km = await osrmDistanceKmBetweenPoints([from, to]);
-          if (Number.isFinite(km) && km > 0) ROAD_DISTANCE_CACHE.set(key, km);
-        } catch (error) {
-          // Publiczny router może chwilowo nie odpowiedzieć; wtedy zostaje lokalne przybliżenie po głównych drogach.
-        } finally {
-          ROAD_DISTANCE_PENDING.delete(key);
-          scheduleRoadDistancePanelRefresh();
-        }
-      }, 0);
+      ROAD_DISTANCE_QUEUE.push({ key, from, to });
+      runRoadDistanceQueue();
     }
 
-    function mainRoadDistanceKmForListing(a, b) {
+    function roadTravelInfoForListing(a, b, options = {}) {
       const key = roadDistanceCacheKey(a, b);
-      if (key && ROAD_DISTANCE_CACHE.has(key)) {
-        return { km: ROAD_DISTANCE_CACHE.get(key), exact: true, pending: false };
+      const cached = key ? ROAD_DISTANCE_CACHE.get(key) : null;
+      if (cached && Number.isFinite(Number(cached.km)) && Number(cached.km) > 0) {
+        return {
+          km: Number(cached.km),
+          durationHours: Math.max(0, Number(cached.durationHours || 0)),
+          exact: true,
+          pending: false,
+          source: String(cached.source || "tomtom-truck")
+        };
       }
 
       const directKm = haversineKm(a, b);
       const estimatedKm = preferredMainRoadKm(a, b);
-      if (Number.isFinite(directKm) && directKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM + PROPOSED_LOAD_DISTANCE_PREFETCH_BUFFER_KM) {
+      if (options.forceLookup || (Number.isFinite(directKm) && directKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM + PROPOSED_LOAD_DISTANCE_PREFETCH_BUFFER_KM)) {
         scheduleRoadDistanceLookup(a, b, key);
       }
 
       return {
         km: estimatedKm,
+        durationHours: Number.isFinite(estimatedKm) && estimatedKm > 0 ? estimatedKm / 62 : 0,
         exact: false,
-        pending: Boolean(key && ROAD_DISTANCE_PENDING.has(key))
+        pending: Boolean(key && ROAD_DISTANCE_PENDING.has(key)),
+        source: "estimate"
       };
     }
 
-    function proposedRepositionHours(fromRoute, fromKind, toRoute, toKind) {
-      const fromPoint = operationalPointForRoute(fromRoute, fromKind);
-      const toPoint = operationalPointForRoute(toRoute, toKind);
-      if (!fromPoint || !toPoint) return 0;
-      const from = [Number(fromPoint.lat), Number(fromPoint.lng)];
-      const to = [Number(toPoint.lat), Number(toPoint.lng)];
-      if (!from.every(Number.isFinite) || !to.every(Number.isFinite)) return 0;
-      const km = preferredMainRoadKm(from, to);
-      // Ten sam konserwatywny fallback 62 km/h jest używany w kalkulatorze
-      // trasy kat. C, gdy dokładny routing ciężarowy jest chwilowo niedostępny.
-      return Number.isFinite(km) && km > 0 ? km / 62 : 0;
+    function mainRoadDistanceKmForListing(a, b) {
+      const info = roadTravelInfoForListing(a, b);
+      return {
+        km: info.km,
+        durationHours: info.durationHours,
+        exact: info.exact,
+        pending: info.pending,
+        source: info.source
+      };
     }
 
-    function proposedDriverScheduleConflict(driverId, route) {
-      if (!driverId || !route) return null;
+    function proposedRepositionInfo(fromRoute, fromKind, toRoute, toKind) {
+      const fromPoint = operationalPointForRoute(fromRoute, fromKind);
+      const toPoint = operationalPointForRoute(toRoute, toKind);
+      if (!fromPoint || !toPoint) return { hours: 0, exact: false, pending: false, unavailable: true };
+      const from = [Number(fromPoint.lat), Number(fromPoint.lng)];
+      const to = [Number(toPoint.lat), Number(toPoint.lng)];
+      if (!from.every(Number.isFinite) || !to.every(Number.isFinite)) return { hours: 0, exact: false, pending: false, unavailable: true };
+      const info = roadTravelInfoForListing(from, to, { forceLookup: true });
+      return {
+        hours: Math.max(0, Number(info.durationHours || 0)),
+        exact: Boolean(info.exact),
+        pending: Boolean(info.pending),
+        unavailable: false
+      };
+    }
+
+    function proposedDriverScheduleAssessment(driverId, route) {
+      if (!driverId || !route) return { fit: false, pending: false, conflict: null, reason: "missing" };
 
       const candidate = {
         ...route,
@@ -74929,35 +74982,47 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return candidateStart < existingEndWithPause - ROUTE_OVERLAP_EPSILON_HOURS &&
           candidateEndWithPause > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
       });
-      if (directConflict) return directConflict;
+      if (directConflict) return { fit: false, pending: false, conflict: directConflict, reason: "overlap" };
 
-      // 2) Poprzednia relacja może kończyć się przed wolnym ładunkiem, ale kierowca
-      // musi jeszcze fizycznie dojechać z rozładunku na nowy załadunek.
+      // 2) Po poprzedniej relacji liczymy rzeczywisty czas dojazdu ciężarówką TomTom.
+      // Dopóki nie ma wyniku, pojazd nie jest oznaczany jako dopasowany.
       const previous = [...occupied]
         .filter(existing => routeGlobalEnd(existing) <= candidateStart + ROUTE_OVERLAP_EPSILON_HOURS)
         .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
       if (previous) {
+        const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
+        if (!reposition.exact) return { fit: false, pending: true, conflict: null, reason: reposition.unavailable ? "route-unavailable" : "routing" };
         const readyAfterPrevious = routeGlobalEnd(previous)
           + requiredPauseAfterRoute(previous)
-          + proposedRepositionHours(previous, "unload", candidate, "load");
-        if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) return previous;
+          + reposition.hours;
+        if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) {
+          return { fit: false, pending: false, conflict: previous, reason: "previous" };
+        }
       }
 
-      // 3) Po wolnym ładunku musi zostać czas na dojazd do kolejnej zaplanowanej relacji.
+      // 3) Po wolnym ładunku musi zostać rzeczywisty czas dojazdu ciężarówką
+      // do kolejnej zaplanowanej relacji.
       const next = occupied
         .filter(existing => routeGlobalStart(existing) >= candidateEnd - ROUTE_OVERLAP_EPSILON_HOURS)
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
       if (next) {
-        const readyForNext = candidateEndWithPause
-          + proposedRepositionHours(candidate, "unload", next, "load");
-        if (readyForNext > routeGlobalStart(next) + ROUTE_OVERLAP_EPSILON_HOURS) return next;
+        const reposition = proposedRepositionInfo(candidate, "unload", next, "load");
+        if (!reposition.exact) return { fit: false, pending: true, conflict: null, reason: reposition.unavailable ? "route-unavailable" : "routing" };
+        const readyForNext = candidateEndWithPause + reposition.hours;
+        if (readyForNext > routeGlobalStart(next) + ROUTE_OVERLAP_EPSILON_HOURS) {
+          return { fit: false, pending: false, conflict: next, reason: "next" };
+        }
       }
 
-      return null;
+      return { fit: true, pending: false, conflict: null, reason: "ok" };
+    }
+
+    function proposedDriverScheduleConflict(driverId, route) {
+      return proposedDriverScheduleAssessment(driverId, route).conflict;
     }
 
     function proposedLoadFitsDriverSchedule(driverId, route) {
-      return !proposedDriverScheduleConflict(driverId, route);
+      return proposedDriverScheduleAssessment(driverId, route).fit;
     }
 
     function proposedDistancesForRoute(route, date = state.reportDate, options = {}) {
@@ -74983,8 +75048,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ? mainRoadDistanceKmForListing(position.coords, target)
             : { km: 9999, exact: false, pending: false };
           const compatibility = driverLoadCompatibility(driver, route);
-          const scheduleConflict = proposedDriverScheduleConflict(driver.id, route);
-          const scheduleFit = !scheduleConflict;
+          const schedule = proposedDriverScheduleAssessment(driver.id, route);
           return {
             driver,
             position,
@@ -74992,15 +75056,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             distanceExact: distanceInfo.exact,
             distancePending: distanceInfo.pending,
             compatibility,
-            scheduleFit,
-            scheduleConflict
+            scheduleFit: schedule.fit,
+            schedulePending: schedule.pending,
+            scheduleConflict: schedule.conflict,
+            scheduleReason: schedule.reason
           };
         })
         .filter(item => {
-          if (options.maxDistanceOnly && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM) return false;
+          if (options.maxDistanceOnly) {
+            if (item.distanceExact && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM) return false;
+            if (!item.distanceExact && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM + PROPOSED_LOAD_DISTANCE_PREFETCH_BUFFER_KM) return false;
+          }
+          if (options.exactDistanceOnly && (!item.distanceExact || item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM)) return false;
           if (options.compatibleOnly && !item.compatibility.ok) return false;
           if (options.scheduleFitOnly && !item.scheduleFit) return false;
-          if (options.nearOnly && (item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM || !item.compatibility.ok)) return false;
+          if (options.nearOnly && (!item.distanceExact || item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM || !item.compatibility.ok || !item.scheduleFit)) return false;
           return true;
         })
         .sort((a, b) => a.distanceKm - b.distanceKm);
@@ -75016,6 +75086,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function currentDispatcherProposedDriversForTake(route, date = state.reportDate) {
       return proposedDistancesForRoute(route, date, {
         maxDistanceOnly: true,
+        exactDistanceOnly: true,
         compatibleOnly: true,
         scheduleFitOnly: true,
         currentDispatcherOnly: true
@@ -75046,6 +75117,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           route,
           distances: proposedDistancesForRoute(route, date, {
             maxDistanceOnly: true,
+            exactDistanceOnly: true,
             compatibleOnly: true,
             scheduleFitOnly: true,
             currentDispatcherOnly: false
@@ -75112,11 +75184,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const distances = allProposedDriversForLoad(route, distanceDate);
       const takeOptions = currentDispatcherProposedDriversForTake(route, distanceDate);
       const dispatcher = route.createdBy || "—";
-      const closest = distances.find(item => item.compatibility.ok && item.scheduleFit) || distances.find(item => item.scheduleFit) || null;
+      const closest = distances.find(item => item.distanceExact && item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM && item.compatibility.ok && item.scheduleFit)
+        || distances.find(item => item.distanceExact && item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM && item.scheduleFit)
+        || null;
       const canModify = proposedLoadCanModify(route);
       const canTake = proposedLoadCanTake(route);
       const currentDrivers = takeOptions.map(item => item.driver);
-      const matchedDrivers = distances.filter(item => item.compatibility.ok && item.scheduleFit);
+      const matchedDrivers = distances.filter(item => item.distanceExact && item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM && item.compatibility.ok && item.scheduleFit);
       const hasVehicleMatch = matchedDrivers.length > 0;
       const statusLabel = "wolny";
       const loadDateLabel = formatDateForInput(route.date || state.reportDate || START_DATE);
@@ -75159,9 +75233,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${detailsHidden ? "" : `
             <div class="proposed-distance-list">
               ${distances.length ? distances.map(item => `
-                <div class="proposed-distance-row ${item.compatibility.ok && item.scheduleFit ? "near" : ""}">
-                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Relacja nie mieści się w aktualnym planie kierowcy" aria-label="Relacja nie mieści się w aktualnym planie kierowcy"></span>`}</span>
-                  <b>${item.scheduleFit ? `${Math.round(item.distanceKm)} km po trasie${item.distancePending ? "*" : ""}` : "kolizja planu"}</b>
+                <div class="proposed-distance-row ${item.distanceExact && item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM && item.compatibility.ok && item.scheduleFit ? "near" : ""}">
+                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.schedulePending ? `<span class="busy-warning-icon" title="Trwa sprawdzanie dojazdu względem planu kierowcy" aria-label="Trwa sprawdzanie dojazdu względem planu kierowcy"></span>` : item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Relacja nie mieści się w aktualnym planie kierowcy" aria-label="Relacja nie mieści się w aktualnym planie kierowcy"></span>`}</span>
+                  <b>${!item.distanceExact ? "sprawdzanie trasy kat. C…" : item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM ? `${Math.round(item.distanceKm)} km · poza limitem` : item.schedulePending ? "sprawdzanie planu…" : item.scheduleFit ? `${Math.round(item.distanceKm)} km po trasie kat. C` : "kolizja planu"}</b>
                 </div>
               `).join("") : `<div class="proposed-distance-empty">Brak pojazdów w promieniu 150 km od punktu załadunku.</div>`}
             </div>
@@ -75171,7 +75245,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(driverBusyOptionPrefix(item.driver.id, route.date || state.reportDate || START_DATE))}${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distancePending ? "*" : ""}</option>`).join("")}
                 </select>
                 <button class="btn-mini" type="button" onclick="takeProposedLoad(event, '${attr(route.id)}')">Pobierz na moją tablicę</button>
-              ` : canTake ? `<span class="proposed-distance-empty">Brak kompatybilnego pojazdu Twojego spedytora w promieniu 150 km. Ładunek nadal jest widoczny dla wszystkich.</span>` : ""}
+              ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora w promieniu 150 km bez kolizji planu. Ładunek nadal jest widoczny dla wszystkich.</span>` : ""}
             </div>
           `}
         </div>
@@ -75290,11 +75364,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
 
-      const scheduleConflict = proposedDriverScheduleConflict(driver.id, proposed);
-      if (scheduleConflict) {
+      const scheduleAssessment = proposedDriverScheduleAssessment(driver.id, proposed);
+      if (scheduleAssessment.pending) {
+        showAppMessage("Sprawdzanie planu", "Poczekaj na wynik routingu ciężarowego TomTom. Pojazd nie zostanie przypisany, dopóki system nie potwierdzi dojazdu przed i po wolnym ładunku.");
+        syncProposedPanel();
+        return;
+      }
+      if (!scheduleAssessment.fit) {
+        const scheduleConflict = scheduleAssessment.conflict;
         showAppMessage(
           "Relacja nie mieści się w planie",
-          `${driver.driver} ma już zaplanowaną relację ${formatDateForInput(scheduleConflict.date)} ${hourLabel(Number(scheduleConflict.startHour ?? 0))}. Ten wolny ładunek nie może zostać przypisany temu kierowcy.`
+          scheduleConflict
+            ? `${driver.driver} ma już zaplanowaną relację ${formatDateForInput(scheduleConflict.date)} ${hourLabel(Number(scheduleConflict.startHour ?? 0))}. Ten wolny ładunek nie może zostać przypisany temu kierowcy.`
+            : `${driver.driver} nie ma potwierdzonej możliwości wykonania tego ładunku bez konfliktu z planem.`
         );
         syncProposedPanel();
         return;
@@ -75316,8 +75398,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       await withProposedLoadClaim(proposedId, async () => {
-        // Ponowna kontrola wykonywana już wewnątrz blokady.
+        // Ponowna kontrola wykonywana już wewnątrz blokady: w międzyczasie inny
+        // zapis mógł zmienić plan kierowcy.
         if (proposed.status === "taken" || state.routes.some(route => route.sourceProposedId === proposed.id)) return false;
+        const lockedSchedule = proposedDriverScheduleAssessment(driver.id, proposed);
+        if (!lockedSchedule.fit || lockedSchedule.pending) {
+          showAppMessage("Plan kierowcy uległ zmianie", "Ładunek nie został pobrany. System ponownie sprawdził plan i nie może potwierdzić bezkolizyjnego wykonania relacji.");
+          syncProposedPanel();
+          return false;
+        }
 
         const route = {
           ...proposed,
