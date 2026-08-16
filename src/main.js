@@ -734,6 +734,20 @@ async function loadFleetData() {
 
   const usageRows = usage || []
 
+  let preferenceRows = []
+  if (currentProfile?.role === 'dispatcher' && currentUser?.id) {
+    const { data: preferences, error: preferencesError } = await supabase
+      .from('driver_row_preferences')
+      .select('driver_id, color')
+      .eq('user_id', currentUser.id)
+
+    if (preferencesError) {
+      throw new Error(`Nie udało się pobrać prywatnych kolorów kierowców: ${preferencesError.message}`)
+    }
+    preferenceRows = preferences || []
+  }
+  const preferenceByDriver = new Map(preferenceRows.map((item) => [String(item.driver_id || ''), String(item.color || '')]))
+
   return (assignments || []).map((assignment) => {
     const carrier = firstRelated(assignment.carrier)
     const driver = firstRelated(assignment.driver)
@@ -755,6 +769,7 @@ async function loadFleetData() {
       createdAt: assignment.created_at || '',
       relationLocked,
       hidden: Boolean(assignment.hidden),
+      privateColor: driver?.id ? (preferenceByDriver.get(String(driver.id)) || '') : '',
       carrier: carrier ? { id: carrier.id, name: carrier.name || '' } : null,
       driver: driver ? {
         id: driver.id,
@@ -1640,6 +1655,91 @@ async function setFleetVisibilityFromTms(message) {
   }
 }
 
+async function setDriverRowColorFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const driverId = String(message?.driverId || '').trim()
+  const color = String(message?.color || '').trim().toLowerCase()
+  const allowedColors = new Set(['', 'yellow', 'green', 'blue', 'pink', 'purple', 'orange', 'gray'])
+
+  if (currentProfile?.role !== 'dispatcher' || !currentUser?.id) {
+    sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić wyłącznie prowadzący spedytor.')
+    return
+  }
+  if (!driverId || !allowedColors.has(color)) {
+    sendFleetOperationResult(requestId, false, 'color', 'Nieprawidłowy kierowca lub kolor.')
+    return
+  }
+
+  try {
+    const { data: ownedAssignments, error: ownershipError } = await supabase
+      .from('fleet_assignments')
+      .select('id')
+      .eq('driver_id', driverId)
+      .eq('assigned_dispatcher_id', currentUser.id)
+      .eq('active', true)
+      .limit(1)
+    if (ownershipError) throw ownershipError
+    if (!ownedAssignments?.length) throw new Error('Możesz oznaczać kolorem tylko kierowców, których prowadzisz.')
+
+    if (!color) {
+      const { error } = await supabase
+        .from('driver_row_preferences')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .eq('driver_id', driverId)
+      if (error) throw error
+    } else {
+      const { error } = await supabase
+        .from('driver_row_preferences')
+        .upsert({
+          user_id: currentUser.id,
+          driver_id: driverId,
+          color,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,driver_id' })
+      if (error) throw error
+    }
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'color', color ? 'Kolor wiersza kierowcy został zapisany prywatnie.' : 'Oznaczenie kolorem zostało usunięte.')
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'color', error?.message || 'Nie udało się zapisać koloru kierowcy.')
+  }
+}
+
+async function importFleetExcelFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const rows = Array.isArray(message?.rows) ? message.rows : []
+
+  if (!currentProfile || !['admin', 'branch_manager', 'dispatcher'].includes(currentProfile.role)) {
+    sendFleetOperationResult(requestId, false, 'import', 'Brak uprawnień do importu floty.')
+    return
+  }
+  if (!rows.length) {
+    sendFleetOperationResult(requestId, false, 'import', 'Arkusz nie zawiera żadnych danych floty.')
+    return
+  }
+  if (rows.length > 2000) {
+    sendFleetOperationResult(requestId, false, 'import', 'Jednorazowo można zaimportować maksymalnie 2000 wierszy floty.')
+    return
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('import_fleet_rows_excel', { p_rows: rows })
+    if (error) throw error
+    await syncFleetDataToTms()
+
+    const created = Number(data?.created || 0)
+    const updated = Number(data?.updated || 0)
+    const skipped = Number(data?.skipped || 0)
+    const firstError = Array.isArray(data?.errors) && data.errors.length ? String(data.errors[0]?.message || '') : ''
+    const summary = `Dodano ${created}, zaktualizowano ${updated}${skipped ? `, pominięto ${skipped}` : ''}.` + (firstError ? ` Pierwszy błąd: ${firstError}` : '')
+    sendFleetOperationResult(requestId, true, 'import', summary)
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'import', error?.message || 'Nie udało się zaimportować floty z Excela.')
+  }
+}
+
 async function handleTruckRoutingRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
 
@@ -1776,7 +1876,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v38-fleet-export-visibility-transfer-filter"
+        src="/tms.html?embedded=1&build=request-workflow-v39-excel-personal-stats-driver-colors"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1926,6 +2026,16 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-fleet-visibility') {
       await setFleetVisibilityFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-driver-row-color') {
+      await setDriverRowColorFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-excel-import') {
+      await importFleetExcelFromTms(event.data)
       return
     }
 
