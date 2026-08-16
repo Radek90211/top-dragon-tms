@@ -39,10 +39,20 @@ export default async function handler(request, response) {
       additionalProperties: false,
     }
 
+    const arrowLineCount = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && /(?:->|→|=>|⟶)/.test(line))
+      .length
+
+    const countHint = arrowLineCount > 1
+      ? ` W wiadomości wykryto ${arrowLineCount} osobnych wierszy z kierunkiem trasy. Jeżeli każdy opisuje własny załadunek i rozładunek, zwróć dokładnie ${arrowLineCount} osobnych elementów routes.`
+      : ''
+
     const { data, model } = await runStructuredExtraction({
       schema,
-      instructions: `${analyzerInstructions(referenceDate)} Wiadomość może zawierać jedną lub wiele niezależnych relacji. Zwróć osobny element routes dla każdej relacji transportowej.`,
-      parts: [{ text: `Przeanalizuj wiadomość klienta:\n\n${text}` }],
+      instructions: `${analyzerInstructions(referenceDate)} Wiadomość może zawierać jedną lub wiele niezależnych relacji. Zwróć osobny element routes dla KAŻDEJ relacji transportowej. Nie łącz kilku pozycji klienta w jedną relację i nie pomijaj kolejnych pozycji.${countHint}`,
+      parts: [{ text: `Przeanalizuj wszystkie relacje z wiadomości klienta. Zachowaj każdą osobną pozycję:\n\n${text}` }],
     })
 
     const routes = Array.isArray(data?.routes) ? data.routes : []
