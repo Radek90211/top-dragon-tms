@@ -69921,8 +69921,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
 
+    function normalizeDispatcherUiColor(value, fallback = "#e2e8f0") {
+      const color = String(value || "").trim().toUpperCase();
+      return /^#[0-9A-F]{6}$/.test(color) ? color : fallback;
+    }
+
+    function dispatcherUserRecord(dispatcher) {
+      const login = String(dispatcher || "").trim().toUpperCase();
+      return USERS.find(user => String(user?.login || "").trim().toUpperCase() === login) || null;
+    }
+
+    function dispatcherUserColor(dispatcher) {
+      const user = dispatcherUserRecord(dispatcher);
+      if (user?.uiColor) return normalizeDispatcherUiColor(user.uiColor);
+      return normalizeDispatcherUiColor(DISPATCHER_OPTION_COLORS[String(dispatcher || "").trim().toUpperCase()] || "#e2e8f0");
+    }
+
+    function dispatcherDynamicClass(dispatcher) {
+      const value = String(dispatcher || "").trim().toUpperCase();
+      if (!value) return "";
+      let hash = 2166136261;
+      for (let i = 0; i < value.length; i += 1) {
+        hash ^= value.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return `dispatcher-user-${(hash >>> 0).toString(36)}`;
+    }
+
     function dispatcherBadgeClass(dispatcher) {
-      return DISPATCHER_CLASS[dispatcher] || "";
+      const user = dispatcherUserRecord(dispatcher);
+      return user?.uiColor ? dispatcherDynamicClass(dispatcher) : (DISPATCHER_CLASS[dispatcher] || dispatcherDynamicClass(dispatcher));
     }
 
     const DISPATCHER_OPTION_COLORS = {
@@ -69930,14 +69958,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       BART: "#e2e8f0", RADEK: "#86efac", MATI: "#a5f3fc", MARIO: "#e9d5ff"
     };
 
+    function syncDispatcherColorStyles() {
+      let style = document.getElementById("dispatcher-user-colors-runtime");
+      if (!style) {
+        style = document.createElement("style");
+        style.id = "dispatcher-user-colors-runtime";
+        document.head.appendChild(style);
+      }
+      style.textContent = USERS.filter(user => user?.login).map(user => {
+        const cls = dispatcherDynamicClass(user.login);
+        const color = dispatcherUserColor(user.login);
+        return `.${cls}.dispatcher-map-badge,.${cls}.dispatcher-plan-badge,.route-dispatcher-chip.${cls},.dispatcher-cell.${cls}{--dispatcher-user-color:${color};}` +
+          `.${cls}.dispatcher-map-badge,.${cls}.dispatcher-plan-badge,.route-dispatcher-chip.${cls}{background:${color}!important;color:#0f172a!important;border-color:color-mix(in srgb, ${color} 72%, #64748b 28%)!important;}` +
+          `.dispatcher-cell.${cls}{background:color-mix(in srgb, var(--card) 88%, ${color} 12%)!important;}`;
+      }).join("\n");
+    }
+    window.syncDispatcherColorStyles = syncDispatcherColorStyles;
+
     function dispatcherOptionStyle(dispatcher) {
-      const background = DISPATCHER_OPTION_COLORS[String(dispatcher || "").trim().toUpperCase()] || "#ffffff";
+      const background = dispatcherUserColor(dispatcher);
       return `background:${background};color:#0f172a;font-weight:800;`;
     }
 
     function applyDispatcherSelectColor(select) {
       if (!select) return;
-      const background = DISPATCHER_OPTION_COLORS[String(select.value || "").trim().toUpperCase()] || "#ffffff";
+      const background = dispatcherUserColor(select.value);
       select.style.backgroundColor = background;
       select.style.color = "#0f172a";
       select.style.fontWeight = "800";
@@ -77826,7 +77871,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ${dates.map((date, index) => `<div class="head-cell top ${isWeekendIso(date) ? "weekend-column" : ""}" style="grid-column:${5 + index};grid-row:1;">${esc(dayLabel(date))}</div>`).join("")}
       `;
 
-      const boardDrivers = DRIVERS;
+      const boardDrivers = DRIVERS.slice().sort((a, b) =>
+        String(a.dispatcher || "").localeCompare(String(b.dispatcher || ""), "pl") ||
+        String(a.driver || "").localeCompare(String(b.driver || ""), "pl")
+      );
       const rowHeights = boardDrivers.length
         ? boardDrivers.map(driver => boardRowHeightForDriver(driver)).join(" ")
         : "92px";
@@ -77834,7 +77882,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rows = withBoardRenderCache(dates, () => boardDrivers.map((driver, index) => {
         const row = index + 2;
         const week = weeklySummary(driver.id);
+        const groupStart = index > 0 && String(boardDrivers[index - 1]?.dispatcher || "") !== String(driver.dispatcher || "");
         return `
+          ${groupStart ? `<div class="dispatcher-group-separator ${boardDriverVisibilityClass(driver)}" style="grid-column:1 / -1;grid-row:${row};--dispatcher-group-color:${attr(dispatcherUserColor(driver.dispatcher))};" aria-hidden="true"></div>` : ""}
           <div class="left-cell dispatcher-cell sticky-a driver-row-cell ${dispatcherBadgeClass(driver.dispatcher)} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:1;grid-row:${row};">
             <span class="dispatcher-plan-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span>${dispatcherUpcomingMarker(driver.dispatcher)}
             <button type="button" class="load-line-toggle ${loadLineVisibleForDispatcher(driver.dispatcher) ? "active" : ""}" data-dispatcher="${attr(driver.dispatcher)}" title="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" aria-label="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" onclick="event.stopPropagation(); toggleDispatcherLoadLines('${attr(driver.dispatcher)}')"><span class="load-line-icon" aria-hidden="true">${loadLineVisibleForDispatcher(driver.dispatcher) ? "▲" : "▼"}</span></button>
@@ -78020,6 +78070,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}${routeDispatcherChip(route, driver)}<span class="route-unload-label">${esc(routeUnloadBoardLabel(route))}</span></span>
                 ${renderRouteLoadSub(route)}
+                ${window.renderRouteMetricValue?.(route) || ""}
                 ${canEditThisRoute ? `<span
                   class="time-resize time-resize-right"
                   data-route-id="${attr(route.id)}"
@@ -79977,7 +80028,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         branchId: String(user.branchId || ""),
         name: String(user.displayName || loginValue),
         supabaseId: String(user.id || ""),
-        email: String(user.email || "")
+        email: String(user.email || ""),
+        uiColor: String(user.uiColor || '#E2E8F0')
       };
       state.detailsOpen = false;
       state.addOpen = false;
@@ -84910,11 +84962,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             branch: String(profile.branch || ""),
             branchId: String(profile.branchId || ""),
             name: String(profile.displayName || login),
-            supabaseId: String(profile.id || "")
+            supabaseId: String(profile.id || ""),
+            uiColor: String(profile.uiColor || '#E2E8F0')
           };
         });
 
         USERS.splice(0, USERS.length, ...mappedUsers);
+        syncDispatcherColorStyles?.();
 
         if (state.user?.supabaseRole === "admin" && !USERS.some(user => user.supabaseId === state.user.supabaseId)) {
           USERS.push({
@@ -84925,7 +84979,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             branch: state.user.branch || "Wszystkie oddziały",
             branchId: state.user.branchId || "",
             name: state.user.name || "Administrator",
-            supabaseId: state.user.supabaseId || ""
+            supabaseId: state.user.supabaseId || "",
+            uiColor: state.user.uiColor || '#E2E8F0'
           });
         }
 
@@ -85937,7 +85992,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             homeDispatcher: dispatcher,
             carrier: String(row.carrier?.name || ""),
             driver: String(row.driver?.fullName || ""),
-            phone: String(row.driver?.phone || ANON_PHONE),
+            phone: String(row.driver?.phone || ""),
             idCard: String(row.driver?.identityDocumentNumber || ""),
             nationality: String(row.driver?.nationality || "PL").toUpperCase(),
             base: String(row.driver?.baseLocation || ""),
@@ -85976,8 +86031,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
         if (action === "color") state.driverColorOperationBusy = false;
+        if (action === "update") {
+          state.fleetEditBusy = false;
+          if (ok) window.closeFleetEdit?.();
+        }
         const text = String(message?.message || (ok ? "Operacja zakończona." : "Operacja nie powiodła się."));
-        const successTitle = action === "delete" ? "Usunięto zestaw" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "import" ? "Import floty zakończony" : "Zapisano zestaw";
+        const successTitle = action === "delete" ? "Usunięto zestaw" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "import" ? "Import floty zakończony" : action === "update" ? "Dane floty uzupełnione" : "Zapisano zestaw";
         showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
@@ -86117,7 +86176,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               const visibilityControl = canChangeVisibility
                 ? `<button type="button" class="btn-mini" onclick="setFleetDriverHidden('${attr(driver.id)}', ${driver.fleetHidden ? "false" : "true"})" title="${driver.fleetHidden ? "Przywróć pojazd do planu, mapy i dopasowań" : "Ukryj nieaktywny pojazd z planu, mapy i dopasowań"}">${driver.fleetHidden ? "Pokaż" : "Ukryj"}</button>`
                 : "";
-              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}${driver.fleetHidden ? ` · <b>ukryty</b>` : ""}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${visibilityControl}${deleteControl}</div></div>`;
+              const missingFleetFields = [driver.phone, driver.idCard, driver.vehicleBrand, driver.tractorReg, driver.trailerReg, driver.base].filter(value => !String(value || "").trim()).length;
+              const editControl = canChangeVisibility
+                ? `<button type="button" class="btn-mini ${missingFleetFields ? "fleet-needs-data" : ""}" onclick="openFleetEdit('${attr(driver.id)}')" title="Uzupełnij lub popraw dane kierowcy, ciągnika i naczepy">${missingFleetFields ? `Uzupełnij (${missingFleetFields})` : "Edytuj"}</button>`
+                : "";
+              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "—")}${driver.fleetHidden ? ` · <b>ukryty</b>` : ""}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "—")} / ${esc(driver.trailerReg || "—")}</span><span>${esc(driver.base || "—")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${editControl}${visibilityControl}${deleteControl}</div></div>`;
             }).join("") : `<div class="commercial-empty">Brak dodanych kierowców, pojazdów i przewoźników.</div>`}</div>
           </div>
         </div>`;
@@ -86765,6 +86828,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .weekly-transfer-status.rejected { background:#fee2e2; color:#991b1b; }
     .weekly-transfer-actions { display:flex; gap:5px; flex-wrap:wrap; }
     .weekly-settlement-note { color:var(--muted); font-size:10px; line-height:1.4; }
+    .weekly-transfer-howto { display:flex; gap:7px; align-items:flex-start; padding:8px 10px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; color:#1e3a8a; font-size:10px; line-height:1.4; }
+    .weekly-transfer-howto b { white-space:nowrap; }
+    .app.dark-mode .weekly-transfer-howto { background:#172554; border-color:#1d4ed8; color:#bfdbfe; }
     .weekly-settlement-empty { padding:12px; text-align:center; color:var(--muted); font-size:11px; }
     .weekly-current-user-row td { background:rgba(37,99,235,.05); }
     @media (max-width:1100px) {
@@ -86780,6 +86846,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   <script id="targeted-3l19-weekly-settlement-views-script">
     (() => {
       state.routeTileMetricView = state.routeTileMetricView || "";
+      state.boardToolsOpen = Boolean(state.boardToolsOpen);
       state.weeklySettlement = state.weeklySettlement || { weekStart:"", carrierAdjustments:[], transfers:[], loaded:false, loading:false, requestId:"" };
       state.weeklySettlementBusy = false;
 
@@ -86811,18 +86878,39 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         syncBoardOnly();
       };
 
+      window.renderRouteMetricValue = function(route) {
+        if (!route || isFreeDayRoute(route)) return "";
+        if (state.routeTileMetricView === "profit") {
+          const value = Number(profit(route) || 0);
+          const prefix = value > 0 ? "+" : "";
+          return `<span class="time-route-metric-value" title="Wynik relacji">${prefix}${esc(money(value))}</span>`;
+        }
+        if (state.routeTileMetricView === "km") {
+          return `<span class="time-route-metric-value" title="Łączna liczba kilometrów">${esc(String(Math.round(Number(totalKm(route) || 0))))} km</span>`;
+        }
+        return "";
+      };
+
       function boardMetricControlsHtml() {
         return `<div class="board-metric-switch" aria-label="Widok kolorystyczny kafelków relacji">
-          <span class="board-metric-switch-label">Widok kafelków</span>
-          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "profit" ? "active" : ""}" onclick="setRouteTileMetricView('profit')" title="Widok 1: zielony = zysk, czerwony = strata"><strong>1</strong><span>Zysk</span></button>
-          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "km" ? "active" : ""}" onclick="setRouteTileMetricView('km')" title="Widok 2: zielony > 400 km, żółty 200–400 km, czerwony < 200 km"><strong>2</strong><span>KM</span></button>
+          <span class="board-metric-switch-label">Widok</span>
+          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "profit" ? "active" : ""}" onclick="setRouteTileMetricView('profit')" title="Zielony = zysk, czerwony = strata"><span>Zysk</span></button>
+          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "km" ? "active" : ""}" onclick="setRouteTileMetricView('km')" title="Zielony > 400 km, żółty 200–400 km, czerwony < 200 km"><span>km</span></button>
         </div>`;
       }
 
+      window.toggleBoardTools = function() {
+        state.boardToolsOpen = !state.boardToolsOpen;
+        syncBoardOnly();
+      };
+
       const originalRenderBoard3L19 = renderBoard;
       renderBoard = function(...args) {
-        const html = originalRenderBoard3L19.apply(this, args);
-        return html.replace('<h2>Plan kierowców</h2>', `<div class="board-heading-stack"><h2>Plan kierowców</h2>${boardMetricControlsHtml()}</div>`);
+        let html = originalRenderBoard3L19.apply(this, args);
+        const heading = `<div class="board-heading-stack"><div class="board-heading-line"><h2>Plan kierowców</h2><button type="button" class="btn board-tools-toggle ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools()">${state.boardToolsOpen ? "Ukryj" : "Pokaż"}</button></div>${state.boardToolsOpen ? boardMetricControlsHtml() : ""}</div>`;
+        html = html.replace('<h2>Plan kierowców</h2>', heading);
+        if (!state.boardToolsOpen) html = html.replace('<div class="board-controls">', '<div class="board-controls board-controls-hidden">');
+        return html;
       };
 
       function statsInitials(label) {
@@ -86863,7 +86951,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const selected = stats?.selectedDispatcher || statsSelectedDispatcherLogin();
         if (state.user?.role === "spedytor") {
           const label = statsDispatcherDisplayName(selected);
-          return `<div class="stats-dispatcher-scope"><div class="stats-dispatcher-card-trigger" style="cursor:default"><span class="stats-dispatcher-avatar">${esc(statsInitials(label))}</span><span class="stats-dispatcher-card-copy"><small>Moje wyniki</small><b>${esc(label)}</b></span></div></div>`;
+          return `<div class="stats-dispatcher-scope"><div class="stats-dispatcher-card-trigger" style="cursor:default"><span class="stats-dispatcher-avatar" style="background:${attr(dispatcherUserColor(selected))};color:#0f172a">${esc(statsInitials(label))}</span><span class="stats-dispatcher-card-copy"><small>Moje wyniki</small><b>${esc(label)}</b></span></div></div>`;
         }
         const users = statsAvailableDispatcherUsers();
         const selectedUser = users.find(user => String(user.login || "").toUpperCase() === String(selected || "").toUpperCase());
@@ -86872,7 +86960,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `<div class="stats-dispatcher-scope">
           <div class="stats-dispatcher-card" onclick="event.stopPropagation()">
             <button type="button" class="stats-dispatcher-card-trigger" onclick="toggleStatsDispatcherPicker(event)">
-              <span class="stats-dispatcher-avatar">${selected === "all" ? "ALL" : esc(statsInitials(selectedLabel))}</span>
+              <span class="stats-dispatcher-avatar" style="${selected === "all" ? "" : `background:${attr(dispatcherUserColor(selected))};color:#0f172a`}">${selected === "all" ? "ALL" : esc(statsInitials(selectedLabel))}</span>
               <span class="stats-dispatcher-card-copy"><small>Spedytor</small><b>${esc(selectedLabel)}</b><small>${esc(selectedBranch)}</small></span>
               <span class="stats-dispatcher-chevron">▾</span>
             </button>
@@ -86881,7 +86969,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${users.map(user => {
                 const login = String(user.login || "").toUpperCase();
                 const label = String(user.name || user.login || login);
-                return `<button type="button" class="stats-dispatcher-choice ${selected === login ? "active" : ""}" onclick="selectStatsDispatcherPicker('${attr(login)}')"><span class="stats-dispatcher-avatar">${esc(statsInitials(label))}</span><span class="stats-dispatcher-choice-copy"><b>${esc(label)}</b><small>${esc(user.branch || login)}</small></span></button>`;
+                return `<button type="button" class="stats-dispatcher-choice ${selected === login ? "active" : ""}" onclick="selectStatsDispatcherPicker('${attr(login)}')"><span class="stats-dispatcher-avatar" style="background:${attr(dispatcherUserColor(login))};color:#0f172a">${esc(statsInitials(label))}</span><span class="stats-dispatcher-choice-copy"><b>${esc(label)}</b><small>${esc(user.branch || login)}</small></span></button>`;
               }).join("")}
             </div>
           </div>
@@ -87101,13 +87189,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
 
           <div class="weekly-settlement-subsection">
-            <div class="weekly-settlement-subhead"><b>Przelewy między spedytorami</b><span class="weekly-settlement-note">Wszyscy widzą przelew, ale zatwierdza go wyłącznie spedytor-odbiorca.</span></div>
-            ${state.user?.role === "spedytor" ? `<div class="weekly-settlement-form">
+            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b><span class="weekly-settlement-note">To wewnętrzna korekta wyniku TMS, nie przelew bankowy. Wszyscy widzą operację, a zatwierdza ją wyłącznie odbiorca.</span></div>
+            ${state.user?.role === "spedytor" ? `<div class="weekly-transfer-howto"><b>Jak przelać wynik?</b><span>Wybierz odbiorcę, wpisz kwotę i komentarz, a następnie kliknij „Przelej do akceptacji”. Wynik zmieni się dopiero po akceptacji odbiorcy.</span></div><div class="weekly-settlement-form">
               <input id="weekly-transfer-week" type="hidden" value="${attr(weekStart)}" />
               <label><span>Do spedytora</span><select id="weekly-transfer-to" class="select"><option value="">Wybierz odbiorcę</option>${transferTargets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.name || user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select></label>
               <label><span>Kwota PLN</span><input id="weekly-transfer-amount" class="input" inputmode="decimal" placeholder="np. 500" /></label>
               <label class="wide-mobile"><span>Komentarz</span><input id="weekly-transfer-comment" class="input" maxlength="1200" placeholder="Za co przekazywana jest kwota" /></label>
-              <button type="button" class="btn btn-dark" onclick="createWeeklyDispatcherTransfer()">Wyślij do akceptacji</button>
+              <button type="button" class="btn btn-dark" onclick="createWeeklyDispatcherTransfer()">Przelej do akceptacji</button>
             </div>` : ""}
             <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Od</th><th>Do</th><th>Kwota</th><th>Komentarz</th><th>Status</th><th>Akcja</th></tr></thead><tbody>
               ${transferRows.length ? transferRows.map(item => {
@@ -87171,6 +87259,158 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.weeklySettlementBusy = false;
         }
       });
+    })();
+  </script>
+
+
+  <style id="targeted-3l20-board-groups-fleet-edit">
+    /* 3L.20 — Plan kierowców: narzędzia domyślnie zwinięte, tytuł zawsze widoczny. */
+    .board-heading-line { display:flex; align-items:center; gap:8px; min-width:0; }
+    .board-heading-line h2 { margin:0; }
+    .board-tools-toggle { padding:5px 8px !important; font-size:10px !important; }
+    .board-controls-hidden { display:none !important; }
+
+    /* Widok zysk/km: wartość jest widoczna bez rozwijania załadunku. */
+    .time-route-metric-value {
+      position:absolute; right:4px; bottom:2px; z-index:18;
+      max-width:72px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      padding:1px 4px; border-radius:5px;
+      background:rgba(255,255,255,.78); color:#0f172a !important;
+      font-size:9px; line-height:1.05; font-weight:950;
+      pointer-events:none;
+    }
+    .time-route.route-metric-profit-positive .time-route-sub,
+    .time-route.route-metric-profit-negative .time-route-sub,
+    .time-route.route-metric-km-high .time-route-sub,
+    .time-route.route-metric-km-mid .time-route-sub,
+    .time-route.route-metric-km-low .time-route-sub { padding-right:58px; }
+    .time-route.route-metric-profit-positive .time-route-meta,
+    .time-route.route-metric-profit-negative .time-route-meta,
+    .time-route.route-metric-km-high .time-route-meta,
+    .time-route.route-metric-km-mid .time-route-meta,
+    .time-route.route-metric-km-low .time-route-meta { display:none; }
+
+    /* Załadunek ma tę samą wielkość tekstu co rozładunek. */
+    .time-route-sub { font-size:11px; line-height:1.05; font-weight:850; }
+    .time-route[data-width-mode="auto30"] .time-route-sub { font-size:10.5px; }
+
+    /* Każdy spedytor tworzy delikatnie oddzieloną grupę pojazdów. */
+    .dispatcher-group-separator {
+      align-self:start; height:0; border-top:2px solid var(--dispatcher-group-color,#cbd5e1);
+      opacity:.55; z-index:70; pointer-events:none;
+      box-shadow:0 -1px 0 rgba(255,255,255,.65);
+    }
+    .app.dark-mode .dispatcher-group-separator { opacity:.72; box-shadow:none; }
+
+    /* Edycja brakujących danych floty. */
+    .fleet-needs-data { border-color:#f59e0b !important; background:#fffbeb !important; color:#92400e !important; }
+    .app.dark-mode .fleet-needs-data { background:#451a03 !important; color:#fde68a !important; }
+    .fleet-edit-backdrop {
+      position:fixed; inset:0; z-index:2147483550; display:grid; place-items:center;
+      padding:18px; background:rgba(15,23,42,.38);
+    }
+    .fleet-edit-modal {
+      width:min(780px,96vw); max-height:92vh; overflow:auto;
+      border:1px solid var(--border); border-radius:16px; background:var(--card);
+      color:var(--text); box-shadow:var(--shadow); padding:16px;
+    }
+    .fleet-edit-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .fleet-edit-head h3 { margin:0 0 3px; font-size:16px; }
+    .fleet-edit-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .fleet-edit-grid label { display:grid; gap:4px; min-width:0; }
+    .fleet-edit-grid label > span { font-size:10px; font-weight:850; color:var(--muted); }
+    .fleet-edit-grid .wide { grid-column:span 2; }
+    .fleet-edit-readonly { min-height:38px; display:flex; align-items:center; padding:0 10px; border:1px solid var(--border); border-radius:9px; background:var(--soft); font-size:12px; font-weight:800; }
+    .fleet-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+    @media (max-width:760px) {
+      .fleet-edit-grid { grid-template-columns:1fr 1fr; }
+      .fleet-edit-grid .wide { grid-column:1/-1; }
+    }
+    @media (max-width:520px) { .fleet-edit-grid { grid-template-columns:1fr; } .fleet-edit-grid .wide { grid-column:auto; } }
+  </style>
+  <script id="targeted-3l20-board-groups-fleet-edit-script">
+    (() => {
+      state.fleetEditBusy = false;
+
+      function fleetEditAllowed(driver) {
+        if (!driver?.supabaseFleet || !state.user) return false;
+        if (state.user.role === "admin") return true;
+        return state.user.role === "spedytor" && String(driver.dispatcher || "") === String(state.user.login || "");
+      }
+
+      window.closeFleetEdit = function() {
+        document.querySelector(".fleet-edit-backdrop")?.remove();
+        state.fleetEditBusy = false;
+      };
+
+      window.openFleetEdit = function(driverId) {
+        const driver = driverById(driverId);
+        if (!fleetEditAllowed(driver)) {
+          showAppMessage("Brak uprawnień", "Możesz edytować wyłącznie pojazdy, które prowadzisz.", "error");
+          return;
+        }
+        document.querySelector(".fleet-edit-backdrop")?.remove();
+        const html = `<div class="fleet-edit-backdrop" onclick="if(event.target===this)closeFleetEdit()">
+          <form class="fleet-edit-modal" onsubmit="submitFleetEdit(event,'${attr(driver.id)}')">
+            <div class="fleet-edit-head"><div><h3>Uzupełnij dane pojazdu</h3><div class="small">${esc(driver.driver)} · ${esc(driver.carrier)} · <span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span></div></div><button type="button" class="btn-mini" onclick="closeFleetEdit()">Zamknij</button></div>
+            <div class="fleet-edit-grid">
+              <label class="wide"><span>Przewoźnik</span><div class="fleet-edit-readonly">${esc(driver.carrier || "—")}</div></label>
+              <label><span>Kierowca</span><input id="fleet-edit-driver" class="input" required value="${attr(driver.driver || "")}" /></label>
+              <label><span>Telefon</span><input id="fleet-edit-phone" class="input" inputmode="tel" value="${attr(driver.phone || "")}" placeholder="uzupełnij numer" /></label>
+              <label><span>Nr dowodu osobistego</span><input id="fleet-edit-id-card" class="input" value="${attr(driver.idCard || "")}" placeholder="uzupełnij dokument" /></label>
+              <label><span>Narodowość</span><input id="fleet-edit-nationality" class="input" value="${attr(driver.nationality || "PL")}" maxlength="3" /></label>
+              <label class="wide"><span>Baza kierowcy</span><input id="fleet-edit-base" class="input" list="locations-list" value="${attr(driver.base || "")}" placeholder="miejscowość lub kod" /></label>
+              <label><span>Marka ciągnika</span><input id="fleet-edit-brand" class="input" value="${attr(driver.vehicleBrand || "")}" placeholder="np. Volvo" /></label>
+              <label><span>Ciągnik / PL</span><input id="fleet-edit-tractor" class="input" value="${attr(driver.tractorReg || "")}" placeholder="nr rejestracyjny" /></label>
+              <label><span>Naczepa / PL</span><input id="fleet-edit-trailer" class="input" value="${attr(driver.trailerReg || "")}" placeholder="nr rejestracyjny" /></label>
+              <label><span>Wysokość naczepy</span><input id="fleet-edit-height" class="input" type="number" min="1" max="4.3" step="0.05" value="${attr(Number(driver.trailerHeight || 1.3).toFixed(2))}" /></label>
+            </div>
+            <div class="fleet-edit-actions"><button type="button" class="btn" onclick="closeFleetEdit()">Anuluj</button><button type="submit" class="btn btn-dark" ${state.fleetEditBusy ? "disabled" : ""}>Zapisz dane</button></div>
+          </form>
+        </div>`;
+        document.body.insertAdjacentHTML("beforeend", html);
+        document.getElementById("fleet-edit-phone")?.focus();
+      };
+
+      window.submitFleetEdit = function(event, driverId) {
+        event?.preventDefault?.();
+        if (state.fleetEditBusy) return;
+        const driver = driverById(driverId);
+        if (!fleetEditAllowed(driver)) return;
+        const driverName = String(document.getElementById("fleet-edit-driver")?.value || "").trim();
+        const phone = String(document.getElementById("fleet-edit-phone")?.value || "").trim();
+        const identityDocumentNumber = String(document.getElementById("fleet-edit-id-card")?.value || "").trim();
+        const nationality = String(document.getElementById("fleet-edit-nationality")?.value || "").trim().toUpperCase();
+        const baseLocationRaw = String(document.getElementById("fleet-edit-base")?.value || "").trim();
+        const baseLocation = normalizeLocation(baseLocationRaw) || baseLocationRaw;
+        const vehicleBrand = String(document.getElementById("fleet-edit-brand")?.value || "").trim();
+        const vehicleRegistrationNo = String(document.getElementById("fleet-edit-tractor")?.value || "").trim().toUpperCase();
+        const trailerRegistrationNo = String(document.getElementById("fleet-edit-trailer")?.value || "").trim().toUpperCase();
+        const trailerHeightM = Number(document.getElementById("fleet-edit-height")?.value || 0);
+
+        if (!driverName) {
+          showAppMessage("Uzupełnij kierowcę", "Imię i nazwisko kierowcy nie może być puste.", "error");
+          return;
+        }
+        if (vehicleRegistrationNo && !vehicleBrand) {
+          showAppMessage("Uzupełnij markę", "Dla ciągnika z numerem rejestracyjnym podaj również markę.", "error");
+          return;
+        }
+        if (trailerHeightM && (trailerHeightM < 1 || trailerHeightM > 4.3)) {
+          showAppMessage("Nieprawidłowa wysokość", "Wysokość naczepy musi mieścić się w zakresie 1,00–4,30 m.", "error");
+          return;
+        }
+
+        state.fleetEditBusy = true;
+        const submit = event?.submitter;
+        if (submit) { submit.disabled = true; submit.textContent = "Zapisywanie…"; }
+        window.parent?.postMessage({
+          type:"top-dragon-fleet-update",
+          requestId:`fleet-update-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          assignmentId:driver.dbAssignmentId || driver.id,
+          payload:{ driverName, phone, identityDocumentNumber, nationality, baseLocation, vehicleBrand, vehicleRegistrationNo, trailerRegistrationNo, trailerHeightM:trailerHeightM || null }
+        }, window.location.origin);
+      };
     })();
   </script>
 
