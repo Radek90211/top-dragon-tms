@@ -77837,7 +77837,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `
           <div class="left-cell dispatcher-cell sticky-a driver-row-cell ${dispatcherBadgeClass(driver.dispatcher)} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:1;grid-row:${row};">
             <span class="dispatcher-plan-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span>${dispatcherUpcomingMarker(driver.dispatcher)}
-            ${state.user?.role === "spedytor" ? `<button type="button" class="load-line-toggle ${loadLineVisibleForDispatcher(driver.dispatcher) ? "active" : ""}" data-dispatcher="${attr(driver.dispatcher)}" title="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" aria-label="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" onclick="event.stopPropagation(); toggleDispatcherLoadLines('${attr(driver.dispatcher)}')"><span class="load-line-icon" aria-hidden="true">${loadLineVisibleForDispatcher(driver.dispatcher) ? "▲" : "▼"}</span></button>` : ""}
+            <button type="button" class="load-line-toggle ${loadLineVisibleForDispatcher(driver.dispatcher) ? "active" : ""}" data-dispatcher="${attr(driver.dispatcher)}" title="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" aria-label="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" onclick="event.stopPropagation(); toggleDispatcherLoadLines('${attr(driver.dispatcher)}')"><span class="load-line-icon" aria-hidden="true">${loadLineVisibleForDispatcher(driver.dispatcher) ? "▲" : "▼"}</span></button>
           </div>
           <div class="left-cell sticky-b driver-row-cell carrier-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:2;grid-row:${row};">${esc(driver.carrier)}</div>
           <div class="left-cell driver-cell sticky-c driver-row-cell driver-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:3;grid-row:${row};">
@@ -86659,6 +86659,518 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         return html;
       };
+    })();
+  </script>
+
+  <style id="targeted-3l19-weekly-settlement-views">
+    /* 3L.19 — selektor spedytora dopasowany wizualnie do Top Dragon. */
+    .stats-dispatcher-scope { min-width:250px; }
+    .stats-dispatcher-card { position:relative; min-width:250px; }
+    .stats-dispatcher-card-trigger {
+      width:100%; min-height:48px; display:flex; align-items:center; gap:10px;
+      padding:7px 10px; border:1px solid var(--border); border-radius:12px;
+      background:var(--card); color:var(--text); cursor:pointer; text-align:left;
+      box-shadow:0 1px 2px rgba(15,23,42,.04);
+    }
+    .stats-dispatcher-card-trigger:hover { border-color:#94a3b8; box-shadow:0 5px 16px rgba(15,23,42,.08); }
+    .stats-dispatcher-avatar {
+      width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+      flex:0 0 auto; background:#0f172a; color:#fff; font-size:11px; font-weight:950;
+    }
+    .stats-dispatcher-card-copy { display:grid; gap:1px; min-width:0; flex:1; }
+    .stats-dispatcher-card-copy small { color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+    .stats-dispatcher-card-copy b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+    .stats-dispatcher-chevron { font-size:13px; color:var(--muted); transition:transform .12s ease; }
+    .stats-dispatcher-card.open .stats-dispatcher-chevron { transform:rotate(180deg); }
+    .stats-dispatcher-card-menu {
+      position:absolute; z-index:2200; top:calc(100% + 6px); left:0; right:0;
+      max-height:330px; overflow:auto; padding:6px; display:grid; gap:4px;
+      border:1px solid var(--border); border-radius:12px; background:var(--card);
+      box-shadow:0 20px 46px rgba(15,23,42,.20);
+    }
+    .stats-dispatcher-card-menu[hidden] { display:none!important; }
+    .stats-dispatcher-choice {
+      width:100%; display:grid; grid-template-columns:30px minmax(0,1fr); gap:9px;
+      align-items:center; padding:7px; border:0; border-radius:9px; background:transparent;
+      color:var(--text); cursor:pointer; text-align:left;
+    }
+    .stats-dispatcher-choice:hover,.stats-dispatcher-choice.active { background:var(--soft); }
+    .stats-dispatcher-choice-copy { display:grid; gap:1px; min-width:0; }
+    .stats-dispatcher-choice-copy b { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .stats-dispatcher-choice-copy small { color:var(--muted); font-size:10px; }
+    .app.dark-mode .stats-dispatcher-avatar { background:#f8fafc; color:#0f172a; }
+
+    /* 3L.19 — przełączniki widoku kafelków pod tytułem Planu kierowców. */
+    .board-heading-stack { display:grid; gap:6px; align-self:center; }
+    .board-metric-switch { display:flex; align-items:center; gap:5px; }
+    .board-metric-switch-label { color:var(--muted); font-size:10px; font-weight:850; margin-right:2px; }
+    .board-metric-mode {
+      min-width:31px; height:27px; padding:0 8px; display:inline-flex; align-items:center; justify-content:center; gap:5px;
+      border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text); cursor:pointer;
+      font-size:10px; font-weight:850;
+    }
+    .board-metric-mode strong { font-size:12px; line-height:1; }
+    .board-metric-mode.active { background:#0f172a; border-color:#0f172a; color:#fff; }
+    .app.dark-mode .board-metric-mode.active { background:#f8fafc; border-color:#f8fafc; color:#0f172a; }
+
+    /* Widok 1: zysk/strata. Czcionka zawsze czarna zgodnie z wymaganiem. */
+    .time-route.route-metric-profit-positive { background:#86efac !important; color:#0f172a !important; }
+    .time-route.route-metric-profit-negative { background:#fca5a5 !important; color:#0f172a !important; }
+    /* Widok 2: >400 km zielony, 200–400 km żółty, <200 km czerwony. */
+    .time-route.route-metric-km-high { background:#86efac !important; color:#0f172a !important; }
+    .time-route.route-metric-km-mid { background:#fde68a !important; color:#0f172a !important; }
+    .time-route.route-metric-km-low { background:#fca5a5 !important; color:#0f172a !important; }
+    .time-route.route-metric-profit-positive .time-route-title,
+    .time-route.route-metric-profit-positive .time-route-sub,
+    .time-route.route-metric-profit-positive .time-route-meta,
+    .time-route.route-metric-profit-negative .time-route-title,
+    .time-route.route-metric-profit-negative .time-route-sub,
+    .time-route.route-metric-profit-negative .time-route-meta,
+    .time-route.route-metric-km-high .time-route-title,
+    .time-route.route-metric-km-high .time-route-sub,
+    .time-route.route-metric-km-high .time-route-meta,
+    .time-route.route-metric-km-mid .time-route-title,
+    .time-route.route-metric-km-mid .time-route-sub,
+    .time-route.route-metric-km-mid .time-route-meta,
+    .time-route.route-metric-km-low .time-route-title,
+    .time-route.route-metric-km-low .time-route-sub,
+    .time-route.route-metric-km-low .time-route-meta { color:#0f172a !important; }
+
+    /* 3L.19 — wspólne tygodniowe podsumowanie rozliczeniowe. */
+    .weekly-settlement-section { border:1px solid var(--border); border-radius:14px; background:var(--card); padding:13px; display:grid; gap:12px; }
+    .weekly-settlement-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .weekly-settlement-head h3 { margin:0; font-size:15px; }
+    .weekly-settlement-head p { margin:3px 0 0; color:var(--muted); font-size:11px; line-height:1.35; }
+    .weekly-settlement-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+    .weekly-settlement-kpi { border:1px solid var(--border); border-radius:11px; padding:9px 10px; background:var(--soft); display:grid; gap:2px; }
+    .weekly-settlement-kpi small { font-size:10px; color:var(--muted); font-weight:800; }
+    .weekly-settlement-kpi b { font-size:15px; }
+    .weekly-settlement-subsection { border-top:1px solid var(--border); padding-top:11px; display:grid; gap:9px; }
+    .weekly-settlement-subhead { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+    .weekly-settlement-subhead b { font-size:13px; }
+    .weekly-settlement-form { display:grid; grid-template-columns:minmax(180px,1fr) 130px minmax(200px,1.4fr) auto; gap:8px; align-items:end; }
+    .weekly-settlement-form label { display:grid; gap:4px; min-width:0; }
+    .weekly-settlement-form label > span { color:var(--muted); font-size:10px; font-weight:850; }
+    .weekly-settlement-form .input,.weekly-settlement-form .select { height:38px; }
+    .weekly-settlement-table-wrap { overflow:auto; border:1px solid var(--border); border-radius:11px; }
+    .weekly-settlement-table { width:100%; min-width:720px; border-collapse:collapse; font-size:11px; }
+    .weekly-settlement-table th,.weekly-settlement-table td { padding:8px 9px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+    .weekly-settlement-table th { background:var(--soft); color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.035em; }
+    .weekly-settlement-table tr:last-child td { border-bottom:0; }
+    .weekly-settlement-money-plus { color:#166534; font-weight:900; }
+    .weekly-settlement-money-minus { color:#b91c1c; font-weight:900; }
+    .weekly-transfer-status { display:inline-flex; align-items:center; border-radius:999px; padding:3px 7px; font-size:9px; font-weight:900; white-space:nowrap; }
+    .weekly-transfer-status.pending { background:#fef3c7; color:#92400e; }
+    .weekly-transfer-status.accepted { background:#dcfce7; color:#166534; }
+    .weekly-transfer-status.rejected { background:#fee2e2; color:#991b1b; }
+    .weekly-transfer-actions { display:flex; gap:5px; flex-wrap:wrap; }
+    .weekly-settlement-note { color:var(--muted); font-size:10px; line-height:1.4; }
+    .weekly-settlement-empty { padding:12px; text-align:center; color:var(--muted); font-size:11px; }
+    .weekly-current-user-row td { background:rgba(37,99,235,.05); }
+    @media (max-width:1100px) {
+      .weekly-settlement-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .weekly-settlement-form { grid-template-columns:1fr 1fr; }
+      .weekly-settlement-form .wide-mobile { grid-column:1/-1; }
+    }
+    @media (max-width:680px) {
+      .weekly-settlement-grid,.weekly-settlement-form { grid-template-columns:1fr; }
+    }
+  </style>
+
+  <script id="targeted-3l19-weekly-settlement-views-script">
+    (() => {
+      state.routeTileMetricView = state.routeTileMetricView || "";
+      state.weeklySettlement = state.weeklySettlement || { weekStart:"", carrierAdjustments:[], transfers:[], loaded:false, loading:false, requestId:"" };
+      state.weeklySettlementBusy = false;
+
+      function metricClassForRoute(route) {
+        if (!route || isFreeDayRoute(route)) return "";
+        if (state.routeTileMetricView === "profit") {
+          const value = Number(profit(route) || 0);
+          if (value > 0) return "route-metric-profit-positive";
+          if (value < 0) return "route-metric-profit-negative";
+          return "";
+        }
+        if (state.routeTileMetricView === "km") {
+          const km = Number(totalKm(route) || 0);
+          if (km > 400) return "route-metric-km-high";
+          if (km >= 200) return "route-metric-km-mid";
+          return "route-metric-km-low";
+        }
+        return "";
+      }
+
+      const originalRouteStatusClasses3L19 = routeStatusClasses;
+      routeStatusClasses = function(route) {
+        return [originalRouteStatusClasses3L19(route), metricClassForRoute(route)].filter(Boolean).join(" ");
+      };
+
+      window.setRouteTileMetricView = function(mode) {
+        const next = mode === "profit" || mode === "km" ? mode : "";
+        state.routeTileMetricView = state.routeTileMetricView === next ? "" : next;
+        syncBoardOnly();
+      };
+
+      function boardMetricControlsHtml() {
+        return `<div class="board-metric-switch" aria-label="Widok kolorystyczny kafelków relacji">
+          <span class="board-metric-switch-label">Widok kafelków</span>
+          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "profit" ? "active" : ""}" onclick="setRouteTileMetricView('profit')" title="Widok 1: zielony = zysk, czerwony = strata"><strong>1</strong><span>Zysk</span></button>
+          <button type="button" class="board-metric-mode ${state.routeTileMetricView === "km" ? "active" : ""}" onclick="setRouteTileMetricView('km')" title="Widok 2: zielony > 400 km, żółty 200–400 km, czerwony < 200 km"><strong>2</strong><span>KM</span></button>
+        </div>`;
+      }
+
+      const originalRenderBoard3L19 = renderBoard;
+      renderBoard = function(...args) {
+        const html = originalRenderBoard3L19.apply(this, args);
+        return html.replace('<h2>Plan kierowców</h2>', `<div class="board-heading-stack"><h2>Plan kierowców</h2>${boardMetricControlsHtml()}</div>`);
+      };
+
+      function statsInitials(label) {
+        const words = String(label || "").trim().split(/\s+/).filter(Boolean);
+        if (!words.length) return "•";
+        return words.slice(0,2).map(word => word[0] || "").join("").toUpperCase();
+      }
+
+      function closeStatsDispatcherPicker() {
+        const card = document.querySelector(".stats-dispatcher-card");
+        const menu = document.querySelector(".stats-dispatcher-card-menu");
+        if (card) card.classList.remove("open");
+        if (menu) menu.hidden = true;
+      }
+
+      window.toggleStatsDispatcherPicker = function(event) {
+        event?.stopPropagation?.();
+        const card = event?.currentTarget?.closest?.(".stats-dispatcher-card") || document.querySelector(".stats-dispatcher-card");
+        const menu = card?.querySelector?.(".stats-dispatcher-card-menu");
+        if (!card || !menu) return;
+        const open = menu.hidden;
+        menu.hidden = !open;
+        card.classList.toggle("open", open);
+      };
+
+      window.selectStatsDispatcherPicker = function(value) {
+        closeStatsDispatcherPicker();
+        setStatsDispatcherFilter(value);
+      };
+
+      const originalHandleAppSurfaceClick3L19 = handleAppSurfaceClick;
+      handleAppSurfaceClick = function(event) {
+        closeStatsDispatcherPicker();
+        return originalHandleAppSurfaceClick3L19.call(this, event);
+      };
+
+      renderStatsDispatcherScope = function(stats) {
+        const selected = stats?.selectedDispatcher || statsSelectedDispatcherLogin();
+        if (state.user?.role === "spedytor") {
+          const label = statsDispatcherDisplayName(selected);
+          return `<div class="stats-dispatcher-scope"><div class="stats-dispatcher-card-trigger" style="cursor:default"><span class="stats-dispatcher-avatar">${esc(statsInitials(label))}</span><span class="stats-dispatcher-card-copy"><small>Moje wyniki</small><b>${esc(label)}</b></span></div></div>`;
+        }
+        const users = statsAvailableDispatcherUsers();
+        const selectedUser = users.find(user => String(user.login || "").toUpperCase() === String(selected || "").toUpperCase());
+        const selectedLabel = selected === "all" ? "Wszyscy spedytorzy" : String(selectedUser?.name || selectedUser?.login || selected);
+        const selectedBranch = selected === "all" ? "Pełny zakres dostępnych danych" : String(selectedUser?.branch || "");
+        return `<div class="stats-dispatcher-scope">
+          <div class="stats-dispatcher-card" onclick="event.stopPropagation()">
+            <button type="button" class="stats-dispatcher-card-trigger" onclick="toggleStatsDispatcherPicker(event)">
+              <span class="stats-dispatcher-avatar">${selected === "all" ? "ALL" : esc(statsInitials(selectedLabel))}</span>
+              <span class="stats-dispatcher-card-copy"><small>Spedytor</small><b>${esc(selectedLabel)}</b><small>${esc(selectedBranch)}</small></span>
+              <span class="stats-dispatcher-chevron">▾</span>
+            </button>
+            <div class="stats-dispatcher-card-menu" hidden>
+              <button type="button" class="stats-dispatcher-choice ${selected === "all" ? "active" : ""}" onclick="selectStatsDispatcherPicker('all')"><span class="stats-dispatcher-avatar">ALL</span><span class="stats-dispatcher-choice-copy"><b>Wszyscy spedytorzy</b><small>Pełny zakres</small></span></button>
+              ${users.map(user => {
+                const login = String(user.login || "").toUpperCase();
+                const label = String(user.name || user.login || login);
+                return `<button type="button" class="stats-dispatcher-choice ${selected === login ? "active" : ""}" onclick="selectStatsDispatcherPicker('${attr(login)}')"><span class="stats-dispatcher-avatar">${esc(statsInitials(label))}</span><span class="stats-dispatcher-choice-copy"><b>${esc(label)}</b><small>${esc(user.branch || login)}</small></span></button>`;
+              }).join("")}
+            </div>
+          </div>
+        </div>`;
+      };
+
+      function weeklyWeekStart(date = statsSelectedDate()) {
+        return weekDaysForDate(date)[0] || String(date || START_DATE).slice(0,10);
+      }
+
+      function weeklyWeekEnd(weekStart) {
+        return addDaysToIso(weekStart, 6);
+      }
+
+      function weeklyUserById(id) {
+        return USERS.find(user => String(user.supabaseId || "") === String(id || "")) || null;
+      }
+
+      function weeklyUserLabel(id) {
+        const user = weeklyUserById(id);
+        return String(user?.name || user?.login || "Nieznany spedytor");
+      }
+
+      function requestWeeklySettlement(weekStart, force = false) {
+        if (!EMBEDDED_MODE || !state.user || !weekStart) return;
+        const ws = String(weekStart).slice(0,10);
+        const current = state.weeklySettlement || {};
+        if (!force && current.weekStart === ws && (current.loaded || current.loading)) return;
+        const requestId = `weekly-settlement-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+        state.weeklySettlement = { ...(current || {}), weekStart:ws, loading:true, loaded:false, requestId };
+        window.parent?.postMessage({ type:"top-dragon-weekly-settlement-request", requestId, weekStart:ws }, window.location.origin);
+      }
+
+      function ensureWeeklySettlementForStats(stats) {
+        if (stats?.range !== "week") return;
+        const weekStart = weeklyWeekStart(stats.date);
+        queueMicrotask(() => requestWeeklySettlement(weekStart, false));
+      }
+
+      function weeklyAvailableCarriers() {
+        const ownOnly = state.user?.role === "spedytor";
+        const rows = operationalDrivers().filter(driver => !ownOnly || driver.dispatcher === state.user.login);
+        const map = new Map();
+        rows.forEach(driver => {
+          const id = String(driver.carrierEntityId || "").trim();
+          const name = String(driver.carrier || "").trim();
+          if (id && name && !map.has(id)) map.set(id, { id, name, branchId:String(driver.branchId || "") });
+        });
+        return Array.from(map.values()).sort((a,b) => a.name.localeCompare(b.name,"pl"));
+      }
+
+      function weeklyAllRoutes(weekStart) {
+        const dates = weekDaysForDate(weekStart);
+        return routesForStatsDates(dates).filter(route => !isFreeDayRoute(route));
+      }
+
+      function weeklyCarrierSummaryRows(weekStart) {
+        const routes = weeklyAllRoutes(weekStart);
+        const adjustments = state.weeklySettlement?.weekStart === weekStart ? (state.weeklySettlement.carrierAdjustments || []) : [];
+        const map = new Map();
+        routes.forEach(route => {
+          const driver = driverById(route.driverId) || {};
+          const id = String(driver.carrierEntityId || "").trim();
+          const name = String(driver.carrier || "Brak przewoźnika").trim();
+          const key = id || `name:${name}`;
+          if (!map.has(key)) map.set(key,{ key, carrierId:id, name, baseCost:0, adjustment:0, comments:[], adjustmentIds:[] });
+          map.get(key).baseCost += Number(carrierCost(route) || 0);
+        });
+        adjustments.forEach(item => {
+          const id = String(item.carrierId || "").trim();
+          const name = String(item.carrierName || "Brak przewoźnika").trim();
+          const key = id || `name:${name}`;
+          if (!map.has(key)) map.set(key,{ key, carrierId:id, name, baseCost:0, adjustment:0, comments:[], adjustmentIds:[] });
+          const row = map.get(key);
+          row.adjustment += Number(item.amount || 0);
+          if (item.comment) row.comments.push(String(item.comment));
+          row.adjustmentIds.push(item);
+        });
+        return Array.from(map.values()).map(row => ({ ...row, payout:row.baseCost + row.adjustment })).sort((a,b) => b.payout-a.payout || a.name.localeCompare(b.name,"pl"));
+      }
+
+      function weeklyTransferRows(weekStart) {
+        return state.weeklySettlement?.weekStart === weekStart ? (state.weeklySettlement.transfers || []) : [];
+      }
+
+      function weeklyDispatcherPerformanceRows(weekStart) {
+        const routes = weeklyAllRoutes(weekStart);
+        const accepted = weeklyTransferRows(weekStart).filter(item => item.status === "accepted");
+        const users = USERS.filter(user => user.role === "spedytor" && user.supabaseId);
+        const map = new Map(users.map(user => [String(user.supabaseId), { id:String(user.supabaseId), name:String(user.name || user.login), login:String(user.login || ""), rawProfit:0, sent:0, received:0 }]));
+        routes.forEach(route => {
+          const login = statsRouteDispatcherLogin(route);
+          const user = USERS.find(item => String(item.login || "").toUpperCase() === String(login || "").toUpperCase());
+          const id = String(user?.supabaseId || "");
+          if (!id) return;
+          if (!map.has(id)) map.set(id,{ id, name:String(user.name || user.login), login:String(user.login || ""), rawProfit:0, sent:0, received:0 });
+          map.get(id).rawProfit += Number(profit(route) || 0);
+        });
+        accepted.forEach(item => {
+          const from = map.get(String(item.fromDispatcherId || ""));
+          const to = map.get(String(item.toDispatcherId || ""));
+          if (from) from.sent += Number(item.amount || 0);
+          if (to) to.received += Number(item.amount || 0);
+        });
+        return Array.from(map.values()).map(row => ({ ...row, net:row.received-row.sent, adjusted:row.rawProfit-row.sent+row.received }))
+          .filter(row => row.rawProfit || row.sent || row.received || row.id === String(state.user?.supabaseId || ""))
+          .sort((a,b) => b.adjusted-a.adjusted || a.name.localeCompare(b.name,"pl"));
+      }
+
+      function canDeleteWeeklyCarrierAdjustment(item) {
+        const own = String(item?.createdBy || "") === String(state.user?.supabaseId || "");
+        return own || state.user?.role === "rozliczenia" || state.user?.role === "admin";
+      }
+
+      function weeklyTransferStatusLabel(status) {
+        if (status === "accepted") return "Zaakceptowany";
+        if (status === "rejected") return "Odrzucony";
+        return "Oczekuje na akceptację";
+      }
+
+      window.createWeeklyCarrierAdjustment = function() {
+        if (state.weeklySettlementBusy) return;
+        const weekStart = String(document.getElementById("weekly-adjustment-week")?.value || weeklyWeekStart()).slice(0,10);
+        const carrierId = String(document.getElementById("weekly-adjustment-carrier")?.value || "").trim();
+        const amount = Number(String(document.getElementById("weekly-adjustment-amount")?.value || "").replace(",","."));
+        const comment = String(document.getElementById("weekly-adjustment-comment")?.value || "").trim();
+        if (!carrierId || !Number.isFinite(amount) || amount === 0) {
+          showAppMessage("Uzupełnij wyrównanie", "Wybierz przewoźnika i wpisz kwotę różną od zera.", "error");
+          return;
+        }
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`carrier-adjust-${Date.now()}`, weekStart, carrierId, amount, comment }, window.location.origin);
+      };
+
+      window.deleteWeeklyCarrierAdjustment = function(adjustmentId) {
+        if (state.weeklySettlementBusy || !adjustmentId) return;
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-delete", requestId:`carrier-adjust-delete-${Date.now()}`, adjustmentId }, window.location.origin);
+      };
+
+      window.createWeeklyDispatcherTransfer = function() {
+        if (state.weeklySettlementBusy || state.user?.role !== "spedytor") return;
+        const weekStart = String(document.getElementById("weekly-transfer-week")?.value || weeklyWeekStart()).slice(0,10);
+        const toDispatcherId = String(document.getElementById("weekly-transfer-to")?.value || "").trim();
+        const amount = Number(String(document.getElementById("weekly-transfer-amount")?.value || "").replace(",","."));
+        const comment = String(document.getElementById("weekly-transfer-comment")?.value || "").trim();
+        if (!toDispatcherId || !Number.isFinite(amount) || amount <= 0) {
+          showAppMessage("Uzupełnij przelew", "Wybierz odbiorcę i wpisz kwotę większą od zera.", "error");
+          return;
+        }
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-create", requestId:`dispatcher-transfer-${Date.now()}`, weekStart, toDispatcherId, amount, comment }, window.location.origin);
+      };
+
+      window.respondWeeklyDispatcherTransfer = function(transferId, status) {
+        if (state.weeklySettlementBusy || !transferId || !["accepted","rejected"].includes(status)) return;
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-response", requestId:`dispatcher-transfer-response-${Date.now()}`, transferId, status }, window.location.origin);
+      };
+
+      window.cancelWeeklyDispatcherTransfer = function(transferId) {
+        if (state.weeklySettlementBusy || !transferId) return;
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-cancel", requestId:`dispatcher-transfer-cancel-${Date.now()}`, transferId }, window.location.origin);
+      };
+
+      function renderWeeklySettlementSection(stats) {
+        const weekStart = weeklyWeekStart(stats.date);
+        const weekEnd = weeklyWeekEnd(weekStart);
+        const loaded = state.weeklySettlement?.loaded && state.weeklySettlement?.weekStart === weekStart;
+        if (!loaded) {
+          ensureWeeklySettlementForStats(stats);
+          return `<section class="weekly-settlement-section"><div class="weekly-settlement-head"><div><h3>Podsumowanie tygodniowe rozliczeniowe</h3><p>${esc(formatDateForInput(weekStart))} – ${esc(formatDateForInput(weekEnd))}</p></div></div><div class="weekly-settlement-empty">Pobieranie wyrównań i przelewów z Supabase…</div></section>`;
+        }
+
+        const routes = weeklyAllRoutes(weekStart);
+        const carrierRows = weeklyCarrierSummaryRows(weekStart);
+        const transferRows = weeklyTransferRows(weekStart);
+        const dispatcherRows = weeklyDispatcherPerformanceRows(weekStart);
+        const revenue = routes.reduce((sum, route) => sum + Number(route.rate || 0), 0);
+        const baseCarrierCost = routes.reduce((sum, route) => sum + Number(carrierCost(route) || 0), 0);
+        const adjustments = (state.weeklySettlement.carrierAdjustments || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        const payout = baseCarrierCost + adjustments;
+        const adjustedProfit = revenue - payout;
+        const carriers = weeklyAvailableCarriers();
+        const canAddAdjustment = ["spedytor","rozliczenia","admin"].includes(state.user?.role);
+        const transferTargets = USERS.filter(user => user.role === "spedytor" && user.supabaseId && String(user.supabaseId) !== String(state.user?.supabaseId || ""));
+
+        return `<section class="weekly-settlement-section">
+          <div class="weekly-settlement-head"><div><h3>Podsumowanie tygodniowe rozliczeniowe</h3><p>${esc(formatDateForInput(weekStart))} – ${esc(formatDateForInput(weekEnd))} · wyrównania przewoźników i zaakceptowane przelewy są wspólne i widoczne dla użytkowników TMS.</p></div><span class="stats-pill">Tydzień</span></div>
+          <div class="weekly-settlement-grid">
+            <div class="weekly-settlement-kpi"><small>Przychód z relacji</small><b>${statsMoney(revenue)}</b></div>
+            <div class="weekly-settlement-kpi"><small>Koszt przewoźników z relacji</small><b>${statsMoney(baseCarrierCost)}</b></div>
+            <div class="weekly-settlement-kpi"><small>Wyrównania przewoźników</small><b class="${adjustments > 0 ? "weekly-settlement-money-minus" : adjustments < 0 ? "weekly-settlement-money-plus" : ""}">${statsMoney(adjustments)}</b></div>
+            <div class="weekly-settlement-kpi"><small>Wynik po wyrównaniach</small><b class="${adjustedProfit >= 0 ? "weekly-settlement-money-plus" : "weekly-settlement-money-minus"}">${statsMoney(adjustedProfit)}</b></div>
+          </div>
+
+          <div class="weekly-settlement-subsection">
+            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b><span class="weekly-settlement-note">Dodatnie wyrównanie zwiększa wypłatę przewoźnika; ujemne ją zmniejsza.</span></div>
+            ${canAddAdjustment ? `<div class="weekly-settlement-form">
+              <input id="weekly-adjustment-week" type="hidden" value="${attr(weekStart)}" />
+              <label><span>Przewoźnik</span><select id="weekly-adjustment-carrier" class="select"><option value="">Wybierz przewoźnika</option>${carriers.map(item => `<option value="${attr(item.id)}">${esc(item.name)}</option>`).join("")}</select></label>
+              <label><span>Wyrównanie PLN</span><input id="weekly-adjustment-amount" class="input" inputmode="decimal" placeholder="np. 300 lub -100" /></label>
+              <label class="wide-mobile"><span>Komentarz</span><input id="weekly-adjustment-comment" class="input" maxlength="1200" placeholder="Powód wyrównania / ustalenie z przewoźnikiem" /></label>
+              <button type="button" class="btn btn-dark" onclick="createWeeklyCarrierAdjustment()">Dodaj</button>
+            </div>` : ""}
+            <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Przewoźnik</th><th>Koszt z relacji</th><th>Wyrównanie</th><th>Do wypłaty</th><th>Komentarz / korekty</th></tr></thead><tbody>
+              ${carrierRows.length ? carrierRows.map(row => `<tr><td><b>${esc(row.name)}</b></td><td>${statsMoney(row.baseCost)}</td><td class="${row.adjustment > 0 ? "weekly-settlement-money-minus" : row.adjustment < 0 ? "weekly-settlement-money-plus" : ""}">${statsMoney(row.adjustment)}</td><td><b>${statsMoney(row.payout)}</b></td><td>${row.comments.length ? row.comments.map(comment => `<div>${esc(comment)}</div>`).join("") : "—"}${row.adjustmentIds.some(canDeleteWeeklyCarrierAdjustment) ? `<div class="weekly-transfer-actions" style="margin-top:5px">${row.adjustmentIds.filter(canDeleteWeeklyCarrierAdjustment).map(item => `<button type="button" class="btn-mini" onclick="deleteWeeklyCarrierAdjustment('${attr(item.id)}')">Usuń korektę ${statsMoney(item.amount)}</button>`).join("")}</div>` : ""}</td></tr>`).join("") : `<tr><td colspan="5" class="weekly-settlement-empty">Brak relacji i wyrównań przewoźników w tym tygodniu.</td></tr>`}
+            </tbody></table></div>
+          </div>
+
+          <div class="weekly-settlement-subsection">
+            <div class="weekly-settlement-subhead"><b>Wynik spedytorów po zaakceptowanych przelewach</b><span class="weekly-settlement-note">Przelew nie wpływa na wynik, dopóki odbiorca go nie zaakceptuje.</span></div>
+            <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Spedytor</th><th>Wynik operacyjny</th><th>Wysłane</th><th>Otrzymane</th><th>Saldo przelewów</th><th>Wynik po przelewach</th></tr></thead><tbody>
+              ${dispatcherRows.length ? dispatcherRows.map(row => `<tr class="${row.id === String(state.user?.supabaseId || "") ? "weekly-current-user-row" : ""}"><td><b>${esc(row.name)}</b></td><td>${statsMoney(row.rawProfit)}</td><td class="weekly-settlement-money-minus">${statsMoney(row.sent)}</td><td class="weekly-settlement-money-plus">${statsMoney(row.received)}</td><td class="${row.net >= 0 ? "weekly-settlement-money-plus" : "weekly-settlement-money-minus"}">${statsMoney(row.net)}</td><td><b class="${row.adjusted >= 0 ? "weekly-settlement-money-plus" : "weekly-settlement-money-minus"}">${statsMoney(row.adjusted)}</b></td></tr>`).join("") : `<tr><td colspan="6" class="weekly-settlement-empty">Brak wyników spedytorów dla tego tygodnia.</td></tr>`}
+            </tbody></table></div>
+          </div>
+
+          <div class="weekly-settlement-subsection">
+            <div class="weekly-settlement-subhead"><b>Przelewy między spedytorami</b><span class="weekly-settlement-note">Wszyscy widzą przelew, ale zatwierdza go wyłącznie spedytor-odbiorca.</span></div>
+            ${state.user?.role === "spedytor" ? `<div class="weekly-settlement-form">
+              <input id="weekly-transfer-week" type="hidden" value="${attr(weekStart)}" />
+              <label><span>Do spedytora</span><select id="weekly-transfer-to" class="select"><option value="">Wybierz odbiorcę</option>${transferTargets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.name || user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select></label>
+              <label><span>Kwota PLN</span><input id="weekly-transfer-amount" class="input" inputmode="decimal" placeholder="np. 500" /></label>
+              <label class="wide-mobile"><span>Komentarz</span><input id="weekly-transfer-comment" class="input" maxlength="1200" placeholder="Za co przekazywana jest kwota" /></label>
+              <button type="button" class="btn btn-dark" onclick="createWeeklyDispatcherTransfer()">Wyślij do akceptacji</button>
+            </div>` : ""}
+            <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Od</th><th>Do</th><th>Kwota</th><th>Komentarz</th><th>Status</th><th>Akcja</th></tr></thead><tbody>
+              ${transferRows.length ? transferRows.map(item => {
+                const currentId = String(state.user?.supabaseId || "");
+                const isRecipient = currentId && currentId === String(item.toDispatcherId || "");
+                const isSender = currentId && currentId === String(item.fromDispatcherId || "");
+                const actions = item.status === "pending" && isRecipient
+                  ? `<div class="weekly-transfer-actions"><button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','accepted')">Akceptuj</button><button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','rejected')">Odrzuć</button></div>`
+                  : item.status === "pending" && isSender
+                    ? `<button type="button" class="btn-mini" onclick="cancelWeeklyDispatcherTransfer('${attr(item.id)}')">Anuluj</button>`
+                    : "—";
+                return `<tr class="${isRecipient || isSender ? "weekly-current-user-row" : ""}"><td>${esc(weeklyUserLabel(item.fromDispatcherId))}</td><td>${esc(weeklyUserLabel(item.toDispatcherId))}</td><td><b>${statsMoney(item.amount)}</b></td><td>${esc(item.comment || "—")}</td><td><span class="weekly-transfer-status ${attr(item.status)}">${esc(weeklyTransferStatusLabel(item.status))}</span></td><td>${actions}</td></tr>`;
+              }).join("") : `<tr><td colspan="6" class="weekly-settlement-empty">Brak przelewów w tym tygodniu.</td></tr>`}
+            </tbody></table></div>
+          </div>
+        </section>`;
+      }
+
+      const originalRenderStatsDrawer3L19 = renderStatsDrawer;
+      renderStatsDrawer = function(stats = statsSnapshot()) {
+        ensureWeeklySettlementForStats(stats);
+        const html = originalRenderStatsDrawer3L19.call(this, stats);
+        if (stats.range !== "week") return html;
+        const weeklyHtml = renderWeeklySettlementSection(stats);
+        return html.replace(/(\s*<\/div>\s*<\/aside>\s*)$/, `${weeklyHtml}$1`);
+      };
+
+      const originalSetStatsRange3L19 = setStatsRange;
+      setStatsRange = function(range) {
+        const result = originalSetStatsRange3L19.call(this, range);
+        if (range === "week") queueMicrotask(() => requestWeeklySettlement(weeklyWeekStart(), true));
+        return result;
+      };
+
+      const originalShiftStatsDate3L19 = shiftStatsDate;
+      shiftStatsDate = function(direction) {
+        const result = originalShiftStatsDate3L19.call(this, direction);
+        if (state.statsRange === "week") queueMicrotask(() => requestWeeklySettlement(weeklyWeekStart(), true));
+        return result;
+      };
+
+      window.addEventListener("message", event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type === "top-dragon-weekly-settlement-data") {
+          state.weeklySettlement = {
+            weekStart:String(message.weekStart || ""),
+            carrierAdjustments:Array.isArray(message.carrierAdjustments) ? message.carrierAdjustments : [],
+            transfers:Array.isArray(message.transfers) ? message.transfers : [],
+            loaded:true,
+            loading:false,
+            requestId:""
+          };
+          if (state.statsPanelOpen && state.statsRange === "week") scheduleStatsPanelSync();
+        } else if (message.type === "top-dragon-weekly-settlement-operation-result") {
+          state.weeklySettlementBusy = false;
+          showAppMessage(message.ok ? "Podsumowanie tygodniowe zaktualizowane" : "Nie udało się zapisać zmiany", String(message.message || ""), message.ok ? "success" : "error");
+          if (state.statsPanelOpen && state.statsRange === "week") requestWeeklySettlement(weeklyWeekStart(), true);
+        } else if (message.type === "top-dragon-signout") {
+          state.weeklySettlement = { weekStart:"", carrierAdjustments:[], transfers:[], loaded:false, loading:false, requestId:"" };
+          state.weeklySettlementBusy = false;
+        }
+      });
     })();
   </script>
 
