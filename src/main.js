@@ -11,6 +11,7 @@ let activeClientsMessage = null
 let activeLoadQueueMessage = null
 let activeLoadRequestsMessage = null
 let activeAuditMessage = null
+let activeWeeklySettlementMessage = null
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
@@ -21,6 +22,9 @@ let loadRequestsChannel = null
 let loadRequestsReloadTimer = null
 let auditChannel = null
 let auditReloadTimer = null
+let weeklySettlementChannel = null
+let weeklySettlementReloadTimer = null
+let weeklySettlementWeekStart = ''
 let currentUser = null
 let currentProfile = null
 
@@ -79,6 +83,7 @@ function renderLogin(message = '') {
   activeLoadQueueMessage = null
   activeLoadRequestsMessage = null
   activeAuditMessage = null
+  activeWeeklySettlementMessage = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -119,6 +124,15 @@ function renderLogin(message = '') {
     supabase.removeChannel(auditChannel)
     auditChannel = null
   }
+  if (weeklySettlementReloadTimer) {
+    clearTimeout(weeklySettlementReloadTimer)
+    weeklySettlementReloadTimer = null
+  }
+  if (weeklySettlementChannel) {
+    supabase.removeChannel(weeklySettlementChannel)
+    weeklySettlementChannel = null
+  }
+  weeklySettlementWeekStart = ''
 
   app.innerHTML = `
     <main class="login-shell">
@@ -1740,6 +1754,195 @@ async function importFleetExcelFromTms(message) {
   }
 }
 
+
+function normalizeWeekStart(value) {
+  const raw = String(value || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return ''
+  const date = new Date(`${raw}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ''
+  const isoDay = date.getDay() || 7
+  date.setDate(date.getDate() - isoDay + 1)
+  return date.toISOString().slice(0, 10)
+}
+
+async function loadWeeklySettlementData(weekStart) {
+  const normalizedWeek = normalizeWeekStart(weekStart)
+  if (!normalizedWeek) throw new Error('Nieprawidłowy tydzień rozliczeniowy.')
+
+  const [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await Promise.all([
+    supabase
+      .from('tms_carrier_week_adjustments')
+      .select('id,week_start,branch_id,carrier_id,carrier_name,amount,comment,created_by,created_at,active')
+      .eq('week_start', normalizedWeek)
+      .eq('active', true)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('tms_dispatcher_week_transfers')
+      .select('id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at')
+      .eq('week_start', normalizedWeek)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: true }),
+  ])
+
+  if (adjustmentsError) throw new Error(`Nie udało się pobrać wyrównań przewoźników: ${adjustmentsError.message}`)
+  if (transfersError) throw new Error(`Nie udało się pobrać przelewów spedytorów: ${transfersError.message}`)
+
+  return {
+    weekStart: normalizedWeek,
+    carrierAdjustments: (adjustments || []).map((row) => ({
+      id: String(row.id || ''),
+      weekStart: String(row.week_start || normalizedWeek),
+      branchId: String(row.branch_id || ''),
+      carrierId: String(row.carrier_id || ''),
+      carrierName: String(row.carrier_name || ''),
+      amount: Number(row.amount || 0),
+      comment: String(row.comment || ''),
+      createdBy: String(row.created_by || ''),
+      createdAt: String(row.created_at || ''),
+    })),
+    transfers: (transfers || []).map((row) => ({
+      id: String(row.id || ''),
+      weekStart: String(row.week_start || normalizedWeek),
+      fromDispatcherId: String(row.from_dispatcher_id || ''),
+      toDispatcherId: String(row.to_dispatcher_id || ''),
+      fromBranchId: String(row.from_branch_id || ''),
+      toBranchId: String(row.to_branch_id || ''),
+      amount: Number(row.amount || 0),
+      comment: String(row.comment || ''),
+      status: String(row.status || 'pending'),
+      createdAt: String(row.created_at || ''),
+      respondedAt: String(row.responded_at || ''),
+    })),
+  }
+}
+
+async function syncWeeklySettlementToTms(weekStart = weeklySettlementWeekStart) {
+  const normalizedWeek = normalizeWeekStart(weekStart)
+  if (!normalizedWeek || !currentProfile) return
+  weeklySettlementWeekStart = normalizedWeek
+  const payload = await loadWeeklySettlementData(normalizedWeek)
+  activeWeeklySettlementMessage = {
+    type: 'top-dragon-weekly-settlement-data',
+    ...payload,
+  }
+  activeTmsFrame?.contentWindow?.postMessage(activeWeeklySettlementMessage, window.location.origin)
+}
+
+function scheduleWeeklySettlementReload(delay = 80) {
+  if (!weeklySettlementWeekStart) return
+  if (weeklySettlementReloadTimer) clearTimeout(weeklySettlementReloadTimer)
+  weeklySettlementReloadTimer = setTimeout(() => {
+    weeklySettlementReloadTimer = null
+    syncWeeklySettlementToTms(weeklySettlementWeekStart).catch((error) => {
+      console.error('Nie udało się odświeżyć tygodniowego podsumowania:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeWeeklySettlement() {
+  if (weeklySettlementChannel) {
+    supabase.removeChannel(weeklySettlementChannel)
+    weeklySettlementChannel = null
+  }
+  if (!currentProfile) return
+
+  weeklySettlementChannel = supabase
+    .channel(`tms-weekly-settlement-${currentUser?.id || 'user'}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_carrier_week_adjustments' }, () => scheduleWeeklySettlementReload(70))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_dispatcher_week_transfers' }, () => scheduleWeeklySettlementReload(70))
+    .subscribe()
+}
+
+function sendWeeklySettlementOperationResult(requestId, ok, action, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-weekly-settlement-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function createCarrierWeekAdjustmentFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const { error } = await supabase.rpc('create_tms_carrier_week_adjustment', {
+      p_week_start: normalizeWeekStart(message?.weekStart),
+      p_carrier_id: String(message?.carrierId || '').trim() || null,
+      p_amount: Number(message?.amount || 0),
+      p_comment: String(message?.comment || '').trim(),
+    })
+    if (error) throw error
+    weeklySettlementWeekStart = normalizeWeekStart(message?.weekStart)
+    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-create', 'Wyrównanie przewoźnika zostało zapisane.')
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-create', error?.message || 'Nie udało się zapisać wyrównania przewoźnika.')
+  }
+}
+
+async function deleteCarrierWeekAdjustmentFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const { error } = await supabase.rpc('archive_tms_carrier_week_adjustment', {
+      p_adjustment_id: String(message?.adjustmentId || '').trim() || null,
+    })
+    if (error) throw error
+    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-delete', 'Wyrównanie zostało usunięte z aktywnego podsumowania.')
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-delete', error?.message || 'Nie udało się usunąć wyrównania.')
+  }
+}
+
+async function createDispatcherWeekTransferFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const { error } = await supabase.rpc('create_tms_dispatcher_week_transfer', {
+      p_week_start: normalizeWeekStart(message?.weekStart),
+      p_to_dispatcher_id: String(message?.toDispatcherId || '').trim() || null,
+      p_amount: Number(message?.amount || 0),
+      p_comment: String(message?.comment || '').trim(),
+    })
+    if (error) throw error
+    weeklySettlementWeekStart = normalizeWeekStart(message?.weekStart)
+    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-create', 'Przelew został wysłany do akceptacji odbiorcy.')
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', error?.message || 'Nie udało się utworzyć przelewu.')
+  }
+}
+
+async function respondDispatcherWeekTransferFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const status = String(message?.status || '').trim().toLowerCase()
+  try {
+    const { error } = await supabase.rpc('respond_tms_dispatcher_week_transfer', {
+      p_transfer_id: String(message?.transferId || '').trim() || null,
+      p_status: status,
+    })
+    if (error) throw error
+    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Przelew został zaakceptowany.' : 'Przelew został odrzucony.')
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', error?.message || 'Nie udało się rozpatrzyć przelewu.')
+  }
+}
+
+async function cancelDispatcherWeekTransferFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const { error } = await supabase.rpc('cancel_tms_dispatcher_week_transfer', {
+      p_transfer_id: String(message?.transferId || '').trim() || null,
+    })
+    if (error) throw error
+    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-cancel', 'Oczekujący przelew został anulowany.')
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-cancel', error?.message || 'Nie udało się anulować przelewu.')
+  }
+}
+
 async function handleTruckRoutingRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
 
@@ -1876,7 +2079,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v40-driver-color-fix-position"
+        src="/tms.html?embedded=1&build=request-workflow-v41-weekly-settlement-views"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -1933,6 +2136,7 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
   })
   subscribeCentralLoadRequests()
+  subscribeWeeklySettlement()
 
   if (currentProfile.role === 'admin') {
     syncCentralAuditToTms().catch((error) => {
@@ -1987,6 +2191,9 @@ async function bootstrap() {
       }
       if (activeAuditMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeAuditMessage, window.location.origin)
+      }
+      if (activeWeeklySettlementMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeWeeklySettlementMessage, window.location.origin)
       }
       return
     }
@@ -2121,6 +2328,41 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-load-request-upsert') {
       await upsertCentralLoadRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-weekly-settlement-request') {
+      try {
+        weeklySettlementWeekStart = normalizeWeekStart(event.data?.weekStart)
+        await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+      } catch (error) {
+        sendWeeklySettlementOperationResult(event.data?.requestId, false, 'load', error?.message || 'Nie udało się pobrać tygodniowego podsumowania.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-carrier-week-adjustment-create') {
+      await createCarrierWeekAdjustmentFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-carrier-week-adjustment-delete') {
+      await deleteCarrierWeekAdjustmentFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-dispatcher-week-transfer-create') {
+      await createDispatcherWeekTransferFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-dispatcher-week-transfer-response') {
+      await respondDispatcherWeekTransferFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-dispatcher-week-transfer-cancel') {
+      await cancelDispatcherWeekTransferFromTms(event.data)
       return
     }
 
