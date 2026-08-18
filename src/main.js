@@ -398,6 +398,9 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                 ${branchOptions(activeBranches)}
               </select>
             </label>
+            <label>Kolor użytkownika
+              <input id="invite-ui-color" class="user-color-input" type="color" value="#D9F99D" title="Kolor używany do oznaczeń spedytora w TMS" />
+            </label>
             <button class="primary compact-primary wide" type="submit" ${activeBranches.length ? '' : 'disabled'}>
               Wyślij zaproszenie
             </button>
@@ -440,6 +443,9 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                     <option value="">Brak</option>
                     ${branchOptions(branches, item.branch_id || '')}
                   </select>
+                </label>
+                <label>Kolor
+                  <span class="user-color-field"><input class="user-ui-color" type="color" value="${escapeHtml(item.ui_color || '#E2E8F0')}" ${lockedAdmin ? 'disabled' : ''} /><span>${escapeHtml(item.ui_color || '#E2E8F0')}</span></span>
                 </label>
                 <label class="active-check">
                   <span>Aktywny</span>
@@ -568,6 +574,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           email: document.querySelector('#invite-email')?.value.trim(),
           role: document.querySelector('#invite-role')?.value,
           branchId: document.querySelector('#invite-branch')?.value,
+          uiColor: document.querySelector('#invite-ui-color')?.value,
         }),
       })
       updateAdminCacheUser(result.user)
@@ -595,6 +602,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
             displayName: row.querySelector('.user-display-name')?.value.trim(),
             role: row.querySelector('.user-role')?.value,
             branchId: row.querySelector('.user-branch')?.value,
+            uiColor: row.querySelector('.user-ui-color')?.value,
             active: Boolean(row.querySelector('.user-active')?.checked),
           }),
         })
@@ -675,11 +683,7 @@ function normalizedTmsLogin(profile) {
 }
 
 async function loadVisibleUserDirectory() {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, display_name, role, branch_id, active, branch:branches(name)')
-    .eq('active', true)
-    .order('display_name', { ascending: true })
+  const { data, error } = await supabase.rpc('get_tms_user_directory')
 
   if (error) {
     throw new Error(`Nie udało się pobrać listy użytkowników: ${error.message}`)
@@ -690,8 +694,9 @@ async function loadVisibleUserDirectory() {
     displayName: profile.display_name,
     role: profile.role,
     branchId: profile.branch_id || '',
-    branch: profile.branch?.name || '',
+    branch: profile.branch_name || '',
     login: normalizedTmsLogin(profile),
+    uiColor: profile.ui_color || '#E2E8F0',
   }))
 }
 
@@ -1615,6 +1620,38 @@ async function createFleetSetFromTms(message) {
   }
 }
 
+async function updateFleetSetFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const assignmentId = String(message?.assignmentId || '').trim()
+  const payload = message?.payload || {}
+
+  if (!assignmentId) {
+    sendFleetOperationResult(requestId, false, 'update', 'Brak identyfikatora zestawu.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('update_fleet_set_details', {
+      p_assignment_id: assignmentId,
+      p_driver_name: String(payload.driverName || '').trim(),
+      p_phone: String(payload.phone || '').trim() || null,
+      p_identity_document_number: String(payload.identityDocumentNumber || '').trim() || null,
+      p_vehicle_registration_no: String(payload.vehicleRegistrationNo || '').trim() || null,
+      p_vehicle_brand: String(payload.vehicleBrand || '').trim() || null,
+      p_trailer_registration_no: String(payload.trailerRegistrationNo || '').trim() || null,
+      p_trailer_height_m: payload.trailerHeightM == null || payload.trailerHeightM === '' ? null : Number(payload.trailerHeightM),
+      p_nationality: String(payload.nationality || '').trim() || null,
+      p_base_location: String(payload.baseLocation || '').trim() || null,
+    })
+    if (error) throw error
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'update', 'Dane pojazdu i kierowcy zostały uzupełnione w centralnej flocie.')
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'update', error?.message || 'Nie udało się zaktualizować danych pojazdu.')
+  }
+}
+
 async function deleteFleetSetFromTms(message) {
   const requestId = message?.requestId || ''
   const assignmentId = String(message?.assignmentId || '').trim()
@@ -2050,7 +2087,7 @@ async function handleAiAnalyzerRequestFromTms(message) {
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('display_name, role, active, branch_id, branch:branches(name)')
+    .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -2079,7 +2116,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v41-weekly-settlement-views"
+        src="/tms.html?embedded=1&build=request-workflow-v42-dispatcher-colors-fleet-edit"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2096,6 +2133,7 @@ async function renderDashboard(user) {
       role: profile.role,
       supabaseRole: profile.role,
       branchId: profile.branch_id || '',
+      uiColor: profile.ui_color || '#E2E8F0',
       branch: profile.role === 'accounting'
         ? 'Wszystkie oddziały'
         : (branchName === 'Brak oddziału' ? '' : branchName),
@@ -2223,6 +2261,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-fleet-create') {
       await createFleetSetFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-update') {
+      await updateFleetSetFromTms(event.data)
       return
     }
 
