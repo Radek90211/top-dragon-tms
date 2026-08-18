@@ -6,6 +6,12 @@ import {
 } from '../../server/admin.js'
 
 const ALLOWED_ROLES = new Set(['dispatcher', 'branch_manager', 'accounting'])
+const DEFAULT_UI_COLOR = '#D9F99D'
+
+function normalizeUiColor(value) {
+  const color = normalizeText(value).toUpperCase()
+  return /^#[0-9A-F]{6}$/.test(color) ? color : ''
+}
 
 function validEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -31,7 +37,7 @@ async function loadUsers(admin) {
 
   const { data: profiles, error: profileError } = await admin
     .from('profiles')
-    .select('id, display_name, role, branch_id, active, created_at, updated_at, branch:branches(id,name,active)')
+    .select('id, display_name, role, branch_id, active, ui_color, created_at, updated_at, branch:branches(id,name,active)')
     .order('display_name', { ascending: true })
 
   if (profileError) throw profileError
@@ -69,6 +75,7 @@ export default async function handler(request, response) {
       const displayName = normalizeText(body.displayName)
       const role = normalizeText(body.role)
       const branchId = normalizeText(body.branchId)
+      const uiColor = normalizeUiColor(body.uiColor) || DEFAULT_UI_COLOR
 
       if (!validEmail(email)) {
         return response.status(400).json({ ok: false, message: 'Podaj prawidłowy adres e-mail.' })
@@ -113,13 +120,14 @@ export default async function handler(request, response) {
         role,
         branch_id: branchId,
         active: true,
+        ui_color: uiColor,
         updated_at: new Date().toISOString(),
       }
 
       const { data: profile, error: profileError } = await admin
         .from('profiles')
         .upsert(profilePayload, { onConflict: 'id' })
-        .select('id, display_name, role, branch_id, active, created_at, updated_at')
+        .select('id, display_name, role, branch_id, active, ui_color, created_at, updated_at')
         .single()
 
       if (profileError) {
@@ -157,7 +165,7 @@ export default async function handler(request, response) {
 
       const { data: oldProfile, error: oldProfileError } = await admin
         .from('profiles')
-        .select('id, display_name, role, branch_id, active, created_at, updated_at')
+        .select('id, display_name, role, branch_id, active, ui_color, created_at, updated_at')
         .eq('id', userId)
         .maybeSingle()
 
@@ -201,6 +209,14 @@ export default async function handler(request, response) {
         patch.branch_id = branchId
       }
 
+      if ('uiColor' in body) {
+        const uiColor = normalizeUiColor(body.uiColor)
+        if (!uiColor) {
+          return response.status(400).json({ ok: false, message: 'Wybierz prawidłowy kolor użytkownika.' })
+        }
+        patch.ui_color = uiColor
+      }
+
       if ('active' in body) {
         patch.active = Boolean(body.active)
       }
@@ -215,7 +231,7 @@ export default async function handler(request, response) {
         .from('profiles')
         .update(patch)
         .eq('id', userId)
-        .select('id, display_name, role, branch_id, active, created_at, updated_at')
+        .select('id, display_name, role, branch_id, active, ui_color, created_at, updated_at')
         .single()
 
       if (profileError) {
