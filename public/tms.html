@@ -87414,5 +87414,267 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+  <style id="targeted-3l21-stats-timeline-transfer-fixes">
+    /* 3L.21 — prywatny kolor wiersza nie może zasłaniać siatki czasu ani przycisków +. */
+    .timeline-row.driver-private-color-yellow,
+    .timeline-row.driver-private-color-green,
+    .timeline-row.driver-private-color-blue,
+    .timeline-row.driver-private-color-pink,
+    .timeline-row.driver-private-color-purple,
+    .timeline-row.driver-private-color-orange,
+    .timeline-row.driver-private-color-gray {
+      background: transparent !important;
+    }
+    .day-cell.driver-private-color-yellow .time-grid span,
+    .day-cell.driver-private-color-green .time-grid span,
+    .day-cell.driver-private-color-blue .time-grid span,
+    .day-cell.driver-private-color-pink .time-grid span,
+    .day-cell.driver-private-color-purple .time-grid span,
+    .day-cell.driver-private-color-orange .time-grid span,
+    .day-cell.driver-private-color-gray .time-grid span {
+      border-left-color: rgba(15,23,42,.13);
+    }
+    .day-cell.driver-private-color-yellow .time-labels,
+    .day-cell.driver-private-color-green .time-labels,
+    .day-cell.driver-private-color-blue .time-labels,
+    .day-cell.driver-private-color-pink .time-labels,
+    .day-cell.driver-private-color-purple .time-labels,
+    .day-cell.driver-private-color-orange .time-labels,
+    .day-cell.driver-private-color-gray .time-labels {
+      z-index: 2;
+    }
+    .day-cell.driver-private-color-yellow .time-grid,
+    .day-cell.driver-private-color-green .time-grid,
+    .day-cell.driver-private-color-blue .time-grid,
+    .day-cell.driver-private-color-pink .time-grid,
+    .day-cell.driver-private-color-purple .time-grid,
+    .day-cell.driver-private-color-orange .time-grid,
+    .day-cell.driver-private-color-gray .time-grid {
+      z-index: 1;
+    }
+    .day-cell .time-plus { z-index: 7; }
+
+    /* Plan kierowców: identyczny układ nagłówka Pokaż/Ukryj jak w pozostałych narzędziach. */
+    .board-title {
+      display: grid !important;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 10px 14px;
+      align-items: center !important;
+    }
+    .board-heading-stack,
+    .board-heading-line { display: contents !important; }
+    .board-heading-line h2 { grid-column: 1; grid-row: 1; }
+    .board-tools-toggle {
+      grid-column: 2; grid-row: 1; justify-self: end;
+      min-width: 78px !important; height: 42px !important;
+      display: inline-flex !important; align-items:center; justify-content:center;
+      padding: 0 14px !important; font-size: 12px !important; line-height:1 !important;
+    }
+    .board-metric-switch { grid-column: 1 / -1; grid-row: 2; justify-self:start; }
+    .board-controls { grid-column: 1 / -1; grid-row: 3; width:100%; }
+
+    /* Wspólna tabela statystyk spedytorów. */
+    .stats-company-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .stats-company-table-section { border:1px solid var(--border); border-radius:14px; background:var(--card); overflow:hidden; }
+    .stats-company-table-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border); background:var(--soft); }
+    .stats-company-table-head h3 { margin:0; font-size:15px; }
+    .stats-company-table-head p { margin:3px 0 0; color:var(--muted); font-size:10px; font-weight:750; }
+    .stats-company-table-wrap { overflow:auto; max-height:52vh; }
+    .stats-company-table { width:100%; min-width:1480px; border-collapse:separate; border-spacing:0; font-size:10px; }
+    .stats-company-table th,
+    .stats-company-table td { padding:8px 9px; border-bottom:1px solid var(--border); border-right:1px solid color-mix(in srgb, var(--border) 62%, transparent); text-align:right; white-space:nowrap; }
+    .stats-company-table th { position:sticky; top:0; z-index:4; background:#f8fafc; color:#475569; font-size:9px; text-transform:uppercase; letter-spacing:.025em; }
+    .stats-company-table th:first-child,
+    .stats-company-table td:first-child { position:sticky; left:0; z-index:3; text-align:left; background:var(--card); min-width:190px; }
+    .stats-company-table th:first-child { z-index:6; background:#f8fafc; }
+    .stats-company-table tbody tr.current-user td { background:#eff6ff; }
+    .stats-company-table tbody tr.current-user td:first-child { background:#eff6ff; }
+    .stats-company-person { display:flex; align-items:center; gap:8px; min-width:0; }
+    .stats-company-color { width:9px; height:34px; border-radius:999px; flex:0 0 auto; background:var(--dispatcher-color,#e2e8f0); }
+    .stats-company-person-copy { display:grid; gap:1px; min-width:0; }
+    .stats-company-person-copy b { overflow:hidden; text-overflow:ellipsis; max-width:155px; }
+    .stats-company-person-copy small { color:var(--muted); font-size:9px; overflow:hidden; text-overflow:ellipsis; max-width:155px; }
+    .stats-company-profit-positive { background:#ecfdf5 !important; color:#166534; font-weight:900; }
+    .stats-company-profit-negative { background:#fef2f2 !important; color:#991b1b; font-weight:900; }
+    .stats-company-warning { background:#fffbeb !important; color:#92400e; font-weight:900; }
+    .stats-company-danger { background:#fef2f2 !important; color:#991b1b; font-weight:900; }
+    .stats-company-loading { padding:20px; text-align:center; color:var(--muted); font-size:11px; font-weight:800; }
+    .stats-detail-caption { font-size:10px; font-weight:850; color:var(--muted); margin:-2px 0 0; }
+
+    .stats-drawer-head-actions { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
+    .stats-drawer.stats-fullscreen {
+      inset:0 !important; width:100vw !important; max-width:none !important; height:100vh !important;
+      border-left:0 !important; transform:translateX(0) !important; z-index:2147483000 !important;
+    }
+    .stats-drawer.stats-fullscreen .stats-company-table-wrap { max-height:64vh; }
+    .stats-drawer.stats-fullscreen .stats-company-table { min-width:1500px; }
+
+    .weekly-quick-entry { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:12px; border:1px solid #bfdbfe; border-radius:13px; background:#eff6ff; }
+    .weekly-quick-card { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid #bfdbfe; border-radius:11px; padding:10px; background:#fff; }
+    .weekly-quick-card b { display:block; font-size:12px; color:#1e3a8a; }
+    .weekly-quick-card span { display:block; margin-top:2px; font-size:9px; color:#64748b; }
+    .app.dark-mode .stats-company-table th, .app.dark-mode .stats-company-table th:first-child { background:#111827; color:#cbd5e1; }
+    .app.dark-mode .stats-company-table tbody tr.current-user td,
+    .app.dark-mode .stats-company-table tbody tr.current-user td:first-child { background:#172554; }
+    .app.dark-mode .weekly-quick-entry { background:#172554; border-color:#1d4ed8; }
+    .app.dark-mode .weekly-quick-card { background:#0f172a; border-color:#1d4ed8; }
+    @media (max-width:800px) { .weekly-quick-entry { grid-template-columns:1fr; } }
+  </style>
+
+  <script id="targeted-3l21-stats-timeline-transfer-script">
+    (() => {
+      state.statsFullscreen = Boolean(state.statsFullscreen);
+      state.companyDispatcherStats = state.companyDispatcherStats || { key:"", rows:[], loading:false, loaded:false, error:"" };
+      state.statsWeeklyFocus = "";
+
+      function companyStatsPeriod(stats) {
+        const dates = Array.isArray(stats?.dates) && stats.dates.length ? stats.dates : statsDateRange(stats?.range || state.statsRange, stats?.date || statsSelectedDate());
+        const from = String(dates[0] || statsSelectedDate()).slice(0,10);
+        const to = String(dates[dates.length - 1] || from).slice(0,10);
+        return { from, to, key:`${from}|${to}` };
+      }
+
+      function requestCompanyDispatcherStats(stats, force = false) {
+        if (!EMBEDDED_MODE || !state.user) return;
+        const period = companyStatsPeriod(stats);
+        const current = state.companyDispatcherStats || {};
+        if (!force && current.key === period.key && (current.loaded || current.loading || current.error)) return;
+        state.companyDispatcherStats = { key:period.key, rows:[], loading:true, loaded:false, error:"" };
+        window.parent?.postMessage({
+          type:"top-dragon-company-dispatcher-stats-request",
+          requestId:`company-stats-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          from:period.from,
+          to:period.to
+        }, window.location.origin);
+      }
+
+      window.addEventListener("message", event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type !== "top-dragon-company-dispatcher-stats-data") return;
+        const key = `${String(message.from || "").slice(0,10)}|${String(message.to || "").slice(0,10)}`;
+        const activePeriod = companyStatsPeriod(statsSnapshot());
+        state.companyDispatcherStats = {
+          key,
+          rows:Array.isArray(message.rows) ? message.rows : [],
+          loading:false,
+          loaded:Boolean(message.ok),
+          error:message.ok ? "" : String(message.error || "Nie udało się pobrać statystyk wszystkich spedytorów.")
+        };
+        if (state.statsPanelOpen && key === activePeriod.key) scheduleStatsPanelSync();
+      });
+
+      function companyRatioLabel(value) {
+        const n = Number(value || 0);
+        if (n >= 999999) return "bez pustych km";
+        return Number.isFinite(n) ? n.toFixed(2) : "0.00";
+      }
+
+      function renderCompanyDispatcherStatsTable(stats) {
+        const period = companyStatsPeriod(stats);
+        const store = state.companyDispatcherStats || {};
+        if (store.key !== period.key || (!store.loaded && !store.loading)) queueMicrotask(() => requestCompanyDispatcherStats(stats, false));
+        const rows = store.key === period.key ? (store.rows || []) : [];
+        const body = store.loading && store.key === period.key
+          ? `<div class="stats-company-loading">Pobieranie wspólnej tabeli statystyk…</div>`
+          : store.error && store.key === period.key
+            ? `<div class="stats-company-loading">${esc(store.error)}<br><button type="button" class="btn" style="margin-top:8px" onclick="refreshCompanyDispatcherStats()">Spróbuj ponownie</button></div>`
+            : `<div class="stats-company-table-wrap"><table class="stats-company-table"><thead><tr>
+                <th>Spedytor</th><th>Relacje</th><th>Zysk</th><th>Koszt przewoźnika</th><th>Kilometry</th><th>Dolot / puste km</th><th>% pustych</th><th>Śr. stawka</th><th>Śr. zysk / rel.</th><th>Do weryfikacji</th><th>Zysk / 1 km</th><th>Ładowne : puste</th><th>Relacje &lt; 5 zł/km</th>
+              </tr></thead><tbody>${rows.length ? rows.map(row => {
+                const current = String(row.dispatcherId || "") === String(state.user?.supabaseId || "");
+                const profitValue = Number(row.profit || 0);
+                return `<tr class="${current ? "current-user" : ""}">
+                  <td><div class="stats-company-person" style="--dispatcher-color:${attr(row.uiColor || '#E2E8F0')}"><span class="stats-company-color"></span><span class="stats-company-person-copy"><b>${esc(row.dispatcherName || '—')}</b><small>${esc(row.branchName || '—')}${current ? ' · Ty' : ''}</small></span></div></td>
+                  <td>${Math.round(Number(row.relationCount || 0))}</td>
+                  <td class="${profitValue > 0 ? 'stats-company-profit-positive' : profitValue < 0 ? 'stats-company-profit-negative' : ''}">${statsMoney(profitValue)}</td>
+                  <td>${statsMoney(row.carrierCost)}</td>
+                  <td>${statsKm(row.totalKm)}</td>
+                  <td>${statsKm(row.emptyKm)}</td>
+                  <td>${statsPercent(row.emptyPercent)}</td>
+                  <td>${statsSafeRate(row.avgRatePerKm)}</td>
+                  <td>${statsMoney(row.avgProfitPerRoute)}</td>
+                  <td class="${Number(row.verificationCount || 0) ? 'stats-company-warning' : ''}">${Math.round(Number(row.verificationCount || 0))}</td>
+                  <td>${statsSafeRate(row.profitPerLoadedKm)}</td>
+                  <td>${companyRatioLabel(row.loadedToEmptyRatio)}</td>
+                  <td class="${Number(row.lowRateCount || 0) ? 'stats-company-danger' : ''}">${Math.round(Number(row.lowRateCount || 0))}</td>
+                </tr>`;
+              }).join("") : `<tr><td colspan="13" class="stats-muted">Brak aktywnych spedytorów lub danych w wybranym okresie.</td></tr>`}</tbody></table></div>`;
+        return `<section class="stats-company-table-section"><div class="stats-company-table-head"><div><h3>Wszyscy spedytorzy</h3><p>${esc(formatDateForInput(period.from))} – ${esc(formatDateForInput(period.to))} · wspólna tabela widoczna dla każdego użytkownika</p></div><span class="stats-pill">${rows.length}</span></div>${body}</section>`;
+      }
+
+      window.refreshCompanyDispatcherStats = function() {
+        requestCompanyDispatcherStats(statsSnapshot(), true);
+        scheduleStatsPanelSync();
+      };
+
+      window.toggleStatsFullscreen = function() {
+        state.statsFullscreen = !state.statsFullscreen;
+        syncStatsPanel();
+      };
+
+      window.openWeeklySettlementTools = function(target = "") {
+        state.statsWeeklyFocus = target === "carrier" || target === "dispatcher" ? target : "";
+        if (state.statsRange !== "week") setStatsRange("week");
+        else scheduleStatsPanelSync();
+      };
+
+      const originalStatsSelectedDispatcherLogin3L21 = statsSelectedDispatcherLogin;
+      statsSelectedDispatcherLogin = function() { return "all"; };
+
+      const originalStatsDispatcherScope3L21 = renderStatsDispatcherScope;
+      renderStatsDispatcherScope = function() {
+        return `<div class="stats-dispatcher-scope"><div class="stats-dispatcher-card-trigger" style="cursor:default"><span class="stats-dispatcher-avatar" style="background:#dbeafe;color:#1e3a8a">Σ</span><span class="stats-dispatcher-card-copy"><small>Zakres tabeli</small><b>Wszyscy spedytorzy</b></span></div></div>`;
+      };
+
+      const originalRenderStatsDrawer3L21 = renderStatsDrawer;
+      renderStatsDrawer = function(stats = statsSnapshot()) {
+        requestCompanyDispatcherStats(stats, false);
+        let html = originalRenderStatsDrawer3L21.call(this, stats);
+        html = html.replace('class="stats-drawer open"', `class="stats-drawer open ${state.statsFullscreen ? 'stats-fullscreen' : ''}"`);
+        html = html.replace(
+          '<button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button>',
+          `<div class="stats-drawer-head-actions"><button class="btn" type="button" onclick="toggleStatsFullscreen()">${state.statsFullscreen ? 'Widok panelu' : 'Pełny ekran'}</button><button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button></div>`
+        );
+        const metricGrid = renderStatsMetricGrid(stats);
+        const quickActions = `<div class="stats-company-actions"><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('carrier')">Kwota / wyrównanie dla przewoźnika</button><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('dispatcher')">Przekaż zysk spedytorowi</button><button type="button" class="btn" onclick="refreshCompanyDispatcherStats()">Odśwież tabelę</button></div>`;
+        html = html.replace(metricGrid, `${quickActions}${renderCompanyDispatcherStatsTable(stats)}<div class="stats-detail-caption">Poniżej: szczegółowe dane relacji dostępnych w bieżącym widoku użytkownika.</div>${metricGrid}`);
+        const duplicateDispatcherTable = renderStatsTable("Spedytorzy", "Statystyki każdego spedytora w wybranym okresie", stats.byDispatcher, Math.max(12, stats.byDispatcher.length));
+        html = html.replace(duplicateDispatcherTable, "");
+
+        if (stats.range === "week") {
+          html = html.replace('<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>', '<div class="weekly-settlement-subsection" id="weekly-carrier-tools">\n            <div class="weekly-settlement-subhead"><b>Kwota / wyrównanie dla przewoźnika</b>');
+          html = html.replace('onclick="createWeeklyCarrierAdjustment()">Dodaj</button>', 'onclick="createWeeklyCarrierAdjustment()">Zapisz kwotę dla przewoźnika</button>');
+          html = html.replace('<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>', '<div class="weekly-settlement-subsection" id="weekly-dispatcher-transfer-tools">\n            <div class="weekly-settlement-subhead"><b>Przekaż zysk innemu spedytorowi</b>');
+          html = html.replace('onclick="createWeeklyDispatcherTransfer()">Przelej do akceptacji</button>', 'onclick="createWeeklyDispatcherTransfer()">Wyślij do akceptacji</button>');
+          const weeklyMarker = '<section class="weekly-settlement-section">';
+          const nav = `<div class="weekly-quick-entry"><div class="weekly-quick-card"><div><b>Przewoźnik</b><span>Dodaj kwotę wyrównującą wypłatę i komentarz.</span></div><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('carrier')">Wprowadź kwotę</button></div><div class="weekly-quick-card"><div><b>Spedytor</b><span>Przekaż część wyniku; odbiorca musi zaakceptować.</span></div><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('dispatcher')">Przekaż zysk</button></div></div>`;
+          html = html.replace(weeklyMarker, `${nav}${weeklyMarker}`);
+          if (state.statsWeeklyFocus) {
+            const focusId = state.statsWeeklyFocus === "carrier" ? "weekly-carrier-tools" : "weekly-dispatcher-transfer-tools";
+            queueMicrotask(() => setTimeout(() => {
+              const target = document.getElementById(focusId);
+              if (!target) return;
+              target.scrollIntoView({ behavior:"smooth", block:"start" });
+              state.statsWeeklyFocus = "";
+            }, 90));
+          }
+        }
+        return html;
+      };
+
+      window.setInterval(() => {
+        if (state.statsPanelOpen) requestCompanyDispatcherStats(statsSnapshot(), true);
+      }, 60000);
+
+      const originalToggleStatsPanel3L21 = toggleStatsPanel;
+      toggleStatsPanel = function(force = null) {
+        if (force === false) state.statsFullscreen = false;
+        return originalToggleStatsPanel3L21.call(this, force);
+      };
+    })();
+  </script>
+
 </body>
 </html>
