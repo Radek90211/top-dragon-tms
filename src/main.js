@@ -2084,6 +2084,58 @@ async function handleAiAnalyzerRequestFromTms(message) {
   }
 }
 
+
+async function loadCompanyDispatcherStatisticsFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const from = String(message?.from || '').slice(0, 10)
+  const to = String(message?.to || '').slice(0, 10)
+  const send = (ok, rows = [], errorMessage = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-company-dispatcher-stats-data',
+      requestId,
+      ok: Boolean(ok),
+      from,
+      to,
+      rows,
+      error: String(errorMessage || ''),
+    }, window.location.origin)
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    send(false, [], 'Nieprawidłowy zakres dat statystyk.')
+    return
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('get_tms_dispatcher_statistics', {
+      p_from: from,
+      p_to: to,
+    })
+    if (error) throw error
+    send(true, (data || []).map((row) => ({
+      dispatcherId: String(row.dispatcher_id || ''),
+      dispatcherName: String(row.dispatcher_name || ''),
+      branchName: String(row.branch_name || ''),
+      uiColor: String(row.ui_color || '#E2E8F0'),
+      relationCount: Number(row.relation_count || 0),
+      profit: Number(row.profit || 0),
+      carrierCost: Number(row.carrier_cost || 0),
+      loadedKm: Number(row.loaded_km || 0),
+      emptyKm: Number(row.empty_km || 0),
+      totalKm: Number(row.total_km || 0),
+      emptyPercent: Number(row.empty_percent || 0),
+      avgRatePerKm: Number(row.avg_rate_per_km || 0),
+      avgProfitPerRoute: Number(row.avg_profit_per_route || 0),
+      verificationCount: Number(row.verification_count || 0),
+      profitPerLoadedKm: Number(row.profit_per_loaded_km || 0),
+      loadedToEmptyRatio: Number(row.loaded_to_empty_ratio || 0),
+      lowRateCount: Number(row.low_rate_count || 0),
+    })))
+  } catch (error) {
+    send(false, [], error?.message || 'Nie udało się pobrać statystyk wszystkich spedytorów.')
+  }
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -2116,7 +2168,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v42-dispatcher-colors-fleet-edit"
+        src="/tms.html?embedded=1&build=request-workflow-v43-stats-timeline-transfers"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2406,6 +2458,12 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-dispatcher-week-transfer-cancel') {
       await cancelDispatcherWeekTransferFromTms(event.data)
+      return
+    }
+
+
+    if (event.data?.type === 'top-dragon-company-dispatcher-stats-request') {
+      await loadCompanyDispatcherStatisticsFromTms(event.data)
       return
     }
 
