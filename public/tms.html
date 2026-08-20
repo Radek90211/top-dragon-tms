@@ -75194,8 +75194,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function proposedEligibleLoadDateAfterPrevious(previous) {
+      if (!previous) return "";
+      const unloadDate = String(routeEndDate(previous) || previous.date || "").slice(0, 10);
+      if (!unloadDate) return "";
+      // Reguła operacyjna Top Dragon 3L.22:
+      // rozładunek do 20:00 włącznie -> szukamy załadunku tego samego dnia,
+      // rozładunek po 20:00 -> szukamy załadunku następnego dnia.
+      return Number(routeEndHour(previous) || 0) > 20 ? addDaysToIso(unloadDate, 1) : unloadDate;
+    }
+
     function proposedDriverScheduleAssessment(driverId, route) {
-      if (!driverId || !route) return { fit: false, pending: false, conflict: null, reason: "missing" };
+      if (!driverId || !route) return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", reason: "missing" };
 
       const candidate = {
         ...route,
@@ -75215,9 +75225,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           existing.driverId === driverId &&
           existing.approvalStatus !== "rejected" &&
           existing.id !== route.id &&
-          existing.sourceProposedId !== route.id
+          existing.sourceProposedId !== route.id &&
+          !isFreeDayRoute(existing)
         )
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
+
+      // Poprzednia faktycznie zakończona relacja jest jedynym punktem startowym
+      // dla dopasowania. Brak poprzedniej relacji NIE oznacza startu z Bazy.
+      const previous = [...occupied]
+        .filter(existing => routeGlobalEnd(existing) <= candidateStart + ROUTE_OVERLAP_EPSILON_HOURS)
+        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
+      if (!previous) {
+        return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", reason: "no-previous" };
+      }
+
+      const eligibleLoadDate = proposedEligibleLoadDateAfterPrevious(previous);
+      const candidateLoadDate = String(candidate.date || "").slice(0, 10);
+      if (!eligibleLoadDate || candidateLoadDate !== eligibleLoadDate) {
+        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "load-date" };
+      }
 
       // 1) Bezpośrednia kolizja przedziałów czasu / wymaganej pauzy.
       const directConflict = occupied.find(existing => {
@@ -75226,22 +75252,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return candidateStart < existingEndWithPause - ROUTE_OVERLAP_EPSILON_HOURS &&
           candidateEndWithPause > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
       });
-      if (directConflict) return { fit: false, pending: false, conflict: directConflict, reason: "overlap" };
+      if (directConflict) return { fit: false, pending: false, conflict: directConflict, previous, eligibleLoadDate, reason: "overlap" };
 
       // 2) Po poprzedniej relacji liczymy rzeczywisty czas dojazdu ciężarówką TomTom.
       // Dopóki nie ma wyniku, pojazd nie jest oznaczany jako dopasowany.
-      const previous = [...occupied]
-        .filter(existing => routeGlobalEnd(existing) <= candidateStart + ROUTE_OVERLAP_EPSILON_HOURS)
-        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
-      if (previous) {
-        const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
-        if (!reposition.exact) return { fit: false, pending: true, conflict: null, reason: reposition.unavailable ? "route-unavailable" : "routing" };
-        const readyAfterPrevious = routeGlobalEnd(previous)
-          + requiredPauseAfterRoute(previous)
-          + reposition.hours;
-        if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) {
-          return { fit: false, pending: false, conflict: previous, reason: "previous" };
-        }
+      const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
+      if (!reposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, reason: reposition.unavailable ? "route-unavailable" : "routing" };
+      const readyAfterPrevious = routeGlobalEnd(previous)
+        + requiredPauseAfterRoute(previous)
+        + reposition.hours;
+      if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) {
+        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "previous" };
       }
 
       // 3) Po wolnym ładunku musi zostać rzeczywisty czas dojazdu ciężarówką
@@ -75250,15 +75271,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .filter(existing => routeGlobalStart(existing) >= candidateEnd - ROUTE_OVERLAP_EPSILON_HOURS)
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
       if (next) {
-        const reposition = proposedRepositionInfo(candidate, "unload", next, "load");
-        if (!reposition.exact) return { fit: false, pending: true, conflict: null, reason: reposition.unavailable ? "route-unavailable" : "routing" };
-        const readyForNext = candidateEndWithPause + reposition.hours;
+        const nextReposition = proposedRepositionInfo(candidate, "unload", next, "load");
+        if (!nextReposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, reason: nextReposition.unavailable ? "route-unavailable" : "routing" };
+        const readyForNext = candidateEndWithPause + nextReposition.hours;
         if (readyForNext > routeGlobalStart(next) + ROUTE_OVERLAP_EPSILON_HOURS) {
-          return { fit: false, pending: false, conflict: next, reason: "next" };
+          return { fit: false, pending: false, conflict: next, previous, eligibleLoadDate, reason: "next" };
         }
       }
 
-      return { fit: true, pending: false, conflict: null, reason: "ok" };
+      return { fit: true, pending: false, conflict: null, previous, eligibleLoadDate, reason: "ok" };
     }
 
     function proposedDriverScheduleConflict(driverId, route) {
@@ -75288,12 +75309,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       return drivers
         .map(driver => {
-          const position = driverPositionForDate(driver.id, date);
+          const schedule = proposedDriverScheduleAssessment(driver.id, route);
+          const hardExcluded = schedule.reason === "no-previous" || schedule.reason === "load-date";
+          const previousPoint = schedule.previous ? routePointFromRoute(schedule.previous, "unload") : null;
+          const position = previousPoint
+            ? {
+                coords: [Number(previousPoint.lat), Number(previousPoint.lng)],
+                label: previousPoint.label || displayLocationWithPostal(schedule.previous.unload),
+                route: schedule.previous
+              }
+            : (schedule.previous
+              ? { coords: null, label: "Brak pozycji rozładunku poprzedniej relacji", route: schedule.previous }
+              : (hardExcluded
+                ? { coords: null, label: schedule.reason === "no-previous" ? "Brak poprzedniej relacji" : `Dostępny na ${formatDateForInput(schedule.eligibleLoadDate || "—")}`, route: schedule.previous || null }
+                : driverPositionForDate(driver.id, date)));
           const distanceInfo = position.coords
             ? mainRoadDistanceKmForListing(position.coords, target)
             : { km: 9999, exact: false, pending: false };
           const compatibility = driverLoadCompatibility(driver, route);
-          const schedule = proposedDriverScheduleAssessment(driver.id, route);
           return {
             driver,
             position,
@@ -75304,10 +75337,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             scheduleFit: schedule.fit,
             schedulePending: schedule.pending,
             scheduleConflict: schedule.conflict,
-            scheduleReason: schedule.reason
+            scheduleReason: schedule.reason,
+            previousRoute: schedule.previous || null,
+            eligibleLoadDate: schedule.eligibleLoadDate || ""
           };
         })
         .filter(item => {
+          // Kierowcy bez wcześniejszej relacji oraz kierowcy, których reguła godziny
+          // 20:00 kieruje na inny dzień, nie są kandydatami do dopasowania.
+          if (item.scheduleReason === "no-previous" || item.scheduleReason === "load-date") return false;
           if (options.maxDistanceOnly) {
             if (item.distanceExact && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM) return false;
             if (!item.distanceExact && item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM + PROPOSED_LOAD_DISTANCE_PREFETCH_BUFFER_KM) return false;
@@ -85857,6 +85895,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (seen.has(key)) return;
           seen.add(key);
 
+          // Dispatcher rejestruje użycie wyłącznie zestawu, którego jest
+          // właścicielem w centralnej flocie. Sam fakt widoczności relacji całego
+          // oddziału nie może uruchamiać RPC dla cudzej floty.
+          if (state.user?.role === "spedytor") {
+            const login = String(state.user.login || "").trim();
+            const fleetOwner = String(driver.homeDispatcher || driver.dispatcher || "").trim();
+            if (!login || fleetOwner !== login) return;
+          }
+
           rows.push({
             key,
             relationRef,
@@ -85928,12 +85975,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
 
+        const errorMessage = String(message?.message || "");
+        // To jest pomocnicza synchronizacja historii floty. Jeżeli backend odrzuci
+        // próbę dla cudzej floty, nie zapętlamy czerwonego komunikatu użytkownikowi.
+        // Uprawnienia w Supabase pozostają bez zmian i nadal blokują taki zapis.
+        if (/tylko dla swojej floty/i.test(errorMessage) || /Brak uprawnień do rejestrowania historii relacji/i.test(errorMessage)) {
+          if (key !== "::") CENTRAL_RELATION_USAGE_SYNCED.add(key);
+          console.warn("Pominięto rejestrację historii cudzej floty:", errorMessage);
+          return;
+        }
+
         const now = Date.now();
         if (now - CENTRAL_RELATION_USAGE_ERROR_AT > 15000) {
           CENTRAL_RELATION_USAGE_ERROR_AT = now;
           showAppMessage(
             "Nie udało się zapisać historii relacji",
-            String(message?.message || "Spróbuj ponownie po odświeżeniu strony."),
+            errorMessage || "Spróbuj ponownie po odświeżeniu strony.",
             "error"
           );
         }
