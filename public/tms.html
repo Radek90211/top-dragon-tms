@@ -67430,16 +67430,42 @@
       const baseCity = locationBaseCityFromText(raw);
       let rows = postalPackedFastRows(raw, 8);
       if (rows.length) {
-        POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, rows[0]);
-        return rows[0];
+        // Nawet „dokładna” para może oznaczać inną miejscowość o tej samej nazwie.
+        // Przykład z testów: Sosnowiec 95-010 leży przy Strykowie, a nie w Sosnowcu.
+        const validated = validatedOperationalPostalRow(raw, rows[0]);
+        POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, validated);
+        return validated;
       }
 
-      // Przy błędnej parze miasto + kod pozycję ustalamy po nazwie miasta,
-      // a nie po obcym kodzie. Zachowujemy informację o niezgodności.
       if (postal && baseCity) {
+        // Jeżeli para miasto+PNA nie występuje dokładnie, kod pocztowy jest bardziej
+        // precyzyjnym punktem niż pierwsza z wielu miejscowości o tej samej nazwie.
+        // Naprawia to m.in. Trzcianka 64-980, której rekord PNA ma uszkodzoną etykietę.
+        const postalRows = postalPackedFastRows(postal, 1);
+        if (postalRows.length) {
+          const validated = validatedOperationalPostalRow(raw, postalRows[0]);
+          if (validated?.correctedToCanonicalCity) {
+            POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, validated);
+            return validated;
+          }
+          const mismatch = {
+            ...postalRows[0],
+            city: baseCity || postalRows[0].city,
+            label: `${baseCity || postalRows[0].city} ${postal}`.trim(),
+            exact: false,
+            postalMismatch: removePolishChars(postalRows[0].city) !== removePolishChars(baseCity),
+            requestedPostal: postal,
+            requestedCity: baseCity,
+            postalOnlyFallback: true
+          };
+          POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, mismatch);
+          return mismatch;
+        }
+
+        // Dopiero gdy PNA nie istnieje w bazie, próbujemy samej nazwy miasta.
         rows = postalPackedFastRows(baseCity, 1);
         if (rows.length) {
-          const mismatch = { ...rows[0], exact:false, postalMismatch:true, requestedPostal:postal };
+          const mismatch = { ...rows[0], exact:false, postalMismatch:true, requestedPostal:postal, requestedCity:baseCity };
           POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, mismatch);
           return mismatch;
         }
@@ -67763,6 +67789,7 @@
       "Płock": "09-400", "Pobiedziska": "62-010", "Poznań": "60-001", "Radom": "26-600",
       "Radzyń Podlaski": "21-300", "Rawa Mazowiecka": "96-200", "Rzeszów": "35-001", "Siedlce": "08-110",
       "Suwałki": "16-400", "Szczecin": "70-001", "Świecie": "86-100", "Tarnów": "33-100",
+      "Sosnowiec": "41-200",
       "Toruń": "87-100", "Warszawa": "00-001", "Wrocław": "50-001", "Zamość": "22-400",
       "Zator": "32-640", "Budziszewice": "97-212", "Zgierz": "95-100", "Zielona Góra": "65-001"
     };
@@ -67843,6 +67870,62 @@
       const prefix = digits.slice(0, 2);
       const exact = Object.entries(CITY_POSTAL_CODE_PREFIXES).find(([, prefixes]) => prefixes.includes(prefix));
       return exact ? exact[0] : "";
+    }
+
+    // 3L.26 — walidacja par miejscowość + kod pocztowy dla lokalizacji operacyjnych.
+    // W bazie PNA istnieją miejscowości o takich samych nazwach jak duże miasta
+    // (np. „Sosnowiec 95-010” w gminie Stryków). W TMS wpis „Sosnowiec” oznacza
+    // kanoniczne duże miasto, dlatego nie wolno bezwarunkowo ufać pierwszej
+    // dokładnej parze tekstowej, jeżeli jej punkt leży setki kilometrów od miasta.
+    const OPERATIONAL_CANONICAL_CITY_MAX_OFFSET_KM = 55;
+
+    function canonicalOperationalCityName(value) {
+      const base = locationBaseCityFromText(value);
+      const key = removePolishChars(base);
+      if (!key) return "";
+      return Object.keys(LOCATION_COORDS).find(city => removePolishChars(city) === key) || "";
+    }
+
+    function operationalCanonicalCorrection(value, candidateCoords = null) {
+      const raw = String(value || "").replace(/\s+/g, " ").trim();
+      const postal = postalCodeFromText(raw);
+      const city = canonicalOperationalCityName(raw);
+      if (!postal || !city) return null;
+
+      const canonicalCoords = LOCATION_COORDS[city];
+      if (!Array.isArray(canonicalCoords) || !canonicalCoords.every(Number.isFinite)) return null;
+
+      const prefixes = CITY_POSTAL_CODE_PREFIXES[city] || [];
+      const prefix = postalDigits(postal).slice(0, 2);
+      const prefixMismatch = prefixes.length > 0 && !prefixes.includes(prefix);
+      const coords = Array.isArray(candidateCoords)
+        ? [Number(candidateCoords[0]), Number(candidateCoords[1])]
+        : (candidateCoords && typeof candidateCoords === "object"
+          ? [Number(candidateCoords.lat ?? candidateCoords.coords?.[0]), Number(candidateCoords.lng ?? candidateCoords.coords?.[1])]
+          : null);
+      const offsetKm = coords?.every(Number.isFinite) ? distanceKmBetweenCoords(canonicalCoords, coords) : 0;
+      const coordinateMismatch = Number.isFinite(offsetKm) && offsetKm > OPERATIONAL_CANONICAL_CITY_MAX_OFFSET_KM;
+      if (!prefixMismatch && !coordinateMismatch) return null;
+
+      const correctedPostal = CITY_CENTER_POSTAL_CODES[city] || "";
+      return {
+        city,
+        code: correctedPostal,
+        lat: Number(canonicalCoords[0]),
+        lng: Number(canonicalCoords[1]),
+        coords: [Number(canonicalCoords[0]), Number(canonicalCoords[1])],
+        label: correctedPostal ? `${city} ${correctedPostal}` : city,
+        exact: false,
+        postalMismatch: true,
+        requestedPostal: postal,
+        correctedToCanonicalCity: true,
+        canonicalOffsetKm: Number.isFinite(offsetKm) ? offsetKm : null
+      };
+    }
+
+    function validatedOperationalPostalRow(value, row) {
+      if (!row) return null;
+      return operationalCanonicalCorrection(value, row.coords || [row.lat, row.lng]) || row;
     }
 
     function expandedPostalOptionsForQuery(query = "", maxResults = 9000) {
@@ -69236,6 +69319,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function locationWithPostal(city) {
       const raw = String(city || "").trim();
       if (!raw) return "";
+      const canonicalCorrection = operationalCanonicalCorrection(raw);
+      if (canonicalCorrection) return canonicalCorrection.label;
       const explicitCode = postalCodeFromText(raw);
       const cleanCity = fastKnownCityFromText(raw) || locationBaseCityFromText(raw) || raw;
       const knownCode = LOCATION_POSTAL_CODES[cleanCity] || CITY_CENTER_POSTAL_CODES[cleanCity] || "";
@@ -69249,6 +69334,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function displayLocationWithPostal(value) {
       const raw = String(value || "").trim();
       if (!raw) return "";
+      const canonicalCorrection = operationalCanonicalCorrection(raw);
+      if (canonicalCorrection) return canonicalCorrection.label;
       const explicitCode = postalCodeFromText(raw);
       const cleanCity = fastKnownCityFromText(raw) || locationBaseCityFromText(raw) || raw;
       const knownCode = LOCATION_POSTAL_CODES[cleanCity] || CITY_CENTER_POSTAL_CODES[cleanCity] || "";
@@ -69274,6 +69361,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const explicitPostal = postalCodeFromText(raw);
       if (explicitPostal) {
+        const canonicalCorrection = operationalCanonicalCorrection(raw);
+        if (canonicalCorrection) return canonicalCorrection.label;
         const explicitCity = cityFromTextLoose(raw) || locationBaseCityFromText(raw);
         return explicitCity ? `${explicitCity} ${explicitPostal}` : raw;
       }
@@ -75521,6 +75610,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const unloadDateLabel = formatDateForInput(routeEndDate(route) || route.endDate || route.date || state.reportDate || START_DATE);
       const routeKm = totalKm(route);
       const routeKmLabel = routeKm > 0 ? `${routeKm} km` : "dystans trasy: do wyliczenia";
+      const loadGeoCorrection = operationalCanonicalCorrection([route?.loadAddress, route?.load].filter(Boolean).join(", "));
+      const unloadGeoCorrection = operationalCanonicalCorrection([route?.unloadAddress, route?.unload].filter(Boolean).join(", "));
       const detailsHidden = cardDetailsHidden("proposed", route.id);
 
       return `
@@ -75537,6 +75628,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </div>
               ${detailsHidden ? "" : `
                 <div class="proposed-load-meta">${esc(routeKmLabel)}</div>
+                ${(loadGeoCorrection || unloadGeoCorrection) ? `<div class="proposed-load-meta" style="color:#b45309;font-weight:800;">Skorygowano lokalizację: ${loadGeoCorrection ? `${esc(loadGeoCorrection.requestedPostal)} → ${esc(loadGeoCorrection.label)}` : ""}${loadGeoCorrection && unloadGeoCorrection ? " · " : ""}${unloadGeoCorrection ? `${esc(unloadGeoCorrection.requestedPostal)} → ${esc(unloadGeoCorrection.label)}` : ""}</div>` : ""}
                 <div class="proposed-load-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'all')}</div>
                 ${renderRouteRequirements(route)}
               `}
@@ -81665,17 +81757,44 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const config = routePointConfig(kind);
       const value = route?.[config.coordKey];
       if (!value) return null;
+      let point = null;
       if (Array.isArray(value) && value.length >= 2) {
         const lat = Number(value[0]);
         const lng = Number(value[1]);
-        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng, label: route?.[config.locationKey] || config.fallback } : null;
-      }
-      if (typeof value === "object") {
+        if (Number.isFinite(lat) && Number.isFinite(lng)) point = { lat, lng, label: route?.[config.locationKey] || config.fallback };
+      } else if (typeof value === "object") {
         const lat = Number(value.lat);
         const lng = Number(value.lng);
-        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng, label: value.label || route?.[config.locationKey] || config.fallback } : null;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) point = { lat, lng, label: value.label || route?.[config.locationKey] || config.fallback };
       }
-      return null;
+      if (!point) return null;
+
+      // Stare wpisy kolejki mogły już zapisać błędne współrzędne z niejednoznacznej
+      // pary miasto+PNA. Nie pozwalamy, aby taki zapis wygrywał z poprawnym miastem.
+      const rawLocation = [route?.[config.addressKey], route?.[config.locationKey]].filter(Boolean).join(", ");
+      const correction = operationalCanonicalCorrection(rawLocation, [point.lat, point.lng]);
+      if (correction) return { lat: correction.lat, lng: correction.lng, label: correction.label, correctedLocation: true };
+
+      // Jeżeli rekord ma jawny PNA, weryfikujemy również starsze zapisane współrzędne
+      // względem aktualnego rozstrzygnięcia PNA. To naprawia wpisy utworzone przed 3L.26,
+      // np. Trzcianka 64-980 zapisana wcześniej jako inna miejscowość „Trzcianka”.
+      if (postalCodeFromText(rawLocation)) {
+        const resolvedPostal = postalGeoCoordsFromText(rawLocation);
+        const resolvedCoords = resolvedPostal?.coords;
+        if (Array.isArray(resolvedCoords) && resolvedCoords.every(Number.isFinite)) {
+          const offsetKm = distanceKmBetweenCoords([point.lat, point.lng], resolvedCoords);
+          if (Number.isFinite(offsetKm) && offsetKm > OPERATIONAL_CANONICAL_CITY_MAX_OFFSET_KM) {
+            return {
+              lat: Number(resolvedCoords[0]),
+              lng: Number(resolvedCoords[1]),
+              label: resolvedPostal.label || displayLocationWithPostal(route?.[config.locationKey]) || config.fallback,
+              correctedLocation: true,
+              correctedStoredCoords: true
+            };
+          }
+        }
+      }
+      return point;
     }
 
     function routePointFromRoute(route, kind) {
