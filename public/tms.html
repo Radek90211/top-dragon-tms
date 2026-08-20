@@ -75245,22 +75245,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "load-date" };
       }
 
-      // 1) Bezpośrednia kolizja przedziałów czasu / wymaganej pauzy.
+      // 1) Bezpośrednia kolizja rzeczywistych przedziałów czasu.
+      // 3L.23: przy dopasowaniu kolejnego ładunku NIE dokładamy tutaj automatycznej
+      // pauzy 45 min / 11 h po poprzedniej relacji. Reguła operacyjna użytkownika
+      // jest nadrzędna: rozładunek do 20:00 kwalifikuje kierowcę do ładunków
+      // tego samego dnia, o ile po rozładunku faktycznie zdąży dojechać na załadunek.
       const directConflict = occupied.find(existing => {
         const existingStart = routeGlobalStart(existing);
-        const existingEndWithPause = routeGlobalEnd(existing) + requiredPauseAfterRoute(existing);
-        return candidateStart < existingEndWithPause - ROUTE_OVERLAP_EPSILON_HOURS &&
-          candidateEndWithPause > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
+        const existingEnd = routeGlobalEnd(existing);
+        return candidateStart < existingEnd - ROUTE_OVERLAP_EPSILON_HOURS &&
+          candidateEnd > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
       });
       if (directConflict) return { fit: false, pending: false, conflict: directConflict, previous, eligibleLoadDate, reason: "overlap" };
 
-      // 2) Po poprzedniej relacji liczymy rzeczywisty czas dojazdu ciężarówką TomTom.
-      // Dopóki nie ma wyniku, pojazd nie jest oznaczany jako dopasowany.
+      // 2) Po poprzedniej relacji liczymy wyłącznie rzeczywisty czas dojazdu
+      // ciężarówką TomTom z miejsca rozładunku do nowego załadunku.
+      // Nie dokładamy ponownie odpoczynku wynikającego z długości poprzedniego kafelka,
+      // bo blokowałoby to regułę dnia <=20:00 i dawało fałszywe odrzucenia.
       const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
       if (!reposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, reason: reposition.unavailable ? "route-unavailable" : "routing" };
-      const readyAfterPrevious = routeGlobalEnd(previous)
-        + requiredPauseAfterRoute(previous)
-        + reposition.hours;
+      const readyAfterPrevious = routeGlobalEnd(previous) + reposition.hours;
       if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) {
         return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "previous" };
       }
@@ -77317,7 +77321,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function toggleStatsPanel(force = null) {
       state.statsPanelOpen = force === null ? !state.statsPanelOpen : Boolean(force);
       if (!state.statsDate) state.statsDate = state.reportDate || START_DATE;
-      if (setDrawerOpenFast(".stats-drawer", ".stats-tab", state.statsPanelOpen)) return;
+
+      // Zamknięcie Statystyk musi być bezwarunkowe. W trybie pełnoekranowym
+      // sama utrata klasy `open` nie wystarcza, bo `.stats-fullscreen` wymusza
+      // transform: translateX(0). Czyścimy więc oba stany i od razu
+      // przebudowujemy panel do samej zakładki Statystyki.
+      if (!state.statsPanelOpen) {
+        state.statsFullscreen = false;
+        if (statsSyncFrame) {
+          cancelAnimationFrame(statsSyncFrame);
+          statsSyncFrame = null;
+        }
+        const drawer = document.querySelector(".stats-drawer");
+        if (drawer) {
+          drawer.classList.remove("open", "stats-fullscreen", "stats-updating");
+          drawer.style.pointerEvents = "none";
+        }
+        syncStatsPanel();
+        requestAnimationFrame(syncQueueTabOffsets);
+        return;
+      }
+
+      if (setDrawerOpenFast(".stats-drawer", ".stats-tab", true)) return;
       syncStatsPanel();
     }
 
