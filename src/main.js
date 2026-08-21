@@ -28,6 +28,7 @@ let weeklySettlementReloadTimer = null
 let weeklySettlementWeekStart = ''
 let workflowChannel = null
 let workflowReloadTimer = null
+let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
 
@@ -88,6 +89,7 @@ function renderLogin(message = '') {
   activeAuditMessage = null
   activeWeeklySettlementMessage = null
   activeWorkflowMessage = null
+  workflowSchemaAvailable = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -1987,31 +1989,65 @@ async function cancelDispatcherWeekTransferFromTms(message) {
 }
 
 
+function isMissingWorkflowSchemaError(error) {
+  const code = String(error?.code || '')
+  const message = String(error?.message || '')
+  return code === 'PGRST205'
+    || /Could not find the table ['"]?public\.tms_(client_assignment_requests|relation_transfer_requests)['"]? in the schema cache/i.test(message)
+}
+
+async function loadWorkflowTable(table, columns) {
+  const run = () => supabase
+    .from(table)
+    .select(columns)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  let result = await run()
+  if (result.error && isMissingWorkflowSchemaError(result.error)) {
+    // Po migracji PostgREST może przez moment pracować na starym cache schematu.
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    result = await run()
+  }
+  return result
+}
+
 async function loadWorkflowData() {
   if (!currentProfile) return { clientAssignments: [], relationTransfers: [] }
 
-  const [{ data: clientAssignments, error: clientError }, { data: relationTransfers, error: relationError }] = await Promise.all([
-    supabase
-      .from('tms_client_assignment_requests')
-      .select('id,branch_id,client_ref,client_name,requested_dispatcher_id,requested_dispatcher_name,requested_by,requested_by_name,status,decision_comment,created_at,responded_at,responded_by')
-      .order('created_at', { ascending: false })
-      .limit(500),
-    supabase
-      .from('tms_relation_transfer_requests')
-      .select('id,branch_id,relation_ref,relation_label,from_dispatcher_id,from_dispatcher_name,to_dispatcher_id,to_dispatcher_name,comment,status,created_at,responded_at')
-      .order('created_at', { ascending: false })
-      .limit(500),
+  const [clientResult, relationResult] = await Promise.all([
+    loadWorkflowTable(
+      'tms_client_assignment_requests',
+      'id,branch_id,client_ref,client_name,requested_dispatcher_id,requested_dispatcher_name,requested_by,requested_by_name,status,decision_comment,created_at,responded_at,responded_by',
+    ),
+    loadWorkflowTable(
+      'tms_relation_transfer_requests',
+      'id,branch_id,relation_ref,relation_label,from_dispatcher_id,from_dispatcher_name,to_dispatcher_id,to_dispatcher_name,comment,status,created_at,responded_at',
+    ),
   ])
-  if (clientError) throw new Error(`Nie udało się pobrać akceptacji klientów: ${clientError.message}`)
-  if (relationError) throw new Error(`Nie udało się pobrać transferów relacji: ${relationError.message}`)
+
+  const missingSchema = [clientResult.error, relationResult.error].some(isMissingWorkflowSchemaError)
+  if (missingSchema) {
+    workflowSchemaAvailable = false
+    console.warn('Workflow 3L.31 nie jest jeszcze dostępny w Supabase. Uruchom migrację 024_workflow_schema_repair.sql i odśwież stronę.')
+    return { clientAssignments: [], relationTransfers: [] }
+  }
+
+  if (clientResult.error) throw new Error(`Nie udało się pobrać akceptacji klientów: ${clientResult.error.message}`)
+  if (relationResult.error) throw new Error(`Nie udało się pobrać transferów relacji: ${relationResult.error.message}`)
+
+  workflowSchemaAvailable = true
+  const clientAssignments = clientResult.data || []
+  const relationTransfers = relationResult.data || []
+
   return {
-    clientAssignments: (clientAssignments || []).map((row) => ({
+    clientAssignments: clientAssignments.map((row) => ({
       id: row.id, branchId: row.branch_id || '', clientRef: row.client_ref || '', clientName: row.client_name || '',
       requestedDispatcherId: row.requested_dispatcher_id || '', requestedDispatcherName: row.requested_dispatcher_name || '',
       requestedBy: row.requested_by || '', requestedByName: row.requested_by_name || '', status: row.status || 'pending',
       decisionComment: row.decision_comment || '', createdAt: row.created_at || '', respondedAt: row.responded_at || '', respondedBy: row.responded_by || '',
     })),
-    relationTransfers: (relationTransfers || []).map((row) => ({
+    relationTransfers: relationTransfers.map((row) => ({
       id: row.id, branchId: row.branch_id || '', relationRef: row.relation_ref || '', relationLabel: row.relation_label || '',
       fromDispatcherId: row.from_dispatcher_id || '', fromDispatcherName: row.from_dispatcher_name || '',
       toDispatcherId: row.to_dispatcher_id || '', toDispatcherName: row.to_dispatcher_name || '', comment: row.comment || '',
@@ -2019,7 +2055,6 @@ async function loadWorkflowData() {
     })),
   }
 }
-
 async function syncWorkflowToTms() {
   const data = await loadWorkflowData()
   activeWorkflowMessage = { type: 'top-dragon-workflow-data', ...data }
@@ -2036,7 +2071,7 @@ function scheduleWorkflowReload(delay = 100) {
 
 function subscribeWorkflow() {
   if (workflowChannel) { supabase.removeChannel(workflowChannel); workflowChannel = null }
-  if (!currentProfile) return
+  if (!currentProfile || workflowSchemaAvailable === false) return
   workflowChannel = supabase
     .channel(`tms-workflow-${currentUser?.id || 'user'}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_client_assignment_requests' }, () => scheduleWorkflowReload(70))
@@ -2370,10 +2405,11 @@ async function renderDashboard(user) {
   subscribeCentralLoadRequests()
   subscribeWeeklySettlement()
 
-  syncWorkflowToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
-  })
-  subscribeWorkflow()
+  syncWorkflowToTms()
+    .then(() => subscribeWorkflow())
+    .catch((error) => {
+      console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
+    })
 
   if (currentProfile.role === 'admin') {
     syncCentralAuditToTms().catch((error) => {
