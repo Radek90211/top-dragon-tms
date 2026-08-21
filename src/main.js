@@ -12,6 +12,7 @@ let activeLoadQueueMessage = null
 let activeLoadRequestsMessage = null
 let activeAuditMessage = null
 let activeWeeklySettlementMessage = null
+let activeWorkflowMessage = null
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
@@ -25,6 +26,8 @@ let auditReloadTimer = null
 let weeklySettlementChannel = null
 let weeklySettlementReloadTimer = null
 let weeklySettlementWeekStart = ''
+let workflowChannel = null
+let workflowReloadTimer = null
 let currentUser = null
 let currentProfile = null
 
@@ -84,6 +87,7 @@ function renderLogin(message = '') {
   activeLoadRequestsMessage = null
   activeAuditMessage = null
   activeWeeklySettlementMessage = null
+  activeWorkflowMessage = null
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -133,6 +137,8 @@ function renderLogin(message = '') {
     weeklySettlementChannel = null
   }
   weeklySettlementWeekStart = ''
+  if (workflowReloadTimer) { clearTimeout(workflowReloadTimer); workflowReloadTimer = null }
+  if (workflowChannel) { supabase.removeChannel(workflowChannel); workflowChannel = null }
 
   app.innerHTML = `
     <main class="login-shell">
@@ -1980,6 +1986,142 @@ async function cancelDispatcherWeekTransferFromTms(message) {
   }
 }
 
+
+async function loadWorkflowData() {
+  if (!currentProfile) return { clientAssignments: [], relationTransfers: [] }
+
+  const [{ data: clientAssignments, error: clientError }, { data: relationTransfers, error: relationError }] = await Promise.all([
+    supabase
+      .from('tms_client_assignment_requests')
+      .select('id,branch_id,client_ref,client_name,requested_dispatcher_id,requested_dispatcher_name,requested_by,requested_by_name,status,decision_comment,created_at,responded_at,responded_by')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    supabase
+      .from('tms_relation_transfer_requests')
+      .select('id,branch_id,relation_ref,relation_label,from_dispatcher_id,from_dispatcher_name,to_dispatcher_id,to_dispatcher_name,comment,status,created_at,responded_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+  ])
+  if (clientError) throw new Error(`Nie udało się pobrać akceptacji klientów: ${clientError.message}`)
+  if (relationError) throw new Error(`Nie udało się pobrać transferów relacji: ${relationError.message}`)
+  return {
+    clientAssignments: (clientAssignments || []).map((row) => ({
+      id: row.id, branchId: row.branch_id || '', clientRef: row.client_ref || '', clientName: row.client_name || '',
+      requestedDispatcherId: row.requested_dispatcher_id || '', requestedDispatcherName: row.requested_dispatcher_name || '',
+      requestedBy: row.requested_by || '', requestedByName: row.requested_by_name || '', status: row.status || 'pending',
+      decisionComment: row.decision_comment || '', createdAt: row.created_at || '', respondedAt: row.responded_at || '', respondedBy: row.responded_by || '',
+    })),
+    relationTransfers: (relationTransfers || []).map((row) => ({
+      id: row.id, branchId: row.branch_id || '', relationRef: row.relation_ref || '', relationLabel: row.relation_label || '',
+      fromDispatcherId: row.from_dispatcher_id || '', fromDispatcherName: row.from_dispatcher_name || '',
+      toDispatcherId: row.to_dispatcher_id || '', toDispatcherName: row.to_dispatcher_name || '', comment: row.comment || '',
+      status: row.status || 'pending', createdAt: row.created_at || '', respondedAt: row.responded_at || '',
+    })),
+  }
+}
+
+async function syncWorkflowToTms() {
+  const data = await loadWorkflowData()
+  activeWorkflowMessage = { type: 'top-dragon-workflow-data', ...data }
+  activeTmsFrame?.contentWindow?.postMessage(activeWorkflowMessage, window.location.origin)
+}
+
+function scheduleWorkflowReload(delay = 100) {
+  if (workflowReloadTimer) clearTimeout(workflowReloadTimer)
+  workflowReloadTimer = setTimeout(() => {
+    workflowReloadTimer = null
+    syncWorkflowToTms().catch((error) => console.error('Nie udało się odświeżyć workflow:', error))
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeWorkflow() {
+  if (workflowChannel) { supabase.removeChannel(workflowChannel); workflowChannel = null }
+  if (!currentProfile) return
+  workflowChannel = supabase
+    .channel(`tms-workflow-${currentUser?.id || 'user'}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_client_assignment_requests' }, () => scheduleWorkflowReload(70))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_relation_transfer_requests' }, () => scheduleWorkflowReload(70))
+    .subscribe()
+}
+
+function sendWorkflowResult(requestId, ok, action, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-workflow-operation-result', requestId: String(requestId || ''), ok: Boolean(ok), action: String(action || ''), message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function createClientAssignmentRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const args = {
+      p_client_ref: String(message?.clientRef || '').trim(),
+      p_to_dispatcher_id: String(message?.toDispatcherId || '').trim() || null,
+    }
+    let { error } = await supabase.rpc('request_tms_client_assignment', args)
+    // Nowy klient jest zapisywany centralnie chwilę przed utworzeniem wniosku.
+    // Jeżeli realtime/upsert jeszcze nie zdążył, wykonujemy jeden bezpieczny retry.
+    if (error && /nie znaleziono aktywnego klienta/i.test(String(error?.message || ''))) {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      ;({ error } = await supabase.rpc('request_tms_client_assignment', args))
+    }
+    if (error) throw error
+    await Promise.all([syncWorkflowToTms(), syncCentralClientsToTms()])
+    sendWorkflowResult(requestId, true, 'client-assignment-create', 'Przypisanie zostało wysłane do akceptacji kierownika oddziału.')
+  } catch (error) {
+    sendWorkflowResult(requestId, false, 'client-assignment-create', error?.message || 'Nie udało się wysłać przypisania do akceptacji.')
+  }
+}
+
+async function respondClientAssignmentFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const status = String(message?.status || '').trim().toLowerCase()
+  try {
+    const { error } = await supabase.rpc('respond_tms_client_assignment', {
+      p_request_id: String(message?.assignmentRequestId || '').trim() || null,
+      p_status: status,
+      p_comment: String(message?.comment || '').trim(),
+    })
+    if (error) throw error
+    await Promise.all([syncWorkflowToTms(), syncCentralClientsToTms()])
+    sendWorkflowResult(requestId, true, 'client-assignment-response', status === 'accepted' ? 'Przypisanie klienta zostało zatwierdzone.' : 'Przypisanie klienta zostało odrzucone.')
+  } catch (error) {
+    sendWorkflowResult(requestId, false, 'client-assignment-response', error?.message || 'Nie udało się rozpatrzyć przypisania.')
+  }
+}
+
+async function createRelationTransferRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  try {
+    const { error } = await supabase.rpc('request_tms_relation_transfer', {
+      p_relation_ref: String(message?.relationRef || '').trim(),
+      p_to_dispatcher_id: String(message?.toDispatcherId || '').trim() || null,
+      p_comment: String(message?.comment || '').trim(),
+    })
+    if (error) throw error
+    await Promise.all([syncWorkflowToTms(), syncCentralRelationsToTms()])
+    sendWorkflowResult(requestId, true, 'relation-transfer-create', 'Relacja została wysłana do akceptacji odbiorcy.')
+  } catch (error) {
+    sendWorkflowResult(requestId, false, 'relation-transfer-create', error?.message || 'Nie udało się przekazać relacji.')
+  }
+}
+
+async function respondRelationTransferFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const status = String(message?.status || '').trim().toLowerCase()
+  try {
+    const { error } = await supabase.rpc('respond_tms_relation_transfer', {
+      p_request_id: String(message?.transferRequestId || '').trim() || null,
+      p_status: status,
+      p_assignment_id: status === 'accepted' ? (String(message?.assignmentId || '').trim() || null) : null,
+    })
+    if (error) throw error
+    await Promise.all([syncWorkflowToTms(), syncCentralRelationsToTms(), syncFleetDataToTms()])
+    sendWorkflowResult(requestId, true, 'relation-transfer-response', status === 'accepted' ? 'Transfer relacji został zaakceptowany.' : 'Transfer relacji został odrzucony.')
+  } catch (error) {
+    sendWorkflowResult(requestId, false, 'relation-transfer-response', error?.message || 'Nie udało się rozpatrzyć transferu relacji.')
+  }
+}
+
 async function handleTruckRoutingRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
 
@@ -2168,7 +2310,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v52-cutoff20-flexible-load-time"
+        src="/tms.html?embedded=1&build=request-workflow-v53-workflow-approvals-transfers"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2228,6 +2370,11 @@ async function renderDashboard(user) {
   subscribeCentralLoadRequests()
   subscribeWeeklySettlement()
 
+  syncWorkflowToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
+  })
+  subscribeWorkflow()
+
   if (currentProfile.role === 'admin') {
     syncCentralAuditToTms().catch((error) => {
       console.error('Nie udało się zsynchronizować historii operacji z TMS:', error)
@@ -2284,6 +2431,9 @@ async function bootstrap() {
       }
       if (activeWeeklySettlementMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeWeeklySettlementMessage, window.location.origin)
+      }
+      if (activeWorkflowMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeWorkflowMessage, window.location.origin)
       }
       return
     }
@@ -2458,6 +2608,33 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-dispatcher-week-transfer-cancel') {
       await cancelDispatcherWeekTransferFromTms(event.data)
+      return
+    }
+
+
+    if (event.data?.type === 'top-dragon-workflow-request') {
+      try { await syncWorkflowToTms() }
+      catch (error) { sendWorkflowResult(event.data?.requestId, false, 'load', error?.message || 'Nie udało się pobrać akceptacji i transferów.') }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-client-assignment-request-create') {
+      await createClientAssignmentRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-client-assignment-response') {
+      await respondClientAssignmentFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-transfer-create') {
+      await createRelationTransferRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relation-transfer-response') {
+      await respondRelationTransferFromTms(event.data)
       return
     }
 
