@@ -75178,6 +75178,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       roadDistanceRefreshTimer = window.setTimeout(() => {
         roadDistanceRefreshTimer = null;
         if (state.proposedPanelOpen) syncProposedPanel();
+        if (state.futurePanelOpen) syncFuturePanel();
         if (document.getElementById("nearest-results-host")) updateNearestResultsBox();
       }, 180);
     }
@@ -75321,10 +75322,50 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!previous) return "";
       const unloadDate = String(routeEndDate(previous) || previous.date || "").slice(0, 10);
       if (!unloadDate) return "";
-      // Reguła operacyjna Top Dragon 3L.22:
-      // rozładunek do 20:00 włącznie -> szukamy załadunku tego samego dnia,
-      // rozładunek po 20:00 -> szukamy załadunku następnego dnia.
+      // Reguła operacyjna Top Dragon 3L.27 działa dla KAŻDEJ daty relacji:
+      // D do 20:00 włącznie -> kandydaci z załadunkiem D,
+      // D po 20:00 -> kandydaci z załadunkiem D+1.
       return Number(routeEndHour(previous) || 0) > 20 ? addDaysToIso(unloadDate, 1) : unloadDate;
+    }
+
+    function proposedDateHourMomentMs(date, hour) {
+      const isoDate = String(date || "").slice(0, 10);
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+      if (!match) return Number.NaN;
+      const safeHour = Math.max(0, Math.min(24, Number(hour || 0)));
+      return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) + safeHour * 3600000;
+    }
+
+    function proposedRouteStartMomentMs(route) {
+      return proposedDateHourMomentMs(route?.date, routeStartHour(route));
+    }
+
+    function proposedUnloadMomentMs(route) {
+      if (!route) return Number.NEGATIVE_INFINITY;
+      let end = proposedDateHourMomentMs(routeEndDate(route) || route.date, routeEndHour(route));
+      const start = proposedRouteStartMomentMs(route);
+      // Zachowujemy tę samą ochronę co oś czasu dla rekordów ze starszymi,
+      // niespójnymi godzinami końca: koniec nie może wypaść przed początkiem.
+      if (Number.isFinite(start) && Number.isFinite(end) && end <= start) end = start + 3600000;
+      return Number.isFinite(end) ? end : Number.NEGATIVE_INFINITY;
+    }
+
+    function proposedPreviousRelationForLoadDate(occupied, candidateRoute) {
+      const loadDate = String(candidateRoute?.date || "").slice(0, 10);
+      const candidateStartMs = proposedRouteStartMomentMs(candidateRoute);
+      if (!loadDate || !Number.isFinite(candidateStartMs)) return null;
+      // Każdy wolny/planowany ładunek jest oceniany niezależnie. Nie „zużywamy”
+      // kierowcy po pierwszym dopasowaniu. Wybieramy chronologicznie ostatnią relację
+      // zakończoną PRZED tym kandydatem, a jej dzień dostępności wyliczamy wyłącznie
+      // z daty rozładunku i granicy 20:00. Nie korzystamy tu z pozycji w 14-dniowej osi.
+      return [...(occupied || [])]
+        .filter(existing => {
+          const unloadMs = proposedUnloadMomentMs(existing);
+          return Number.isFinite(unloadMs)
+            && unloadMs <= candidateStartMs + ROUTE_OVERLAP_EPSILON_HOURS * 3600000
+            && proposedEligibleLoadDateAfterPrevious(existing) === loadDate;
+        })
+        .sort((a, b) => proposedUnloadMomentMs(b) - proposedUnloadMomentMs(a))[0] || null;
     }
 
     function proposedDriverScheduleAssessment(driverId, route) {
@@ -75340,7 +75381,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
       const candidateStart = routeGlobalStart(candidate);
       const candidateEnd = routeGlobalEnd(candidate);
-      const candidateEndWithPause = candidateEnd + requiredPauseAfterRoute(candidate);
+      const candidateStartMs = proposedRouteStartMomentMs(candidate);
+      const candidateEndMs = proposedUnloadMomentMs(candidate);
+      const candidateEndWithPauseMs = candidateEndMs + requiredPauseAfterRoute(candidate) * 3600000;
 
       const occupied = activeRoutes()
         .filter(existing =>
@@ -75353,19 +75396,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         )
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
 
-      // Poprzednia faktycznie zakończona relacja jest jedynym punktem startowym
-      // dla dopasowania. Brak poprzedniej relacji NIE oznacza startu z Bazy.
-      const previous = [...occupied]
-        .filter(existing => routeGlobalEnd(existing) <= candidateStart + ROUTE_OVERLAP_EPSILON_HOURS)
-        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
+      // 3L.27: najpierw kwalifikujemy DZIEŃ na podstawie faktycznej daty i godziny
+      // rozładunku, a dopiero potem sprawdzamy godziny/dojazd. Dzięki temu reguła
+      // 20:00 nie zależy od aktualnego 14-dniowego okna ani od godziny startu
+      // konkretnego kandydata. Ten sam kierowca może być niezależnie oceniony przy
+      // wielu Wolnych/Planowanych relacjach tego samego dnia.
+      const candidateLoadDate = String(candidate.date || "").slice(0, 10);
+      const previous = proposedPreviousRelationForLoadDate(occupied, candidate);
       if (!previous) {
-        return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", reason: "no-previous" };
+        return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", repositionKm: null, repositionExact: false, reason: "no-previous" };
       }
 
       const eligibleLoadDate = proposedEligibleLoadDateAfterPrevious(previous);
-      const candidateLoadDate = String(candidate.date || "").slice(0, 10);
       if (!eligibleLoadDate || candidateLoadDate !== eligibleLoadDate) {
-        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "load-date" };
+        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, repositionKm: null, repositionExact: false, reason: "load-date" };
       }
 
       // 1) Bezpośrednia kolizja rzeczywistych przedziałów czasu.
@@ -75374,39 +75418,50 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // jest nadrzędna: rozładunek do 20:00 kwalifikuje kierowcę do ładunków
       // tego samego dnia, o ile po rozładunku faktycznie zdąży dojechać na załadunek.
       const directConflict = occupied.find(existing => {
-        const existingStart = routeGlobalStart(existing);
-        const existingEnd = routeGlobalEnd(existing);
-        return candidateStart < existingEnd - ROUTE_OVERLAP_EPSILON_HOURS &&
-          candidateEnd > existingStart + ROUTE_OVERLAP_EPSILON_HOURS;
+        const existingStartMs = proposedRouteStartMomentMs(existing);
+        const existingEndMs = proposedUnloadMomentMs(existing);
+        if (![candidateStartMs, candidateEndMs, existingStartMs, existingEndMs].every(Number.isFinite)) return false;
+        const epsilonMs = ROUTE_OVERLAP_EPSILON_HOURS * 3600000;
+        return candidateStartMs < existingEndMs - epsilonMs && candidateEndMs > existingStartMs + epsilonMs;
       });
-      if (directConflict) return { fit: false, pending: false, conflict: directConflict, previous, eligibleLoadDate, reason: "overlap" };
+      if (directConflict) return { fit: false, pending: false, conflict: directConflict, previous, eligibleLoadDate, repositionKm: null, repositionExact: false, reason: "overlap" };
 
       // 2) Po poprzedniej relacji liczymy wyłącznie rzeczywisty czas dojazdu
       // ciężarówką TomTom z miejsca rozładunku do nowego załadunku.
       // Nie dokładamy ponownie odpoczynku wynikającego z długości poprzedniego kafelka,
       // bo blokowałoby to regułę dnia <=20:00 i dawało fałszywe odrzucenia.
       const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
-      if (!reposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, reason: reposition.unavailable ? "route-unavailable" : "routing" };
-      const readyAfterPrevious = routeGlobalEnd(previous) + reposition.hours;
-      if (readyAfterPrevious > candidateStart + ROUTE_OVERLAP_EPSILON_HOURS) {
-        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, reason: "previous" };
+      if (!reposition.exact) return {
+        fit: false,
+        pending: true,
+        conflict: null,
+        previous,
+        eligibleLoadDate,
+        repositionKm: Number.isFinite(Number(reposition.km)) ? Number(reposition.km) : null,
+        repositionExact: false,
+        repositionPending: Boolean(reposition.pending),
+        reason: reposition.unavailable ? "route-unavailable" : "routing"
+      };
+      const readyAfterPreviousMs = proposedUnloadMomentMs(previous) + reposition.hours * 3600000;
+      if (readyAfterPreviousMs > candidateStartMs + ROUTE_OVERLAP_EPSILON_HOURS * 3600000) {
+        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: "previous" };
       }
 
       // 3) Po wolnym ładunku musi zostać rzeczywisty czas dojazdu ciężarówką
       // do kolejnej zaplanowanej relacji.
       const next = occupied
-        .filter(existing => routeGlobalStart(existing) >= candidateEnd - ROUTE_OVERLAP_EPSILON_HOURS)
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
+        .filter(existing => proposedRouteStartMomentMs(existing) >= candidateEndMs - ROUTE_OVERLAP_EPSILON_HOURS * 3600000)
+        .sort((a, b) => proposedRouteStartMomentMs(a) - proposedRouteStartMomentMs(b))[0] || null;
       if (next) {
         const nextReposition = proposedRepositionInfo(candidate, "unload", next, "load");
-        if (!nextReposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, reason: nextReposition.unavailable ? "route-unavailable" : "routing" };
-        const readyForNext = candidateEndWithPause + nextReposition.hours;
-        if (readyForNext > routeGlobalStart(next) + ROUTE_OVERLAP_EPSILON_HOURS) {
-          return { fit: false, pending: false, conflict: next, previous, eligibleLoadDate, reason: "next" };
+        if (!nextReposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: nextReposition.unavailable ? "route-unavailable" : "routing" };
+        const readyForNextMs = candidateEndWithPauseMs + nextReposition.hours * 3600000;
+        if (readyForNextMs > proposedRouteStartMomentMs(next) + ROUTE_OVERLAP_EPSILON_HOURS * 3600000) {
+          return { fit: false, pending: false, conflict: next, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: "next" };
         }
       }
 
-      return { fit: true, pending: false, conflict: null, previous, eligibleLoadDate, reason: "ok" };
+      return { fit: true, pending: false, conflict: null, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: "ok" };
     }
 
     function proposedDriverScheduleConflict(driverId, route) {
@@ -75451,11 +75506,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ? { coords: null, label: schedule.reason === "no-previous" ? "Brak poprzedniej relacji" : `Dostępny na ${formatDateForInput(schedule.eligibleLoadDate || "—")}`, route: schedule.previous || null }
                 : driverPositionForDate(driver.id, date)));
           const samePreviousLoadPlace = Boolean(schedule.previous && proposedSameOperationalPlace(schedule.previous, "unload", route, "load"));
-          const distanceInfo = samePreviousLoadPlace
-            ? { km: 0, durationHours: 0, exact: true, pending: false, source: "same-location" }
-            : (position.coords
-              ? mainRoadDistanceKmForListing(position.coords, target)
-              : { km: 9999, exact: false, pending: false });
+          // Korzystamy z TEGO SAMEGO wyniku dojazdu, na którym opiera się ocena planu.
+          // Nie uruchamiamy drugiej, niezależnej kwalifikacji dystansu dla tej samej
+          // karty — to wcześniej powodowało, że jeden pojazd był potwierdzony przy
+          // jednej relacji, a przy kolejnych pozostawał w stanie „sprawdzanie”.
+          const distanceInfo = schedule.repositionExact && Number.isFinite(Number(schedule.repositionKm))
+            ? { km: Math.max(0, Number(schedule.repositionKm)), durationHours: 0, exact: true, pending: false, source: samePreviousLoadPlace ? "same-location" : "schedule-routing" }
+            : (samePreviousLoadPlace
+              ? { km: 0, durationHours: 0, exact: true, pending: false, source: "same-location" }
+              : (position.coords
+                ? mainRoadDistanceKmForListing(position.coords, target)
+                : { km: 9999, exact: false, pending: Boolean(schedule.repositionPending) }));
           const compatibility = driverLoadCompatibility(driver, route);
           return {
             driver,
@@ -84173,6 +84234,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Funkcje przeciągania mapy są dostępne", typeof startMapDrag === "function" && typeof moveMapDrag === "function" && typeof endMapDrag === "function");
       assert("Relacje w dniach roboczych są obsługiwane", INITIAL_ROUTES.length > 0 && typeof routesForCell === "function");
       assert("Komórka dnia ma podział godzinowy co 4h", renderToStringForTest(false).includes("00:00") && renderToStringForTest(false).includes("20:00"));
+      assert("Dopasowanie: 17.08 19:30 pozostaje na 17.08", proposedEligibleLoadDateAfterPrevious({ date: "2026-08-17", endDate: "2026-08-17", endHour: 19.5 }) === "2026-08-17");
+      assert("Dopasowanie: 17.08 20:00 pozostaje na 17.08", proposedEligibleLoadDateAfterPrevious({ date: "2026-08-17", endDate: "2026-08-17", endHour: 20 }) === "2026-08-17");
+      assert("Dopasowanie: 17.08 20:01 przechodzi na 18.08", proposedEligibleLoadDateAfterPrevious({ date: "2026-08-17", endDate: "2026-08-17", endHour: 20 + 1/60 }) === "2026-08-18");
+      assert("Dopasowanie: 18.08 20:00 pozostaje na 18.08", proposedEligibleLoadDateAfterPrevious({ date: "2026-08-18", endDate: "2026-08-18", endHour: 20 }) === "2026-08-18");
+      assert("Dopasowanie: 18.08 22:00 przechodzi na 19.08", proposedEligibleLoadDateAfterPrevious({ date: "2026-08-18", endDate: "2026-08-18", endHour: 22 }) === "2026-08-19");
+      const matchingPreviousBefore20 = { id: "test-prev-18", date: "2026-08-18", startHour: 8, endDate: "2026-08-18", endHour: 10 };
+      assert("Ten sam poprzedni rozładunek może pasować do wielu ładunków tego dnia", proposedPreviousRelationForLoadDate([matchingPreviousBefore20], { date: "2026-08-18", startHour: 12 })?.id === "test-prev-18" && proposedPreviousRelationForLoadDate([matchingPreviousBefore20], { date: "2026-08-18", startHour: 16 })?.id === "test-prev-18");
+      const matchingPreviousAfter20 = { id: "test-prev-17-late", date: "2026-08-17", startHour: 15, endDate: "2026-08-17", endHour: 22 };
+      assert("Rozładunek 17.08 po 20:00 jest poprzednią relacją dla wielu ładunków 18.08", proposedPreviousRelationForLoadDate([matchingPreviousAfter20], { date: "2026-08-18", startHour: 8 })?.id === "test-prev-17-late" && proposedPreviousRelationForLoadDate([matchingPreviousAfter20], { date: "2026-08-18", startHour: 14 })?.id === "test-prev-17-late");
       assert("Relacje są w jednym wierszu bez rozwijania na dodatkowe rzędy", !renderToStringForTest(false).includes("time-more") && renderToStringForTest(false).includes("time-route"));
       assert("Relacja ma funkcję drag and drop", typeof startRouteDrag === "function" && typeof dropRoute === "function");
       assert("Relacja ma funkcję rozciągania w obie strony", typeof startRouteResize === "function" && typeof moveRouteResize === "function" && typeof maybeStartRouteResizeFromRoute === "function" && typeof attachRouteResizeDelegation === "function" && renderToStringForTest(false).includes("time-resize-left") && renderToStringForTest(false).includes("time-resize-right")); 
