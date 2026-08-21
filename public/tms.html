@@ -68400,6 +68400,10 @@
         paymentDays: Math.min(180, Math.max(0, Number(item.paymentDays ?? item.payment_days ?? 30) || 0)),
         cooperationNotes: String(item.cooperationNotes ?? item.cooperation_notes ?? "").trim(),
         lastContactAt: String(item.lastContactAt ?? item.last_contact_at ?? "").trim(),
+        assignmentApprovalStatus: String(item.assignmentApprovalStatus ?? item.assignment_approval_status ?? "").trim(),
+        assignmentRequestedDispatcher: String(item.assignmentRequestedDispatcher ?? item.assignment_requested_dispatcher ?? "").trim(),
+        assignmentRequestId: String(item.assignmentRequestId ?? item.assignment_request_id ?? "").trim(),
+        assignmentApprovedAt: String(item.assignmentApprovedAt ?? item.assignment_approved_at ?? "").trim(),
         updatedAt: String(item.updatedAt ?? item.updated_at ?? new Date().toISOString())
       };
     }
@@ -70002,6 +70006,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (route.accountingFinal || route.accountingStatus === "Wprowadzone") classes.push("status-accounting-final");
       if (isFreeDayRoute(route)) classes.push("status-free-day");
       if (routeNeedsAcceptanceMark(route)) classes.push("status-foreign-pending");
+      if (route.sourceFutureId || route.fromFutureQueue) classes.push("status-planned-board");
       return classes.join(" ");
     }
 
@@ -70395,10 +70400,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function dispatcherUpcomingMarker(dispatcher) {
-      if (!state.user || state.user.role !== "spedytor" || state.user.login !== dispatcher) return "";
-      const count = upcomingFutureRoutesForDispatcher(dispatcher).length;
-      if (!count) return "";
-      return `<span class="dispatcher-upcoming-dot" title="Zbliża się relacja z zakładki planowanych dostaw (${count})."></span>`;
+      // 3L.31: usunięto powiadomienie „zbliża się” z Planowanych relacji.
+      return "";
     }
 
 
@@ -73913,7 +73916,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">${Math.round(group.distanceKm)} km po drogach · kat. C · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Szybkie zapytanie o ładunek</button>` : ""}</div></div>`;
               }).join("")
             : state.regionOpportunityQuery
-              ? `<div class="commercial-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`
+              ? `<div class="commercial-empty">Brak klientów w promieniu 150 km.</div>`
               : `<div class="commercial-empty">Wpisz miejscowość lub kod i wybierz „Szukaj”.</div>`;
         return `<div class="commercial-region-search"><input class="input" value="${attr(draft)}" placeholder="Wpisz rejon, np. Poznań lub 60-001" oninput="setRegionOpportunityDraft(this.value)" onkeydown="handleRegionOpportunityKey(event,this.value)"/><button class="btn" onclick="runRegionOpportunitySearch(document.querySelector('.commercial-region-search input')?.value)">Szukaj</button></div>${content}`;
       }
@@ -75403,115 +75406,63 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function proposedDriverScheduleAssessment(driverId, route) {
-      if (!driverId || !route) return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", reason: "missing" };
+      if (!driverId || !route) return { fit:false, pending:false, conflict:null, previous:null, eligibleLoadDate:"", reason:"missing" };
 
-      const candidate = {
-        ...route,
-        id: `__proposed-fit-${route.id || "new"}-${driverId}`,
-        driverId,
-        futureQueue: false,
-        proposedLoad: false,
-        approvalStatus: "accepted"
-      };
-      const candidateStartMs = proposedRouteStartMomentMs(candidate);
-      const candidateEndMs = proposedUnloadMomentMs(candidate);
-      const nominalDurationMs = Number.isFinite(candidateStartMs) && Number.isFinite(candidateEndMs)
-        ? Math.max(3600000, candidateEndMs - candidateStartMs)
-        : 3600000;
-
+      const candidate = { ...route, id:`__queue-fit-${route.id || "new"}-${driverId}`, driverId, futureQueue:false, proposedLoad:false, approvalStatus:"accepted" };
       const occupied = activeRoutes()
-        .filter(existing =>
-          existing &&
-          existing.driverId === driverId &&
-          existing.approvalStatus !== "rejected" &&
-          existing.id !== route.id &&
-          existing.sourceProposedId !== route.id &&
-          !isFreeDayRoute(existing)
-        )
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
+        .filter(existing => existing && existing.driverId === driverId && existing.approvalStatus !== "rejected" && existing.id !== route.id && existing.sourceProposedId !== route.id && existing.sourceFutureId !== route.id && !isFreeDayRoute(existing))
+        .sort((a,b) => routeGlobalStart(a) - routeGlobalStart(b));
 
-      // 3L.30: dzień kwalifikujemy wg rozładunku i granicy 20:00.
-      // Nie wymagamy, aby rozładunek nastąpił przed nominalną godziną załadunku z karty.
-      const candidateLoadDate = String(candidate.date || "").slice(0, 10);
+      const candidateLoadDate = String(candidate.date || "").slice(0,10);
       const previous = proposedPreviousRelationForLoadDate(occupied, candidate);
-      if (!previous) {
-        return { fit: false, pending: false, conflict: null, previous: null, eligibleLoadDate: "", repositionKm: null, repositionExact: false, reason: "no-previous" };
-      }
+      if (!previous) return { fit:false, pending:false, conflict:null, previous:null, eligibleLoadDate:"", repositionKm:null, repositionExact:false, reason:"no-previous" };
 
       const eligibleLoadDate = proposedEligibleLoadDateAfterPrevious(previous);
       if (!eligibleLoadDate || candidateLoadDate !== eligibleLoadDate) {
-        return { fit: false, pending: false, conflict: previous, previous, eligibleLoadDate, repositionKm: null, repositionExact: false, reason: "load-date" };
+        return { fit:false, pending:false, conflict:previous, previous, eligibleLoadDate, repositionKm:null, repositionExact:false, reason:"load-date" };
       }
 
-      // Najpierw wyliczamy faktyczny dojazd z poprzedniego rozładunku.
       const reposition = proposedRepositionInfo(previous, "unload", candidate, "load");
       if (!reposition.exact) return {
-        fit: false,
-        pending: true,
-        conflict: null,
-        previous,
-        eligibleLoadDate,
-        repositionKm: Number.isFinite(Number(reposition.km)) ? Number(reposition.km) : null,
-        repositionExact: false,
-        repositionPending: Boolean(reposition.pending),
-        reason: reposition.unavailable ? "route-unavailable" : "routing"
+        fit:false, pending:true, conflict:null, previous, eligibleLoadDate,
+        repositionKm:Number.isFinite(Number(reposition.km)) ? Number(reposition.km) : null,
+        repositionExact:false, repositionPending:Boolean(reposition.pending),
+        reason:reposition.unavailable ? "route-unavailable" : "routing"
       };
 
-      // Nominalna godzina z karty jest informacyjna. Jeżeli kierowca kończy później,
-      // przesuwamy hipotetyczny start ładunku na pierwszy możliwy moment po rozładunku
-      // i dojeździe. Dzięki temu np. rozładunek 18.08 o 18:00 nadal kwalifikuje do
-      // kolejki z datą 18.08, zgodnie z regułą granicy 20:00.
-      const readyAfterPreviousMs = proposedUnloadMomentMs(previous) + reposition.hours * 3600000;
-      const effectiveCandidateStartMs = Math.max(
-        Number.isFinite(candidateStartMs) ? candidateStartMs : readyAfterPreviousMs,
-        readyAfterPreviousMs
-      );
-      const effectiveCandidateEndMs = effectiveCandidateStartMs + nominalDurationMs;
-      const effectiveCandidateEndWithPauseMs = effectiveCandidateEndMs + requiredPauseAfterRoute(candidate) * 3600000;
-
-      // Nie sprawdzamy kolizji z relacją "previous" po nominalnej godzinie karty,
-      // bo właśnie ona wyznacza moment, od którego kierowca staje się dostępny.
-      // Pozostałe relacje nadal nie mogą nachodzić na efektywnie przesunięte wykonanie.
-      const epsilonMs = ROUTE_OVERLAP_EPSILON_HOURS * 3600000;
-      const directConflict = occupied.find(existing => {
-        if (existing === previous || String(existing.id || "") === String(previous.id || "")) return false;
-        const existingStartMs = proposedRouteStartMomentMs(existing);
-        const existingEndMs = proposedUnloadMomentMs(existing);
-        if (![effectiveCandidateStartMs, effectiveCandidateEndMs, existingStartMs, existingEndMs].every(Number.isFinite)) return false;
-        return effectiveCandidateStartMs < existingEndMs - epsilonMs && effectiveCandidateEndMs > existingStartMs + epsilonMs;
-      });
-      if (directConflict) return { fit: false, pending: false, conflict: directConflict, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: "overlap" };
-
-      // Po wolnym/planowanym ładunku kierowca nadal musi zdążyć do następnej
-      // już zapisanej relacji. Do tego testu używamy efektywnie przesuniętego czasu.
-      const next = occupied
-        .filter(existing => {
-          if (existing === previous || String(existing.id || "") === String(previous.id || "")) return false;
-          return proposedRouteStartMomentMs(existing) >= effectiveCandidateEndMs - epsilonMs;
-        })
-        .sort((a, b) => proposedRouteStartMomentMs(a) - proposedRouteStartMomentMs(b))[0] || null;
-      if (next) {
-        const nextReposition = proposedRepositionInfo(candidate, "unload", next, "load");
-        if (!nextReposition.exact) return { fit: false, pending: true, conflict: null, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: nextReposition.unavailable ? "route-unavailable" : "routing" };
-        const readyForNextMs = effectiveCandidateEndWithPauseMs + nextReposition.hours * 3600000;
-        if (readyForNextMs > proposedRouteStartMomentMs(next) + epsilonMs) {
-          return { fit: false, pending: false, conflict: next, previous, eligibleLoadDate, repositionKm: reposition.km, repositionExact: true, repositionPending: false, reason: "next" };
-        }
-      }
-
+      // 3L.31: godziny zapisane w Wolnych/Planowanych relacjach NIE biorą udziału
+      // w kwalifikacji dopasowania. Decyduje dzień wynikający z rozładunku (granica 20:00),
+      // miejsce i drogowy dystans TomTom. To jest lista możliwości, a nie rezerwacja czasu.
+      const loadDayStartMs = proposedDateHourMomentMs(candidateLoadDate, 0);
+      const readyAfterPreviousMs = proposedUnloadMomentMs(previous) + Math.max(0, Number(reposition.hours || 0)) * 3600000;
+      const effectiveStartMs = Number.isFinite(loadDayStartMs) ? Math.max(loadDayStartMs, readyAfterPreviousMs) : readyAfterPreviousMs;
       return {
-        fit: true,
-        pending: false,
-        conflict: null,
+        fit: Number(reposition.km || 0) <= PROPOSED_LOAD_DISTANCE_LIMIT_KM,
+        pending:false,
+        conflict:null,
         previous,
         eligibleLoadDate,
-        repositionKm: reposition.km,
-        repositionExact: true,
-        repositionPending: false,
-        effectiveStartMs: effectiveCandidateStartMs,
-        effectiveEndMs: effectiveCandidateEndMs,
-        reason: "ok"
+        repositionKm:Number(reposition.km || 0),
+        repositionExact:true,
+        repositionPending:false,
+        effectiveStartMs,
+        effectiveEndMs:effectiveStartMs,
+        reason:Number(reposition.km || 0) <= PROPOSED_LOAD_DISTANCE_LIMIT_KM ? "ok" : "distance"
       };
+    }
+
+    function applyQueueAssessmentPlacement(route, assessment) {
+      if (!route || !assessment || !Number.isFinite(Number(assessment.effectiveStartMs))) return route;
+      const dayStartMs = proposedDateHourMomentMs(route.date, 0);
+      if (!Number.isFinite(dayStartMs)) return route;
+      route.startHour = Math.max(0, Math.min(24, (Number(assessment.effectiveStartMs) - dayStartMs) / 3600000));
+      route.loadDate = route.date;
+      const estimatedHours = Number(route.estimatedTruckElapsedMin || 0) > 0
+        ? Math.max(0.25, Number(route.estimatedTruckElapsedMin) / 60)
+        : Math.max(0.25, Number(routeGlobalDuration(route) || 1));
+      const startGlobal = Math.max(0, getDateIndex(route.date) * 24 + Number(route.startHour || 0));
+      setRouteGlobalEnd(route, Math.min(timelineMaxHour(), startGlobal + estimatedHours));
+      return route;
     }
 
     function proposedDriverScheduleConflict(driverId, route) {
@@ -75622,15 +75573,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function preferredQueueMatchRows(rows) {
-      const compatible = (rows || []).filter(item =>
+      // 3L.31: pokazujemy WSZYSTKICH niezależnie pasujących kierowców.
+      // Pierwsze dopasowanie nie „zużywa” pojazdu, a kandydat z poprzedniego dnia
+      // po rozładunku >20:00 nie jest ukrywany tylko dlatego, że istnieje kandydat z dnia bieżącego.
+      return (rows || []).filter(item =>
         item && item.distanceExact
         && Number(item.distanceKm) <= PROPOSED_LOAD_DISTANCE_LIMIT_KM
         && item.compatibility?.ok
         && item.scheduleFit
       );
-      if (!compatible.length) return [];
-      const bestTier = Math.min(...compatible.map(item => Number(item.matchDateTier ?? 99)));
-      return compatible.filter(item => Number(item.matchDateTier ?? 99) === bestTier);
     }
 
     function allProposedDriversForLoad(route, date = state.reportDate) {
@@ -75692,7 +75643,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderProposedLoadsUi() {
       if (!state.user) return "";
       const date = state.reportDate || START_DATE;
-      const loads = visibleProposedLoadsForPanel();
+      const loads = visibleProposedLoadsForPanel().sort((a,b) => {
+        const am = preferredQueueMatchRows(proposedDistancesForRoute(a, a.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0 ? 1 : 0;
+        const bm = preferredQueueMatchRows(proposedDistancesForRoute(b, b.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0 ? 1 : 0;
+        return bm - am || String(a.date || "").localeCompare(String(b.date || ""));
+      });
       const availableCount = loads.length;
       if (!state.proposedPanelOpen) {
         return `<button class="proposed-tab" type="button" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki">Wolne ładunki${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
@@ -75796,7 +75751,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="proposed-distance-list">
               ${distances.length ? distances.map(item => `
                 <div class="proposed-distance-row ${preferredDriverIds.has(item.driver?.id) ? "near" : ""}">
-                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.schedulePending ? `<span class="busy-warning-icon" title="Trwa sprawdzanie dojazdu względem planu kierowcy" aria-label="Trwa sprawdzanie dojazdu względem planu kierowcy"></span>` : item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Relacja nie mieści się w aktualnym planie kierowcy" aria-label="Relacja nie mieści się w aktualnym planie kierowcy"></span>`}</span>
+                  <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.schedulePending ? `<span class="busy-warning-icon" title="Trwa sprawdzanie dojazdu względem planu kierowcy" aria-label="Trwa sprawdzanie dojazdu względem planu kierowcy"></span>` : item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Kierowca nie spełnia reguły dopasowania tej relacji" aria-label="Kierowca nie spełnia reguły dopasowania tej relacji"></span>`}</span>
                   <b>${!item.distanceExact ? "sprawdzanie trasy kat. C…" : item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM ? `${Math.round(item.distanceKm)} km · poza limitem` : item.schedulePending ? "sprawdzanie planu…" : item.scheduleFit ? `${Math.round(item.distanceKm)} km po trasie kat. C` : "kolizja planu"}</b>
                 </div>
               `).join("") : `<div class="proposed-distance-empty">Brak pojazdów w promieniu 150 km od punktu załadunku.</div>`}
@@ -75807,7 +75762,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(driverBusyOptionPrefix(item.driver.id, route.date || state.reportDate || START_DATE))}${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distancePending ? "*" : ""}</option>`).join("")}
                 </select>
                 <button class="btn-mini" type="button" onclick="takeProposedLoad(event, '${attr(route.id)}')">Pobierz na moją tablicę</button>
-              ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora w promieniu 150 km bez kolizji planu. Ładunek nadal jest widoczny dla wszystkich.</span>` : ""}
+              ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora w promieniu 150 km spełniającego regułę dopasowania. Ładunek nadal jest widoczny dla wszystkich.</span>` : ""}
             </div>
           `}
         </div>
@@ -75891,20 +75846,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return "";
     }
 
-    function driverBusyOptionPrefix(driverId, date) {
-      return driverHasRouteOnDate(driverId, date) ? "⚠ " : "";
-    }
+    function driverBusyOptionPrefix(driverId, date) { return ""; }
 
-    function renderDriverBusyWarning(driverId, date) {
-      return driverHasRouteOnDate(driverId, date)
-        ? `<span class="busy-warning-icon" title="Kierowca ma już ładunek w tym terminie" aria-label="Kierowca ma już ładunek w tym terminie"></span>`
-        : "";
-    }
+    function renderDriverBusyWarning(driverId, date) { return ""; }
 
     function showDriverBusyNotice(driver, route) {
-      const date = route?.date || state.reportDate || START_DATE;
-      if (!driverHasRouteOnDate(driver?.id, date, route?.id)) return false;
-      showAppMessage("Kierowca ma już ładunek", `${driver.driver} ma już relację na tablicy w dniu ${formatDateForInput(date)}. Ładunek został dodany, ale sprawdź plan kierowcy.`);
+      if (!driver || !route) return false;
+      const conflict = activeRoutes().find(other => other.id !== route.id && other.driverId === route.driverId && other.approvalStatus !== "rejected" && routesActuallyOverlap(route, other));
+      if (!conflict) return false;
+      showAppMessage("Kolizja planu", `${driver.driver} ma nakładającą się relację na tablicy. Sprawdź plan kierowcy.`);
       return true;
     }
 
@@ -75984,6 +75934,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           accountingStatus: "Nowe"
         };
 
+        applyQueueAssessmentPlacement(route, lockedSchedule);
         proposed.status = "taken";
         proposed.takenBy = state.user.login;
         proposed.takenDriverId = driverId;
@@ -75994,9 +75945,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         queueClientOwnerLoadAlertsForRoute(route);
         state.selectedRouteId = null;
         state.detailsOpen = false;
-        if (!showDriverBusyNotice(driver, route)) {
-          showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał ładunek ${formatDateForInput(route.date)}.`);
-        }
+        showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał ładunek ${formatDateForInput(route.date)}.`);
         scheduleUiSync({ board: true, unload: true, proposed: true, details: true });
         notifyProposedLoadsIfNeeded();
         return route.id;
@@ -77258,10 +77207,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       try {
         if (EMBEDDED_MODE) {
           const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 70000);
-          parsed = normalizeTextOrderAnalysis(payload);
+          parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
           state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
         } else {
-          parsed = localTextOrderParser(textValue);
+          parsed = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
           state.aiAnalyzerLastElapsedMs = Math.max(0, performance.now() - clientStartedAt);
         }
         if (!parsed.length) {
@@ -77303,9 +77252,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         let parsed = [];
         if (EMBEDDED_MODE) {
           const payload = await requestAiAnalyzer("text", { text, date: state.reportDate || currentAppDate() }, 90000);
-          parsed = normalizeTextOrderAnalysis(payload);
+          parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
         } else {
-          parsed = localTextOrderParser(text);
+          parsed = localTextOrderParser(text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
         }
 
         if (!parsed.length) {
@@ -77318,7 +77267,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
 
-        const routes = parsed.map(createProposedLoadFromTextItem);
+        const routes = parsed.map(item => ({ ...createProposedLoadFromTextItem(item), aiSourceText: String(item.aiSourceText || text || ""), aiSourceType: "text" }));
         if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
         state.proposedLoads.push(...routes);
         state.textImportPreview = routes;
@@ -77671,7 +77620,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderFutureDrawer() {
-      const routes = visibleFutureRoutes().sort((a, b) => futureRouteGlobalStart(a) - futureRouteGlobalStart(b));
+      const routes = visibleFutureRoutes().sort((a, b) => {
+        const am = eligibleFutureDrivers(a).length > 0 ? 1 : 0;
+        const bm = eligibleFutureDrivers(b).length > 0 ? 1 : 0;
+        return bm - am || futureRouteGlobalStart(a) - futureRouteGlobalStart(b);
+      });
       const groups = groupFutureRoutes(routes);
       return `
         <aside class="future-drawer ${state.futurePanelOpen ? "open" : ""}" onclick="event.stopPropagation()">
@@ -77700,7 +77653,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canEdit = Boolean(state.user?.role === "spedytor" && route.createdBy === state.user.login);
       const canDelete = futureRouteCanDelete(route);
       const dispatcher = route.createdBy || route.ownerDispatcher || "—";
-      const dueSoon = upcomingFutureRoutesForDispatcher(dispatcher).some(item => item.id === route.id);
       const allDistances = futureDistancesForRoute(route);
       const eligibleRows = eligibleFutureDrivers(route);
       const eligibleDrivers = eligibleRows.map(item => item.driver);
@@ -77729,11 +77681,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
             <div style="display:grid;gap:5px;justify-items:end;">
               ${detailsHidden ? "" : renderRouteRequirements(route)}
-              ${!detailsHidden && dueSoon ? `<span class="future-card-due">zbliża się</span>` : ""}
               ${closest ? `<b style="font-size:11px;white-space:nowrap;">${Math.round(closest.distanceKm)} km</b>` : ""}
             </div>
           </div>
-          ${detailsHidden ? `<div class="future-card-actions"><button class="btn-mini" type="button" onclick="toggleCardDetails(event, 'future', '${attr(route.id)}')">Pokaż szczegóły</button>${canDelete ? `<button class="btn-mini" type="button" onclick="deleteFutureRoute(event, '${attr(route.id)}')">Usuń</button>` : ""}</div>` : `
+          ${detailsHidden ? `<div class="future-card-actions"><button class="btn-mini" type="button" onclick="toggleCardDetails(event, 'future', '${attr(route.id)}')">Pokaż szczegóły</button>${canEdit ? `<button class="btn-mini" type="button" onclick="openEditFutureRoute(event, '${attr(route.id)}')">Edytuj</button>` : ""}${canDelete ? `<button class="btn-mini" type="button" onclick="deleteFutureRoute(event, '${attr(route.id)}')">Usuń</button>` : ""}</div>` : `
           <div class="proposed-distance-list">
             ${allDistances.length ? allDistances.map(item => `
               <div class="proposed-distance-row ${eligibleDriverIds.has(item.driver?.id) ? "near" : ""}">
@@ -77904,7 +77855,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         queueClientOwnerLoadAlertsForRoute(route);
         state.selectedRouteId = null;
         state.detailsOpen = false;
-        if (!showDriverBusyNotice(driver, route)) showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał wolny ładunek ${formatDateForInput(route.date)}.`);
+        showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał wolny ładunek ${formatDateForInput(route.date)}.`);
         scheduleUiSync({ board: true, unload: true, proposed: true, details: true });
         notifyProposedLoadsIfNeeded();
         return route.id;
@@ -77934,6 +77885,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const route = {
         ...futureRoute,
         id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        sourceFutureId: futureRoute.id,
+        fromFutureQueue: true,
         futureQueue: false,
         driverId,
         date: startParts.date,
@@ -77949,9 +77902,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.routes.push(route);
       if (!isCurrentDispatcherDriver(targetDriver)) notifyNearbyDispatcherVehicles(route);
       queueClientOwnerLoadAlertsForRoute(route);
-      if (!showDriverBusyNotice(targetDriver, route)) {
-        showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
-      }
+      showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
       state.futurePanelOpen = false;
       state.proposedPanelOpen = false;
       renderKeepingScroll();
@@ -77993,24 +77944,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (!isCurrentDispatcherDriver(targetDriver) && !(await confirmFutureRouteDistribution(futureRoute, targetDriver))) return;
 
+      const queueAssessment = proposedDriverScheduleAssessment(driverId, futureRoute);
       const owner = targetDriver.dispatcher || futureRoute.ownerDispatcher || futureRoute.createdBy;
       const route = {
         ...futureRoute,
         id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        sourceFutureId: futureRoute.id,
+        fromFutureQueue: true,
         futureQueue: false,
         driverId,
         ownerDispatcher: owner,
         approvalStatus: (state.user.role === "rozliczenia" || state.user.role === "admin" || owner === state.user.login) ? "accepted" : "pending"
       };
 
+      applyQueueAssessmentPlacement(route, queueAssessment);
       state.futureRoutes = (state.futureRoutes || []).filter(item => item.id !== futureRouteId);
       stampRouteAdded(route);
       state.routes.push(route);
       if (!isCurrentDispatcherDriver(targetDriver)) notifyNearbyDispatcherVehicles(route);
       queueClientOwnerLoadAlertsForRoute(route);
-      if (!showDriverBusyNotice(targetDriver, route)) {
-        showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
-      }
+      showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
       state.reportDate = route.date || state.reportDate || START_DATE;
       state.futurePanelOpen = true;
       syncFuturePanel();
@@ -78072,15 +78025,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!driverId || !allowedDriverIds.has(driverId)) return;
         const targetDriver = driverById(driverId);
         if (!targetDriver || !driverLoadCompatibility(targetDriver, route).ok) return;
+        const queueAssessment = proposedDriverScheduleAssessment(driverId, route);
+        if (!queueAssessment.fit) return;
         const owner = targetDriver.dispatcher || route.ownerDispatcher || route.createdBy;
         const movedRoute = {
           ...route,
           id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+          sourceFutureId: route.id,
+          fromFutureQueue: true,
           futureQueue: false,
           driverId,
           ownerDispatcher: owner,
           approvalStatus: (state.user.role === "rozliczenia" || state.user.role === "admin" || owner === state.user.login) ? "accepted" : "pending"
         };
+        applyQueueAssessmentPlacement(movedRoute, queueAssessment);
         stampRouteAdded(movedRoute);
         state.routes.push(movedRoute);
         if (!isCurrentDispatcherDriver(targetDriver)) notifyNearbyDispatcherVehicles(movedRoute);
@@ -79913,7 +79871,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </div>`;
             }).join("")}
           </div>`
-          : `<div class="route-context-empty">Brak klientów w promieniu 150 km po drogach dla pojazdu kat. C.</div>`;
+          : `<div class="route-context-empty">Brak klientów w promieniu 150 km.</div>`;
       return `
         <button onclick="showRouteContextMain('${attr(route.id)}')">← Wróć</button>
         <div class="route-context-title">Klienci w rejonie: ${esc(query || "—")}</div>
@@ -80123,15 +80081,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${renderFreightProfitabilityCalculator(route)}
             </section>
 
-            ${route.sourceProposedId && canEdit ? `
-              <section class="section" style="border-color:#bfdbfe;background:#eff6ff;">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                  <div>
-                    <b>Ładunek pobrany z wolnych</b>
-                    <div class="small">Możesz zwrócić go do zakładki „Wolne ładunki”.</div>
-                  </div>
-                  <button class="btn" onclick="returnTakenRouteToProposed(event, '${attr(route.id)}')">Zwróć do wolnych</button>
-                </div>
+            ${canEdit && !isFreeDayRoute(route) ? `
+              <section class="section relation-return-section">
+                <div><b>Zwróć relację z tablicy</b><div class="small">Relacja zniknie z planu kierowcy i wróci do wybranej kolejki z informacją o zwrocie.</div></div>
+                <div class="relation-return-actions"><button class="btn" onclick="returnBoardRouteToQueue(event,'${attr(route.id)}','future')">Do Planowanych relacji</button><button class="btn" onclick="returnBoardRouteToQueue(event,'${attr(route.id)}','proposed')">Do Wolnych ładunków</button></div>
               </section>
             ` : ""}
 
@@ -80212,6 +80165,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div>
                 <h2 style="margin:0;">${modalTitle}</h2>
                 ${modalHint ? `<div class="hint">${modalHint}</div>` : ""}
+                ${prefill.aiSourceText ? `<details class="ai-source-confirm" open><summary>Oryginalna wiadomość klienta</summary><div>${esc(prefill.aiSourceText)}</div></details>` : ""}
               </div>
               <button type="button" class="btn" onclick="closeAdd()">Zamknij</button>
             </div>
@@ -80415,7 +80369,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.addOpen = false;
       state.unloadPanelCollapsed = true;
       state.appView = "plan";
-      state.reportDate = currentAppDate();
+      state.reportDate = addDaysToIso(currentAppDate(), -1);
       state.nearestDate = currentAppDate();
       state.statsDate = currentAppDate();
       state.statsCustomFrom = currentAppDate();
@@ -84124,7 +84078,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         proposedLoad: proposedMode,
         visibilityScope: visibilityScopeValue,
         visibilityBranch: visibilityBranchValue,
-        bulkTotal: bulkCountValue
+        bulkTotal: bulkCountValue,
+        aiSourceText: String(state.prefill?.aiSourceText || ""),
+        aiSourceType: String(state.prefill?.aiSourceType || "")
       };
 
       if (!freeDayValue && categoryCEstimate?.elapsedMin > 0) {
@@ -88113,6 +88069,331 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (force === false) state.statsFullscreen = false;
         return originalToggleStatsPanel3L21.call(this, force);
       };
+    })();
+  </script>
+
+
+  <style id="targeted-3l31-workflow-return-ai-finance">
+    /* 3L.31 — relacja pobrana z Planowanych relacji jest niebieska na tablicy. */
+    .time-route.status-planned-board:not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low) {
+      background:#dbeafe !important;
+      border-color:#60a5fa !important;
+      color:#0f172a !important;
+    }
+    .app.dark-mode .time-route.status-planned-board:not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low) {
+      background:#1e3a5f !important;
+      border-color:#60a5fa !important;
+      color:#eff6ff !important;
+    }
+    .relation-return-section { display:grid; gap:10px; border-color:#cbd5e1 !important; background:#f8fafc !important; }
+    .relation-return-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .queue-return-note { margin-top:5px; padding:5px 7px; border-radius:8px; background:#fff7ed; color:#9a3412; font-size:10px; font-weight:800; }
+    .ai-source-confirm { margin-top:7px; max-width:min(720px,72vw); border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; padding:6px 8px; }
+    .ai-source-confirm summary { cursor:pointer; font-size:11px; font-weight:900; color:#1e40af; }
+    .ai-source-confirm div { white-space:pre-wrap; margin-top:5px; max-height:90px; overflow:auto; font-size:11px; color:#334155; }
+    .workflow-card { border:1px solid #cbd5e1; border-radius:14px; padding:11px; background:#f8fafc; margin:10px 0; }
+    .workflow-card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    .workflow-card-head h3 { margin:0; font-size:15px; }
+    .workflow-list { display:grid; gap:7px; }
+    .workflow-row { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
+    .workflow-status { display:inline-flex; align-items:center; border-radius:999px; padding:3px 7px; font-size:10px; font-weight:900; }
+    .workflow-status.pending { background:#fef3c7; color:#92400e; }
+    .workflow-status.accepted { background:#dcfce7; color:#166534; }
+    .workflow-status.rejected { background:#fee2e2; color:#991b1b; }
+    .workflow-status.cancelled { background:#e2e8f0; color:#475569; }
+    .workflow-actions { display:flex; gap:5px; justify-content:flex-end; flex-wrap:wrap; }
+    .relation-transfer-box { border:1px solid #bfdbfe !important; background:#eff6ff !important; }
+    .relation-transfer-form { display:grid; grid-template-columns:minmax(150px,1fr) minmax(160px,1fr) auto; gap:7px; align-items:end; margin-top:8px; }
+    .relation-transfer-accept { display:grid; grid-template-columns:minmax(180px,1fr) auto auto; gap:7px; align-items:end; margin-top:8px; }
+    .driver-finance-btn { margin-left:4px; min-width:23px; height:23px; padding:0 6px; border-radius:8px; font-size:10px; font-weight:950; border:1px solid #cbd5e1; background:#fff; color:#0f172a; cursor:pointer; white-space:nowrap; }
+    .driver-finance-backdrop { position:fixed; inset:0; z-index:260; display:grid; place-items:start center; padding:8px; background:rgba(15,23,42,.28); overflow:hidden; }
+    .driver-finance-modal { width:min(820px,calc(100vw - 16px)); background:#fff; border:1px solid #cbd5e1; border-radius:16px; box-shadow:0 24px 70px rgba(15,23,42,.28); padding:12px; transform-origin:top center; }
+    .driver-finance-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:9px; }
+    .driver-finance-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .driver-finance-panel { border:1px solid #e2e8f0; border-radius:12px; padding:10px; background:#f8fafc; }
+    .driver-finance-fields { display:grid; grid-template-columns:120px minmax(140px,1fr); gap:7px; margin-top:8px; }
+    .driver-finance-fields .wide { grid-column:1/-1; }
+    .driver-finance-fields button { grid-column:1/-1; }
+    .client-assignment-request-badge { margin-left:6px; }
+    .client-row-assignment { margin-top:5px; font-size:10px; font-weight:800; color:#92400e; }
+    /* Formularze otwierane w overlay są dopasowywane skryptem do wysokości okna. */
+    .modal-backdrop,.fleet-edit-backdrop,.pdf-import-backdrop { overflow:hidden !important; padding:5px !important; align-items:flex-start !important; place-items:start center !important; }
+    .modal,.fleet-edit-modal,.pdf-import-modal { max-height:none !important; overflow:visible !important; transform-origin:top center; }
+    .pdf-import-body { max-height:none !important; overflow:visible !important; }
+    @media(max-width:760px){
+      .workflow-row,.relation-transfer-form,.relation-transfer-accept,.driver-finance-grid,.driver-finance-fields { grid-template-columns:1fr; }
+    }
+  </style>
+
+  <script id="targeted-3l31-workflow-return-ai-finance-script">
+    (() => {
+      state.workflowClientAssignments = state.workflowClientAssignments || [];
+      state.workflowRelationTransfers = state.workflowRelationTransfers || [];
+
+      function requestWorkflowData() {
+        if (!EMBEDDED_MODE || !state.user) return;
+        window.parent?.postMessage({ type:"top-dragon-workflow-request", requestId:`workflow-${Date.now()}` }, window.location.origin);
+      }
+
+      function workflowPendingClientAssignments() {
+        return (state.workflowClientAssignments || []).filter(item => item && item.status === "pending");
+      }
+      function workflowRelationTransferForRoute(routeId) {
+        return (state.workflowRelationTransfers || []).find(item => item && item.relationRef === routeId && item.status === "pending") || null;
+      }
+      function workflowStatusLabel(status) {
+        return status === "accepted" ? "Zatwierdzone" : status === "rejected" ? "Odrzucone" : status === "cancelled" ? "Anulowane" : "Do akceptacji";
+      }
+      function workflowCanApproveClients() {
+        return state.user?.supabaseRole === "branch_manager" || state.user?.supabaseRole === "admin";
+      }
+      function clientAssignmentForClient(clientId) {
+        return (state.workflowClientAssignments || []).find(item => item?.clientRef === clientId && item.status === "pending") || null;
+      }
+
+      window.respondClientAssignment = function(requestId, status) {
+        window.parent?.postMessage({ type:"top-dragon-client-assignment-response", requestId:`client-assignment-response-${Date.now()}`, assignmentRequestId:requestId, status, comment:"" }, window.location.origin);
+      };
+
+      function renderClientAssignmentApprovalCard() {
+        const pendingCount = workflowPendingClientAssignments().length;
+        const rows = [...(state.workflowClientAssignments || [])]
+          .sort((a,b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")))
+          .slice(0, 20);
+        return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3><div class="small">Przypisania opiekunów klientów. Status jest widoczny również po decyzji kierownika.</div></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => { const status=String(item.status || "pending"); return `<div class="workflow-row"><div><b>${esc(item.clientName || item.clientRef)}</b><div class="small">Wniosek: ${esc(item.requestedByName || "—")}</div></div><div><span class="workflow-status ${attr(status)}">${esc(workflowStatusLabel(status))}</span><div class="small" style="margin-top:4px;">Opiekun: <b>${esc(item.requestedDispatcherName || "—")}</b></div></div><div class="workflow-actions">${status === "pending" ? (workflowCanApproveClients() ? `<button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','accepted')">Zatwierdź</button><button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','rejected')">Odrzuć</button>` : `<span class="small">Oczekuje na kierownika</span>`) : `<span class="small">${item.respondedAt ? esc(new Date(item.respondedAt).toLocaleString("pl-PL")) : ""}</span>`}</div></div>`; }).join("")}</div>` : `<div class="small">Brak wniosków o przypisanie opiekuna.</div>`}</div>`;
+      }
+
+      const originalRenderClientDatabase3L31 = renderClientDatabase;
+      renderClientDatabase = function() {
+        let html = originalRenderClientDatabase3L31.apply(this, arguments);
+        html = html.replace('<form class="client-db-form"', `${renderClientAssignmentApprovalCard()}<form class="client-db-form"`);
+        (state.clients || []).forEach(client => {
+          const pending = clientAssignmentForClient(client.id);
+          if (!pending) return;
+          const needle = `<div class="client-row-meta"><span><b>NIP:</b>`;
+          const idx = html.indexOf(`data-client-dispatcher="${attr(client.dispatcher || "")}"`);
+          if (idx < 0) return;
+          const meta = html.indexOf(needle, idx);
+          if (meta < 0) return;
+          const end = html.indexOf('</div>', meta + needle.length);
+          if (end < 0) return;
+          html = html.slice(0,end+6) + `<div class="client-row-assignment"><span class="workflow-status pending">Do akceptacji</span> → ${esc(pending.requestedDispatcherName || "—")}</div>` + html.slice(end+6);
+        });
+        return html;
+      };
+
+      const originalSaveClientFromForm3L31 = saveClientFromForm;
+      saveClientFromForm = async function(event) {
+        event?.preventDefault?.();
+        const select = document.getElementById("client-dispatcher");
+        const desiredLogin = String(select?.value || "").trim();
+        const existing = (state.clients || []).find(client => client.id === state.clientEditId) || null;
+        const existingLogin = String(existing?.dispatcher || "").trim();
+        const dispatcherRole = state.user?.supabaseRole === "dispatcher";
+        const changingOwner = dispatcherRole && desiredLogin !== existingLogin;
+        if (!changingOwner) return originalSaveClientFromForm3L31.call(this, event);
+
+        if (!desiredLogin) {
+          showAppMessage("Zmiana wymaga kierownika", "Spedytor może wnioskować o przypisanie opiekuna. Usunięcie istniejącego opiekuna wykonuje kierownik oddziału lub administrator.");
+          return;
+        }
+        const targetUser = USERS.find(user => user.supabaseRole === "dispatcher" && user.login === desiredLogin && (!state.user?.branchId || user.branchId === state.user.branchId));
+        if (!targetUser?.supabaseId) {
+          showAppMessage("Nie znaleziono spedytora", "Wybrany opiekun nie jest aktywnym spedytorem tego oddziału.", "error");
+          return;
+        }
+        const beforeIds = new Set((state.clients || []).map(item => item.id));
+        if (select) select.value = existingLogin;
+        await originalSaveClientFromForm3L31.call(this, event);
+        scheduleCentralClientsDiff(0);
+        const saved = existing || (state.clients || []).find(item => !beforeIds.has(item.id));
+        if (!saved?.id) return;
+        setTimeout(() => {
+          window.parent?.postMessage({ type:"top-dragon-client-assignment-request-create", requestId:`client-assignment-${Date.now()}`, clientRef:saved.id, toDispatcherId:targetUser.supabaseId }, window.location.origin);
+        }, 450);
+        showAppMessage("Wysłano do akceptacji", `${saved.name} → ${desiredLogin}. Kierownik oddziału musi zatwierdzić przypisanie.`);
+      };
+
+      function queueReturnNote(route) {
+        if (!route?.returnedFromBoard) return "";
+        const when = route.returnedAt ? new Date(route.returnedAt).toLocaleString("pl-PL") : "";
+        return `<div class="queue-return-note">↩ Zwrot z tablicy${route.returnedDriverName ? ` · kierowca ${esc(route.returnedDriverName)}` : ""}${route.returnedBy ? ` · ${esc(route.returnedBy)}` : ""}${when ? ` · ${esc(when)}` : ""}</div>`;
+      }
+      const originalRenderProposedLoadCard3L31 = renderProposedLoadCard;
+      renderProposedLoadCard = function(route) {
+        let html = originalRenderProposedLoadCard3L31.apply(this, arguments);
+        if (route?.returnedFromBoard) html = html.replace('<div class="proposed-load-owner-actions">', `${queueReturnNote(route)}<div class="proposed-load-owner-actions">`);
+        return html;
+      };
+      const originalRenderFutureRouteCard3L31 = renderFutureRouteCard;
+      renderFutureRouteCard = function(route) {
+        let html = originalRenderFutureRouteCard3L31.apply(this, arguments);
+        if (route?.returnedFromBoard) html = html.replace('<div class="future-card-actions">', `${queueReturnNote(route)}<div class="future-card-actions">`);
+        return html;
+      };
+
+      window.returnBoardRouteToQueue = function(event, routeId, targetKind) {
+        event?.preventDefault?.(); event?.stopPropagation?.();
+        const route = (state.routes || []).find(item => item.id === routeId);
+        if (!route || !canEditBoardRoute(route) || isFreeDayRoute(route)) return;
+        const driver = driverById(route.driverId);
+        const returned = {
+          ...route,
+          driverId:"", ownerDispatcher:"", approvalStatus:"accepted",
+          returnedFromBoard:true, returnedAt:new Date().toISOString(), returnedBy:state.user?.login || "", returnedDriverName:driver?.driver || "", returnedFromRouteId:route.id,
+          takenBy:"", takenDriverId:"", takenRouteId:"", sourceProposedId:"", sourceFutureId:"", fromFutureQueue:false
+        };
+
+        if (route.sourceProposedId) state.proposedLoads = (state.proposedLoads || []).filter(item => item.id !== route.sourceProposedId);
+        if (route.sourceFutureId) state.futureRoutes = (state.futureRoutes || []).filter(item => item.id !== route.sourceFutureId);
+
+        if (targetKind === "future") {
+          returned.id = route.sourceFutureId || `f-ret-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+          returned.futureQueue = true; returned.proposedLoad = false; returned.status = "planned";
+          returned.createdBy = state.user?.login || route.createdBy || "";
+          returned.visibilityScope = "branch"; returned.visibilityBranch = state.user?.branch || "";
+          state.futureRoutes = [returned, ...(state.futureRoutes || [])];
+          state.futurePanelOpen = true; state.proposedPanelOpen = false;
+        } else {
+          returned.id = route.sourceProposedId || `p-ret-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+          returned.futureQueue = false; returned.proposedLoad = true; returned.status = "available";
+          returned.createdBy = state.user?.login || route.createdBy || "";
+          returned.visibilityScope = "all"; returned.visibilityBranch = "";
+          state.proposedLoads = [returned, ...(state.proposedLoads || [])];
+          state.proposedPanelOpen = true; state.futurePanelOpen = false;
+        }
+        state.routes = (state.routes || []).filter(item => item.id !== route.id);
+        removeLeafletMarker(route.id);
+        state.selectedRouteId = null; state.detailsOpen = false;
+        scheduleCentralRelationsDiff(0); scheduleCentralLoadQueueDiff(0);
+        scheduleUiSync({ board:true, unload:true, proposed:true, future:true, details:true });
+        showAppMessage("Relacja zwrócona", targetKind === "future" ? "Relacja wróciła do Planowanych relacji." : "Relacja wróciła do Wolnych ładunków.");
+      };
+
+      function currentPendingRelationTransfer(routeId) { return workflowRelationTransferForRoute(routeId); }
+      function relationTransferTargetUsers() {
+        return USERS.filter(user => user.supabaseRole === "dispatcher" && user.supabaseId && user.login !== state.user?.login && (!state.user?.branchId || user.branchId === state.user.branchId));
+      }
+      window.createRelationTransfer = function(routeId) {
+        const target = document.getElementById(`relation-transfer-target-${routeId}`)?.value || "";
+        const comment = document.getElementById(`relation-transfer-comment-${routeId}`)?.value || "";
+        if (!target) { showAppMessage("Wybierz spedytora", "Wskaż odbiorcę relacji."); return; }
+        window.parent?.postMessage({ type:"top-dragon-relation-transfer-create", requestId:`relation-transfer-${Date.now()}`, relationRef:routeId, toDispatcherId:target, comment }, window.location.origin);
+      };
+      window.respondRelationTransfer = function(requestId, routeId, status) {
+        const assignmentId = status === "accepted" ? (document.getElementById(`relation-transfer-driver-${routeId}`)?.value || "") : "";
+        if (status === "accepted" && !assignmentId) { showAppMessage("Wybierz pojazd", "Przy akceptacji wybierz własnego kierowcę/pojazd, na który ma trafić relacja."); return; }
+        window.parent?.postMessage({ type:"top-dragon-relation-transfer-response", requestId:`relation-transfer-response-${Date.now()}`, transferRequestId:requestId, status, assignmentId }, window.location.origin);
+      };
+      function renderRelationTransferSection(route) {
+        if (!route || state.user?.role !== "spedytor") return "";
+        const pending = currentPendingRelationTransfer(route.id);
+        const own = route.ownerDispatcher === state.user.login;
+        if (pending) {
+          const incoming = pending.toDispatcherId === state.user.supabaseId;
+          if (incoming) {
+            const myDrivers = operationalDrivers().filter(driver => driver.dispatcher === state.user.login);
+            return `<section class="section relation-transfer-box"><b>Transfer relacji do Ciebie</b><div class="small">${esc(pending.fromDispatcherName || "Spedytor")} przekazuje: ${esc(pending.relationLabel || `${route.load} → ${route.unload}`)}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div><div class="relation-transfer-accept"><select id="relation-transfer-driver-${attr(route.id)}" class="select"><option value="">— wybierz własny pojazd —</option>${myDrivers.map(driver => `<option value="${attr(driver.dbAssignmentId || driver.id)}">${esc(driver.driver)} · ${esc(driver.carrier)} · ${esc(driver.tractorReg || "—")}</option>`).join("")}</select><button class="btn btn-green" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','accepted')">Akceptuj</button><button class="btn btn-red" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','rejected')">Odrzuć</button></div></section>`;
+          }
+          return `<section class="section relation-transfer-box"><b>Transfer oczekuje na akceptację</b><div class="small">Odbiorca: ${esc(pending.toDispatcherName || "—")}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div></section>`;
+        }
+        if (!own) return "";
+        const targets = relationTransferTargetUsers();
+        if (!targets.length) return "";
+        return `<section class="section relation-transfer-box"><b>Przenieś relację do innego spedytora</b><div class="small">Odbiorca musi zaakceptować transfer i wskazać swój pojazd.</div><div class="relation-transfer-form"><select id="relation-transfer-target-${attr(route.id)}" class="select"><option value="">— wybierz spedytora —</option>${targets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select><input id="relation-transfer-comment-${attr(route.id)}" class="input" maxlength="300" placeholder="komentarz opcjonalnie"/><button class="btn btn-dark" onclick="createRelationTransfer('${attr(route.id)}')">Wyślij do akceptacji</button></div></section>`;
+      }
+
+      const originalRenderSidePanel3L31 = renderSidePanel;
+      renderSidePanel = function() {
+        let html = originalRenderSidePanel3L31.apply(this, arguments);
+        const route = (state.routes || []).find(item => item.id === state.selectedRouteId);
+        if (!route) return html;
+        const extras = `${route.aiSourceText ? `<section class="section" style="border-color:#bfdbfe;background:#eff6ff"><b>Oryginalny tekst użyty przez AI</b><div class="small" style="white-space:pre-wrap;margin-top:6px;">${esc(route.aiSourceText)}</div></section>` : ""}${renderRelationTransferSection(route)}`;
+        if (!extras) return html;
+        const smsIndex = html.indexOf('<b>Wiadomość do kierowcy</b>');
+        if (smsIndex > 0) {
+          const sectionIndex = html.lastIndexOf('<section', smsIndex);
+          if (sectionIndex > 0) html = html.slice(0, sectionIndex) + extras + html.slice(sectionIndex);
+        }
+        return html;
+      };
+
+      function financeDispatcherTargets() {
+        return USERS.filter(user => user.supabaseRole === "dispatcher" && user.supabaseId && user.login !== state.user?.login);
+      }
+      window.closeDriverFinanceTools = function() { document.querySelector('.driver-finance-backdrop')?.remove(); };
+      window.openDriverFinanceTools = function(event, driverId) {
+        event?.preventDefault?.(); event?.stopPropagation?.();
+        const driver = driverById(driverId);
+        if (!driver || state.user?.role !== "spedytor" || driver.dispatcher !== state.user.login) return;
+        closeDriverFinanceTools();
+        const weekStart = weeklyWeekStart(currentAppDate());
+        const targets = financeDispatcherTargets();
+        document.body.insertAdjacentHTML('beforeend', `<div class="driver-finance-backdrop" onclick="if(event.target===this)closeDriverFinanceTools()"><div class="driver-finance-modal" onclick="event.stopPropagation()"><div class="driver-finance-head"><div><h3 style="margin:0">Rozliczenia przy kierowcy</h3><div class="small">${esc(driver.driver)} · ${esc(driver.carrier)} · tydzień od ${esc(formatDateForInput(weekStart))}</div></div><button class="btn" onclick="closeDriverFinanceTools()">Zamknij</button></div><div class="driver-finance-grid"><div class="driver-finance-panel"><b>Dodatek / wyrównanie dla przewoźnika</b><div class="small">Kwota dodatnia zwiększa wypłatę przewoźnika, ujemna ją koryguje.</div><div class="driver-finance-fields"><input id="driver-finance-carrier-amount" class="input" type="number" step="0.01" placeholder="kwota zł"><input id="driver-finance-carrier-comment" class="input" maxlength="500" placeholder="komentarz"><button class="btn btn-dark" onclick="submitDriverCarrierAdjustment('${attr(driver.id)}','${attr(weekStart)}')">Zapisz dla przewoźnika</button></div></div><div class="driver-finance-panel"><b>Przekaż zysk spedytorowi</b><div class="small">Odbiorca musi zaakceptować transfer.</div><div class="driver-finance-fields"><select id="driver-finance-transfer-target" class="select"><option value="">— odbiorca —</option>${targets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login)}</option>`).join("")}</select><input id="driver-finance-transfer-amount" class="input" type="number" min="0.01" step="0.01" placeholder="kwota zł"><input id="driver-finance-transfer-comment" class="input wide" maxlength="500" placeholder="komentarz"><button class="btn btn-dark" onclick="submitDriverDispatcherTransfer('${attr(weekStart)}')">Wyślij do akceptacji</button></div></div></div></div></div>`);
+        requestAnimationFrame(fitTransientFormsToViewport);
+      };
+      window.submitDriverCarrierAdjustment = function(driverId, weekStart) {
+        const driver = driverById(driverId); if (!driver?.carrierEntityId) { showAppMessage("Brak przewoźnika", "Nie udało się ustalić przewoźnika dla tego kierowcy.", "error"); return; }
+        const amount = Number(document.getElementById('driver-finance-carrier-amount')?.value || 0);
+        const comment = String(document.getElementById('driver-finance-carrier-comment')?.value || '').trim();
+        if (!Number.isFinite(amount) || amount === 0) { showAppMessage("Podaj kwotę", "Kwota musi być różna od zera."); return; }
+        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`driver-carrier-adjust-${Date.now()}`, weekStart, carrierId:driver.carrierEntityId, amount, comment }, window.location.origin);
+        closeDriverFinanceTools();
+      };
+      window.submitDriverDispatcherTransfer = function(weekStart) {
+        const toDispatcherId = document.getElementById('driver-finance-transfer-target')?.value || '';
+        const amount = Number(document.getElementById('driver-finance-transfer-amount')?.value || 0);
+        const comment = String(document.getElementById('driver-finance-transfer-comment')?.value || '').trim();
+        if (!toDispatcherId || !Number.isFinite(amount) || amount <= 0) { showAppMessage("Uzupełnij transfer", "Wybierz spedytora i podaj dodatnią kwotę."); return; }
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-create", requestId:`driver-dispatcher-transfer-${Date.now()}`, weekStart, toDispatcherId, amount, comment }, window.location.origin);
+        closeDriverFinanceTools();
+      };
+      const originalRenderDriverSensitiveBlock3L31 = renderDriverSensitiveBlock;
+      renderDriverSensitiveBlock = function(driver) {
+        const base = originalRenderDriverSensitiveBlock3L31.apply(this, arguments);
+        const finance = state.user?.role === "spedytor" && driver?.dispatcher === state.user.login ? `<button type="button" class="driver-finance-btn" title="Dodatek dla przewoźnika / przekaż zysk" onclick="openDriverFinanceTools(event,'${attr(driver.id)}')">Rozl. zł</button>` : "";
+        return `${base}${finance}`;
+      };
+
+      window.fitTransientFormsToViewport = function() {
+        const selectors = ['.modal-backdrop .modal','.fleet-edit-backdrop .fleet-edit-modal','.pdf-import-backdrop .pdf-import-modal','.driver-finance-backdrop .driver-finance-modal'];
+        selectors.forEach(selector => document.querySelectorAll(selector).forEach(el => {
+          el.style.zoom = '1';
+          const maxH = Math.max(300, window.innerHeight - 12);
+          const h = el.getBoundingClientRect().height;
+          if (h > maxH) el.style.zoom = String(Math.max(.58, Math.min(1, maxH / h)));
+        }));
+      };
+      const formFitObserver = new MutationObserver(() => requestAnimationFrame(fitTransientFormsToViewport));
+      formFitObserver.observe(document.body, { childList:true, subtree:true });
+      window.addEventListener('resize', () => requestAnimationFrame(fitTransientFormsToViewport));
+      const originalSyncAddModal3L31 = syncAddModal;
+      syncAddModal = function() { const result = originalSyncAddModal3L31.apply(this, arguments); requestAnimationFrame(fitTransientFormsToViewport); return result; };
+
+      const originalApplyAuthenticatedUser3L31 = applyAuthenticatedUser;
+      applyAuthenticatedUser = function(user) {
+        const result = originalApplyAuthenticatedUser3L31.apply(this, arguments);
+        setTimeout(requestWorkflowData, 80);
+        return result;
+      };
+
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type === 'top-dragon-workflow-data') {
+          state.workflowClientAssignments = Array.isArray(message.clientAssignments) ? message.clientAssignments : [];
+          state.workflowRelationTransfers = Array.isArray(message.relationTransfers) ? message.relationTransfers : [];
+          syncClientDatabaseSection?.();
+          syncDetailsPanel?.();
+          return;
+        }
+        if (message.type === 'top-dragon-workflow-operation-result') {
+          showAppMessage(message.ok ? 'Zapisano' : 'Nie udało się wykonać operacji', String(message.message || ''), message.ok ? 'info' : 'error');
+          if (message.ok) requestWorkflowData();
+        }
+      });
+
+      requestAnimationFrame(fitTransientFormsToViewport);
     })();
   </script>
 
