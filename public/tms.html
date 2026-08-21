@@ -67778,8 +67778,8 @@
 
     applyStoredDriverAssignments();
 
-    const BOARD_PAST_DAYS = 7;
-    const BOARD_FUTURE_DAYS = 7;
+    const BOARD_PAST_DAYS = 1;
+    const BOARD_FUTURE_DAYS = 13;
     const START_DATE = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
 
     function currentAppDate() {
@@ -80370,6 +80370,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.unloadPanelCollapsed = true;
       state.appView = "plan";
       state.reportDate = addDaysToIso(currentAppDate(), -1);
+      state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
+      dateListMemo = { signature: "", dates: null, indexMap: null };
+      boardRenderCache = null;
       state.nearestDate = currentAppDate();
       state.statsDate = currentAppDate();
       state.statsCustomFrom = currentAppDate();
@@ -88321,13 +88324,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function financeDispatcherTargets() {
         return USERS.filter(user => user.supabaseRole === "dispatcher" && user.supabaseId && user.login !== state.user?.login);
       }
+      function driverFinanceWeekStart(date = currentAppDate()) {
+        const iso = String(date || currentAppDate()).slice(0,10);
+        const parsed = new Date(`${iso}T12:00:00`);
+        if (!Number.isFinite(parsed.getTime())) return iso;
+        const mondayOffset = (parsed.getDay() + 6) % 7;
+        return addDaysToIso(iso, -mondayOffset);
+      }
       window.closeDriverFinanceTools = function() { document.querySelector('.driver-finance-backdrop')?.remove(); };
       window.openDriverFinanceTools = function(event, driverId) {
         event?.preventDefault?.(); event?.stopPropagation?.();
         const driver = driverById(driverId);
         if (!driver || state.user?.role !== "spedytor" || driver.dispatcher !== state.user.login) return;
         closeDriverFinanceTools();
-        const weekStart = weeklyWeekStart(currentAppDate());
+        const weekStart = driverFinanceWeekStart(currentAppDate());
         const targets = financeDispatcherTargets();
         document.body.insertAdjacentHTML('beforeend', `<div class="driver-finance-backdrop" onclick="if(event.target===this)closeDriverFinanceTools()"><div class="driver-finance-modal" onclick="event.stopPropagation()"><div class="driver-finance-head"><div><h3 style="margin:0">Rozliczenia przy kierowcy</h3><div class="small">${esc(driver.driver)} · ${esc(driver.carrier)} · tydzień od ${esc(formatDateForInput(weekStart))}</div></div><button class="btn" onclick="closeDriverFinanceTools()">Zamknij</button></div><div class="driver-finance-grid"><div class="driver-finance-panel"><b>Dodatek / wyrównanie dla przewoźnika</b><div class="small">Kwota dodatnia zwiększa wypłatę przewoźnika, ujemna ją koryguje.</div><div class="driver-finance-fields"><input id="driver-finance-carrier-amount" class="input" type="number" step="0.01" placeholder="kwota zł"><input id="driver-finance-carrier-comment" class="input" maxlength="500" placeholder="komentarz"><button class="btn btn-dark" onclick="submitDriverCarrierAdjustment('${attr(driver.id)}','${attr(weekStart)}')">Zapisz dla przewoźnika</button></div></div><div class="driver-finance-panel"><b>Przekaż zysk spedytorowi</b><div class="small">Odbiorca musi zaakceptować transfer.</div><div class="driver-finance-fields"><select id="driver-finance-transfer-target" class="select"><option value="">— odbiorca —</option>${targets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login)}</option>`).join("")}</select><input id="driver-finance-transfer-amount" class="input" type="number" min="0.01" step="0.01" placeholder="kwota zł"><input id="driver-finance-transfer-comment" class="input wide" maxlength="500" placeholder="komentarz"><button class="btn btn-dark" onclick="submitDriverDispatcherTransfer('${attr(weekStart)}')">Wyślij do akceptacji</button></div></div></div></div></div>`);
         requestAnimationFrame(fitTransientFormsToViewport);
@@ -88351,7 +88361,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const originalRenderDriverSensitiveBlock3L31 = renderDriverSensitiveBlock;
       renderDriverSensitiveBlock = function(driver) {
         const base = originalRenderDriverSensitiveBlock3L31.apply(this, arguments);
-        const finance = state.user?.role === "spedytor" && driver?.dispatcher === state.user.login ? `<button type="button" class="driver-finance-btn" title="Dodatek dla przewoźnika / przekaż zysk" onclick="openDriverFinanceTools(event,'${attr(driver.id)}')">Rozl. zł</button>` : "";
+        const finance = state.user?.role === "spedytor" && driver?.dispatcher === state.user.login ? `<button type="button" class="driver-finance-btn" title="Rozliczenia: dodatek dla przewoźnika / przekaż zysk" aria-label="Rozliczenia finansowe" onclick="openDriverFinanceTools(event,'${attr(driver.id)}')">$</button>` : "";
         return `${base}${finance}`;
       };
 
@@ -88397,5 +88407,86 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+  <style id="targeted-3l34-board-start-finance-theme-fixes">
+    /* 3L.34 — prywatne kolory wierszy muszą być czytelne także w trybie jasnym. */
+    .driver-private-color-yellow { background:#fef08a !important; }
+    .driver-private-color-green { background:#bbf7d0 !important; }
+    .driver-private-color-blue { background:#bfdbfe !important; }
+    .driver-private-color-pink { background:#fbcfe8 !important; }
+    .driver-private-color-purple { background:#ddd6fe !important; }
+    .driver-private-color-orange { background:#fed7aa !important; }
+    .driver-private-color-gray { background:#e2e8f0 !important; }
+
+    /* Warstwa relacji pozostaje przezroczysta, żeby nie zasłaniała siatki. */
+    .timeline-row.driver-private-color-yellow,
+    .timeline-row.driver-private-color-green,
+    .timeline-row.driver-private-color-blue,
+    .timeline-row.driver-private-color-pink,
+    .timeline-row.driver-private-color-purple,
+    .timeline-row.driver-private-color-orange,
+    .timeline-row.driver-private-color-gray { background:transparent !important; }
+
+    /* Ciemny motyw — wyraźna oś godzinowa, pionowe linie i granice dni/wierszy. */
+    .app.dark-mode .day-cell { border-right-color:#64748b !important; border-bottom-color:#475569 !important; }
+    .app.dark-mode .time-labels {
+      color:#cbd5e1 !important;
+      border-bottom-color:rgba(148,163,184,.62) !important;
+      text-shadow:0 1px 0 rgba(0,0,0,.35);
+    }
+    .app.dark-mode .time-grid span,
+    .app.dark-mode .time-labels span { border-left-color:rgba(148,163,184,.48) !important; }
+    .app.dark-mode .head-cell { border-right-color:#64748b !important; border-bottom-color:#64748b !important; }
+    .app.dark-mode .board { --border:#475569; }
+    .app.dark-mode .time-now-line { background:#f87171 !important; box-shadow:0 0 0 1px rgba(248,113,113,.34) !important; }
+    .app.dark-mode .time-now-line:before { background:#fb7185 !important; box-shadow:0 0 0 2px rgba(15,23,42,.95) !important; }
+    .app.dark-mode .time-now-label { background:#ef4444 !important; color:#fff !important; }
+
+    /* Przycisk finansowy przy kierowcy: prosty, jednoznaczny symbol $. */
+    .driver-finance-btn {
+      width:27px !important; min-width:27px !important; height:25px !important; padding:0 !important;
+      display:inline-flex !important; align-items:center; justify-content:center;
+      font-size:15px !important; line-height:1 !important; font-weight:950 !important;
+    }
+  </style>
+
+
+  <style id="targeted-3l35-dark-row-grid-layer-fix">
+    /* 3L.35 — w trybie ciemnym prywatny kolor wiersza ma należeć do komórek,
+       a warstwa timeline-row musi pozostać przezroczysta. Wcześniej selektor
+       .app.dark-mode .driver-private-color-* wygrywał specyficznością i
+       zasłaniał time-grid/time-labels znajdujące się pod timeline-row. */
+    .app.dark-mode .timeline-row.driver-private-color-yellow,
+    .app.dark-mode .timeline-row.driver-private-color-green,
+    .app.dark-mode .timeline-row.driver-private-color-blue,
+    .app.dark-mode .timeline-row.driver-private-color-pink,
+    .app.dark-mode .timeline-row.driver-private-color-purple,
+    .app.dark-mode .timeline-row.driver-private-color-orange,
+    .app.dark-mode .timeline-row.driver-private-color-gray {
+      background: transparent !important;
+    }
+
+    /* Siatka i podpisy godzin pozostają nad kolorowym tłem komórki. */
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-grid {
+      z-index: 2 !important;
+    }
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-labels {
+      z-index: 3 !important;
+    }
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-grid span,
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-labels span {
+      border-left-color: rgba(203,213,225,.62) !important;
+    }
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-labels {
+      color: #e2e8f0 !important;
+      border-bottom-color: rgba(203,213,225,.64) !important;
+    }
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-now-line {
+      z-index: 12 !important;
+    }
+    .app.dark-mode .day-cell[class*="driver-private-color-"] .time-plus {
+      z-index: 13 !important;
+    }
+  </style>
 </body>
 </html>
