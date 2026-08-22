@@ -88520,11 +88520,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   </style>
 
   <style id="targeted-3l36-board-week-finance-drag">
-    /* 3L.36 — kafelek nie wycina koloru/tła wiersza: semantyczne tła pozostają półprzezroczyste. */
-    .time-route { background:rgba(255,255,255,.68); backdrop-filter:saturate(1.05); }
-    .time-route:hover { background:rgba(255,255,255,.84); }
-    .app.dark-mode .time-route { background:rgba(15,23,42,.68); }
-    .app.dark-mode .time-route:hover { background:rgba(15,23,42,.84); }
+    /* 3L.37 — zwykły kafelek nie wycina koloru/tła wiersza; semantyczne statusy zachowują własne wypełnienia. */
+    .time-route { background:transparent !important; backdrop-filter:none !important; }
+    .time-route:hover { background:transparent !important; box-shadow:0 4px 12px rgba(15,23,42,.16); }
+    .app.dark-mode .time-route { background:transparent !important; }
+    .app.dark-mode .time-route:hover { background:transparent !important; box-shadow:0 4px 12px rgba(0,0,0,.28); }
     .time-route.status-accounting-final { background:rgba(134,239,172,.72) !important; }
     .app.dark-mode .time-route.status-accounting-final { background:rgba(20,83,45,.76) !important; }
     .time-route.status-accounting-check { background:rgba(254,243,199,.74) !important; }
@@ -88746,12 +88746,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const dates=dateList();
         requestBoardWeeklySettlements3L36(dates,false);
         let html=originalRenderBoard3L36.apply(this,args);
-        html=html.replace(
-          '<button class="btn" type="button" onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button>',
-          '<button class="btn board-one-day-nav" type="button" onclick="shiftBoardWindow(-1)" title="Cofnij widok o 1 dzień">‹ 1 dzień</button><button class="btn" type="button" onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button>'
-        );
-        html=html.replace('<button class="btn" type="button" onclick="resetBoardWindow()">Dzisiaj</button>', '<button class="btn" type="button" onclick="resetBoardWindow()">Wczoraj</button>');
-        html=html.replace('<button class="btn" type="button" onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button>', '<button class="btn board-one-day-nav" type="button" onclick="shiftBoardWindow(1)" title="Przesuń widok o 1 dzień w stronę wczoraj">1 dzień ›</button><button class="btn" type="button" onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button>');
+        /* 3L.37: wracamy do klasycznej nawigacji 14-dniowej.
+           Start po wejściu nadal zaczyna się od wczoraj, natomiast środkowy
+           przycisk zachowuje nazwę "Dzisiaj" zgodnie z UI projektu. */
         return html;
       };
 
@@ -88819,5 +88816,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+  <style id="targeted-3l37-weekly-schema-board-ui">
+    /* Klasyczna nawigacja — bez dodatkowych przycisków ±1 dzień. */
+    .board-range-nav .board-one-day-nav { display:none !important; }
+    /* Zwykła relacja ma pokazywać kolor wiersza pod kafelkiem. */
+    .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
+      background:transparent !important;
+      backdrop-filter:none !important;
+    }
+  </style>
 </body>
 </html>
