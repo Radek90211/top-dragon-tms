@@ -1810,23 +1810,35 @@ function normalizeWeekStart(value) {
   return date.toISOString().slice(0, 10)
 }
 
+function isWeeklyFinanceSchemaCacheError(error) {
+  const text = `${String(error?.code || '')} ${String(error?.message || '')} ${String(error?.details || '')}`
+  return /PGRST20[024]|schema cache|driver_id|driver_name|recipient_approved|manager_approved|deleted_at|rejected_at/i.test(text)
+}
+
+async function queryWeeklyFinanceRows(normalizedWeek, extended = true) {
+  const adjustmentSelect = extended
+    ? 'id,week_start,branch_id,carrier_id,carrier_name,driver_id,driver_name,amount,comment,created_by,created_at,active'
+    : 'id,week_start,branch_id,carrier_id,carrier_name,amount,comment,created_by,created_at,active'
+  const transferSelect = extended
+    ? 'id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at,recipient_approved_at,recipient_approved_by,from_manager_approved_at,from_manager_approved_by,to_manager_approved_at,to_manager_approved_by,deleted_at,deleted_by,rejected_at,rejected_by'
+    : 'id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at'
+
+  return Promise.all([
+    supabase.from('tms_carrier_week_adjustments').select(adjustmentSelect).eq('week_start', normalizedWeek).eq('active', true).order('created_at', { ascending: true }),
+    supabase.from('tms_dispatcher_week_transfers').select(transferSelect).eq('week_start', normalizedWeek).order('created_at', { ascending: true }),
+  ])
+}
+
 async function loadWeeklySettlementData(weekStart) {
   const normalizedWeek = normalizeWeekStart(weekStart)
   if (!normalizedWeek) throw new Error('Nieprawidłowy tydzień rozliczeniowy.')
 
-  const [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await Promise.all([
-    supabase
-      .from('tms_carrier_week_adjustments')
-      .select('id,week_start,branch_id,carrier_id,carrier_name,driver_id,driver_name,amount,comment,created_by,created_at,active')
-      .eq('week_start', normalizedWeek)
-      .eq('active', true)
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('tms_dispatcher_week_transfers')
-      .select('id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at,recipient_approved_at,recipient_approved_by,from_manager_approved_at,from_manager_approved_by,to_manager_approved_at,to_manager_approved_by,deleted_at,deleted_by,rejected_at,rejected_by')
-      .eq('week_start', normalizedWeek)
-      .order('created_at', { ascending: true }),
-  ])
+  let [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await queryWeeklyFinanceRows(normalizedWeek, true)
+  if ((adjustmentsError && isWeeklyFinanceSchemaCacheError(adjustmentsError)) || (transfersError && isWeeklyFinanceSchemaCacheError(transfersError))) {
+    // Po migracji 026 PostgREST może jeszcze przez chwilę widzieć stary schemat.
+    // Nie blokujemy całego panelu czerwonym błędem — czytamy stare kolumny do czasu reloadu cache.
+    ;([{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await queryWeeklyFinanceRows(normalizedWeek, false))
+  }
 
   if (adjustmentsError) throw new Error(`Nie udało się pobrać wyrównań przewoźników: ${adjustmentsError.message}`)
   if (transfersError) throw new Error(`Nie udało się pobrać przelewów spedytorów: ${transfersError.message}`)
@@ -1940,10 +1952,20 @@ function sendWeeklySettlementOperationResult(requestId, ok, action, message) {
   }, window.location.origin)
 }
 
+async function rpcWithWeeklySchemaRetry(name, args) {
+  let result = await supabase.rpc(name, args)
+  if (!result.error || !isWeeklyFinanceSchemaCacheError(result.error)) return result
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  result = await supabase.rpc(name, args)
+  if (!result.error || !isWeeklyFinanceSchemaCacheError(result.error)) return result
+  await new Promise((resolve) => setTimeout(resolve, 1400))
+  return supabase.rpc(name, args)
+}
+
 async function createCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   try {
-    const { error } = await supabase.rpc('create_tms_carrier_week_adjustment_v2', {
+    const { error } = await rpcWithWeeklySchemaRetry('create_tms_carrier_week_adjustment_v2', {
       p_week_start: normalizeWeekStart(message?.weekStart),
       p_carrier_id: String(message?.carrierId || '').trim() || null,
       p_driver_id: String(message?.driverId || '').trim() || null,
@@ -1976,7 +1998,7 @@ async function deleteCarrierWeekAdjustmentFromTms(message) {
 async function createDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   try {
-    const { error } = await supabase.rpc('create_tms_dispatcher_week_transfer', {
+    const { error } = await rpcWithWeeklySchemaRetry('create_tms_dispatcher_week_transfer', {
       p_week_start: normalizeWeekStart(message?.weekStart),
       p_to_dispatcher_id: String(message?.toDispatcherId || '').trim() || null,
       p_amount: Number(message?.amount || 0),
@@ -1995,7 +2017,7 @@ async function respondDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const status = String(message?.status || '').trim().toLowerCase()
   try {
-    const { error } = await supabase.rpc('respond_tms_dispatcher_week_transfer', {
+    const { error } = await rpcWithWeeklySchemaRetry('respond_tms_dispatcher_week_transfer', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
       p_status: status,
     })
@@ -2010,7 +2032,7 @@ async function respondDispatcherWeekTransferFromTms(message) {
 async function deleteDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   try {
-    const { error } = await supabase.rpc('delete_tms_dispatcher_week_transfer', {
+    const { error } = await rpcWithWeeklySchemaRetry('delete_tms_dispatcher_week_transfer', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
     })
     if (error) throw error
@@ -2025,7 +2047,7 @@ async function approveDispatcherWeekTransferManagerFromTms(message) {
   const requestId = String(message?.requestId || '')
   const status = String(message?.status || '').trim().toLowerCase()
   try {
-    const { error } = await supabase.rpc('approve_tms_dispatcher_week_transfer_manager', {
+    const { error } = await rpcWithWeeklySchemaRetry('approve_tms_dispatcher_week_transfer_manager', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
       p_status: status,
     })
@@ -2394,7 +2416,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v56-week-finance-drag"
+        src="/tms.html?embedded=1&build=request-workflow-v57-week-schema-repair"
         title="Top Dragon TMS"
       ></iframe>
     </main>
