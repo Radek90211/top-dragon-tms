@@ -87483,10 +87483,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return own || state.user?.role === "rozliczenia" || state.user?.role === "admin";
       }
 
-      function weeklyTransferStatusLabel(status) {
+      function weeklyTransferStatusLabel(status, item = null) {
         if (status === "accepted") return "Zaakceptowany";
         if (status === "rejected") return "Odrzucony";
-        return "Oczekuje na akceptację";
+        if (status === "deleted") {
+          const when = item?.deletedAt ? new Date(item.deletedAt) : null;
+          const time = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString("pl-PL", { hour:"2-digit", minute:"2-digit" }) : "";
+          return time ? `Usunięty ${time}` : "Usunięty";
+        }
+        const missing = [];
+        if (!item?.recipientApprovedAt) missing.push("odbiorca");
+        if (!item?.fromManagerApprovedAt) missing.push("kierownik nadawcy");
+        if (!item?.toManagerApprovedAt) missing.push("kierownik odbiorcy");
+        return missing.length ? `Oczekuje: ${missing.join(", ")}` : "Oczekuje na finalizację";
       }
 
       window.createWeeklyCarrierAdjustment = function() {
@@ -87500,7 +87509,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         state.weeklySettlementBusy = true;
-        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`carrier-adjust-${Date.now()}`, weekStart, carrierId, amount, comment }, window.location.origin);
+        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`carrier-adjust-${Date.now()}`, weekStart, carrierId, driverId:"", driverName:"", amount, comment }, window.location.origin);
       };
 
       window.deleteWeeklyCarrierAdjustment = function(adjustmentId) {
@@ -87529,10 +87538,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-response", requestId:`dispatcher-transfer-response-${Date.now()}`, transferId, status }, window.location.origin);
       };
 
-      window.cancelWeeklyDispatcherTransfer = function(transferId) {
+      window.approveWeeklyDispatcherTransferManager = function(transferId, status) {
+        if (state.weeklySettlementBusy || !transferId || !["accepted","rejected"].includes(status)) return;
+        state.weeklySettlementBusy = true;
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-manager-response", requestId:`dispatcher-transfer-manager-${Date.now()}`, transferId, status }, window.location.origin);
+      };
+
+      window.deleteWeeklyDispatcherTransfer = function(transferId) {
         if (state.weeklySettlementBusy || !transferId) return;
         state.weeklySettlementBusy = true;
-        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-cancel", requestId:`dispatcher-transfer-cancel-${Date.now()}`, transferId }, window.location.origin);
+        window.parent?.postMessage({ type:"top-dragon-dispatcher-week-transfer-delete", requestId:`dispatcher-transfer-delete-${Date.now()}`, transferId }, window.location.origin);
+      };
+
+      window.cancelWeeklyDispatcherTransfer = function(transferId) {
+        return deleteWeeklyDispatcherTransfer(transferId);
       };
 
       function renderWeeklySettlementSection(stats) {
@@ -87601,12 +87620,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 const currentId = String(state.user?.supabaseId || "");
                 const isRecipient = currentId && currentId === String(item.toDispatcherId || "");
                 const isSender = currentId && currentId === String(item.fromDispatcherId || "");
-                const actions = item.status === "pending" && isRecipient
-                  ? `<div class="weekly-transfer-actions"><button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','accepted')">Akceptuj</button><button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','rejected')">Odrzuć</button></div>`
-                  : item.status === "pending" && isSender
-                    ? `<button type="button" class="btn-mini" onclick="cancelWeeklyDispatcherTransfer('${attr(item.id)}')">Anuluj</button>`
-                    : "—";
-                return `<tr class="${isRecipient || isSender ? "weekly-current-user-row" : ""}"><td>${esc(weeklyUserLabel(item.fromDispatcherId))}</td><td>${esc(weeklyUserLabel(item.toDispatcherId))}</td><td><b>${statsMoney(item.amount)}</b></td><td>${esc(item.comment || "—")}</td><td><span class="weekly-transfer-status ${attr(item.status)}">${esc(weeklyTransferStatusLabel(item.status))}</span></td><td>${actions}</td></tr>`;
+                const userBranchId = String(state.user?.branchId || "");
+                const isManager = state.user?.supabaseRole === "branch_manager" || state.user?.supabaseRole === "admin";
+                const managerCanApprove = item.status === "pending" && isManager && (state.user?.supabaseRole === "admin" || userBranchId === String(item.fromBranchId || "") || userBranchId === String(item.toBranchId || ""));
+                const actionParts = [];
+                if (item.status === "pending" && isRecipient && !item.recipientApprovedAt) {
+                  actionParts.push(`<button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','accepted')">Potwierdź</button>`);
+                  actionParts.push(`<button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','rejected')">Odrzuć</button>`);
+                }
+                if (managerCanApprove) {
+                  actionParts.push(`<button type="button" class="btn-mini" onclick="approveWeeklyDispatcherTransferManager('${attr(item.id)}','accepted')">Zatwierdź jako kierownik</button>`);
+                  actionParts.push(`<button type="button" class="btn-mini" onclick="approveWeeklyDispatcherTransferManager('${attr(item.id)}','rejected')">Odrzuć</button>`);
+                }
+                if (isRecipient && item.status !== "deleted") {
+                  actionParts.push(`<button type="button" class="btn-mini" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}')">Usuń</button>`);
+                }
+                const actions = actionParts.length ? `<div class="weekly-transfer-actions">${actionParts.join("")}</div>` : "—";
+                return `<tr class="${isRecipient || isSender ? "weekly-current-user-row" : ""}"><td>${esc(weeklyUserLabel(item.fromDispatcherId))}</td><td>${esc(weeklyUserLabel(item.toDispatcherId))}</td><td><b>${statsMoney(item.amount)}</b></td><td>${esc(item.comment || "—")}</td><td><span class="weekly-transfer-status ${attr(item.status)}">${esc(weeklyTransferStatusLabel(item.status,item))}</span></td><td>${actions}</td></tr>`;
               }).join("") : `<tr><td colspan="6" class="weekly-settlement-empty">Brak przelewów w tym tygodniu.</td></tr>`}
             </tbody></table></div>
           </div>
@@ -88347,7 +88377,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const amount = Number(document.getElementById('driver-finance-carrier-amount')?.value || 0);
         const comment = String(document.getElementById('driver-finance-carrier-comment')?.value || '').trim();
         if (!Number.isFinite(amount) || amount === 0) { showAppMessage("Podaj kwotę", "Kwota musi być różna od zera."); return; }
-        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`driver-carrier-adjust-${Date.now()}`, weekStart, carrierId:driver.carrierEntityId, amount, comment }, window.location.origin);
+        window.parent?.postMessage({ type:"top-dragon-carrier-week-adjustment-create", requestId:`driver-carrier-adjust-${Date.now()}`, weekStart, carrierId:driver.carrierEntityId, driverId:driver.driverEntityId || "", driverName:driver.driver || "", amount, comment }, window.location.origin);
         closeDriverFinanceTools();
       };
       window.submitDriverDispatcherTransfer = function(weekStart) {
@@ -88488,5 +88518,306 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       z-index: 13 !important;
     }
   </style>
+
+  <style id="targeted-3l36-board-week-finance-drag">
+    /* 3L.36 — kafelek nie wycina koloru/tła wiersza: semantyczne tła pozostają półprzezroczyste. */
+    .time-route { background:rgba(255,255,255,.68); backdrop-filter:saturate(1.05); }
+    .time-route:hover { background:rgba(255,255,255,.84); }
+    .app.dark-mode .time-route { background:rgba(15,23,42,.68); }
+    .app.dark-mode .time-route:hover { background:rgba(15,23,42,.84); }
+    .time-route.status-accounting-final { background:rgba(134,239,172,.72) !important; }
+    .app.dark-mode .time-route.status-accounting-final { background:rgba(20,83,45,.76) !important; }
+    .time-route.status-accounting-check { background:rgba(254,243,199,.74) !important; }
+    .app.dark-mode .time-route.status-accounting-check { background:rgba(113,63,18,.76) !important; }
+    .time-route.status-dispatcher-sms:not(.status-accounting-final) { background:rgba(217,217,217,.72) !important; }
+    .app.dark-mode .time-route.status-dispatcher-sms:not(.status-accounting-final) { background:rgba(156,163,175,.68) !important; }
+    .time-route.status-free-day { background:rgba(229,231,235,.72) !important; }
+    .app.dark-mode .time-route.status-free-day { background:rgba(71,85,105,.72) !important; }
+    .time-route.route-metric-profit-positive,.time-route.route-metric-km-high { background:rgba(134,239,172,.76) !important; }
+    .time-route.route-metric-profit-negative,.time-route.route-metric-km-low { background:rgba(252,165,165,.76) !important; }
+    .time-route.route-metric-km-mid { background:rgba(253,230,138,.78) !important; }
+    .time-route.status-planned-board:not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low) { background:rgba(219,234,254,.76) !important; }
+    .app.dark-mode .time-route.status-planned-board:not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low) { background:rgba(30,58,95,.74) !important; }
+
+    /* Oś relacji zawsze obejmuje cały dynamiczny zakres dat. */
+    .timeline-row { grid-column:5 / -1 !important; }
+
+    /* Kolumna podsumowania tygodnia jest warstwą nad relacjami, ale nie blokuje drag&drop. */
+    .board-week-summary-column {
+      position:absolute; top:1px; bottom:1px; width:176px; transform:translateX(-50%);
+      z-index:46; pointer-events:none; display:grid; grid-template-columns:1fr 1fr;
+      border:1px solid rgba(245,158,11,.62); border-radius:9px; overflow:hidden;
+      background:rgba(255,251,235,.86); box-shadow:0 2px 7px rgba(15,23,42,.10);
+    }
+    .app.dark-mode .board-week-summary-column { background:rgba(69,26,3,.86); border-color:rgba(251,191,36,.78); }
+    .board-week-summary-half { min-width:0; padding:3px 4px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+    .board-week-summary-half + .board-week-summary-half { border-left:1px solid rgba(245,158,11,.45); }
+    .board-week-summary-label { font-size:7px; line-height:1; text-transform:uppercase; letter-spacing:.03em; font-weight:950; color:#92400e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .app.dark-mode .board-week-summary-label { color:#fde68a; }
+    .board-week-money { display:block; max-width:100%; font-size:9px; line-height:1.05; font-weight:950; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .board-week-money.minus { color:#dc2626; }
+    .board-week-money.plus { color:#15803d; }
+    .app.dark-mode .board-week-money.minus { color:#fca5a5; }
+    .app.dark-mode .board-week-money.plus { color:#86efac; }
+    .board-week-money.pending { color:#b45309; }
+    .app.dark-mode .board-week-money.pending { color:#fcd34d; }
+    .board-week-money.deleted { color:#64748b; text-decoration:line-through; }
+    .weekly-transfer-status.deleted { background:#e2e8f0; color:#475569; }
+
+    /* Nawigacja po planie: cofnięcie również o jeden dzień. */
+    .board-range-nav .board-one-day-nav { padding-left:8px !important; padding-right:8px !important; }
+  </style>
+
+  <script id="targeted-3l36-board-week-finance-drag-script">
+    (() => {
+      state.boardWindowUserMoved = Boolean(state.boardWindowUserMoved);
+      state.boardWeeklySettlements = state.boardWeeklySettlements || {};
+      const BOARD_WEEK_REQUESTS = new Map();
+
+      function weekStartIso3L36(date) {
+        const iso = String(date || currentAppDate()).slice(0,10);
+        const parsed = new Date(`${iso}T12:00:00`);
+        if (!Number.isFinite(parsed.getTime())) return iso;
+        return addDaysToIso(iso, -((parsed.getDay() + 6) % 7));
+      }
+      function visibleWeekStarts3L36(dates = dateList()) {
+        return [...new Set((dates || []).map(weekStartIso3L36))].sort();
+      }
+      function weekData3L36(weekStart) { return state.boardWeeklySettlements?.[weekStart] || null; }
+
+      function requestBoardWeeklySettlements3L36(dates = dateList(), force = false) {
+        if (!EMBEDDED_MODE || !state.user) return Promise.resolve();
+        const weeks = visibleWeekStarts3L36(dates);
+        const missing = force ? weeks : weeks.filter(ws => !weekData3L36(ws));
+        if (!missing.length) return Promise.resolve();
+        const existing = [...BOARD_WEEK_REQUESTS.values()].find(item => item.weeks.join('|') === missing.join('|'));
+        if (existing) return existing.promise;
+        const requestId = `board-weekly-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+        let resolve;
+        const promise = new Promise(r => { resolve = r; });
+        BOARD_WEEK_REQUESTS.set(requestId, { weeks:missing, resolve, promise, timer:setTimeout(() => {
+          const req=BOARD_WEEK_REQUESTS.get(requestId); if (req) { BOARD_WEEK_REQUESTS.delete(requestId); req.resolve(); }
+        }, 6000) });
+        window.parent?.postMessage({ type:'top-dragon-board-weekly-settlement-request', requestId, weekStarts:missing }, window.location.origin);
+        return promise;
+      }
+      window.requestBoardWeeklySettlements = requestBoardWeeklySettlements3L36;
+
+      const originalApplyAuthenticatedUser3L36 = applyAuthenticatedUser;
+      applyAuthenticatedUser = function(user) {
+        state.boardWindowUserMoved = false;
+        const result = originalApplyAuthenticatedUser3L36.call(this, user);
+        state.boardWindowStart = addDaysToIso(currentAppDate(), -1);
+        dateListMemo = { signature:'', dates:null, indexMap:null };
+        boardRenderCache = null;
+        return result;
+      };
+
+      const originalShiftBoardWindow3L36 = shiftBoardWindow;
+      shiftBoardWindow = function(days) {
+        state.boardWindowUserMoved = true;
+        return originalShiftBoardWindow3L36.call(this, days);
+      };
+      const originalResetBoardWindow3L36 = resetBoardWindow;
+      resetBoardWindow = function() {
+        state.boardWindowUserMoved = false;
+        const result = originalResetBoardWindow3L36.call(this);
+        state.boardWindowStart = addDaysToIso(currentAppDate(), -1);
+        dateListMemo = { signature:'', dates:null, indexMap:null };
+        boardRenderCache = null;
+        syncBoardOnly();
+        return result;
+      };
+
+      /* Spedytor prowadzący pojazd może przesuwać jego relacje. Stare/stemplowane pole
+         ownerDispatcher nie może blokować drag&drop własnej floty. */
+      canEditBoardRoute = function(route) {
+        if (!route) return false;
+        if (typeof isAdminUser === 'function' && isAdminUser()) return true;
+        if (state.user?.role !== 'spedytor') return false;
+        const driver = driverById(route.driverId);
+        const login = String(state.user?.login || '').trim();
+        if (!driver || String(driver.dispatcher || '').trim() !== login) return false;
+        if (String(route.transferStatus || '') === 'pending' && route.transferToDispatcher && String(route.transferToDispatcher) !== login) return false;
+        return true;
+      };
+      canDeleteBoardRoute = function(route) { return canEditBoardRoute(route); };
+
+      function userByDispatcherLogin3L36(login) {
+        const target = String(login || '').trim().toUpperCase();
+        return USERS.find(u => String(u.login || '').trim().toUpperCase() === target) || null;
+      }
+      function userLabelById3L36(id) {
+        const u = USERS.find(item => String(item.supabaseId || '') === String(id || ''));
+        return String(u?.name || u?.login || 'spedytor');
+      }
+      function firstVisibleDriverForDispatcher3L36(login) {
+        return visibleDriversForCurrentUser().find(d => String(d.dispatcher || '') === String(login || '')) || null;
+      }
+      function firstVisibleDriverForCarrier3L36(carrierId) {
+        return visibleDriversForCurrentUser().find(d => String(d.carrierEntityId || '') === String(carrierId || '')) || null;
+      }
+      function transferPendingSuffix3L36(item) {
+        if (item.status !== 'pending') return '';
+        const missing=[];
+        if (!item.recipientApprovedAt) missing.push('odb.');
+        if (!item.fromManagerApprovedAt) missing.push('kier. A');
+        if (!item.toManagerApprovedAt) missing.push('kier. B');
+        return missing.length ? ` · ${missing.join('/')}` : ' · finalizacja';
+      }
+      function transferDeletedTime3L36(item) {
+        if (!item?.deletedAt) return '';
+        const d=new Date(item.deletedAt); if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
+      }
+      function weekSummaryForDriver3L36(driver, weekStart) {
+        const data = weekData3L36(weekStart);
+        if (!data) return { hasWeek:false, left:[], right:[] };
+        const adjustments = Array.isArray(data.carrierAdjustments) ? data.carrierAdjustments : [];
+        const transfers = Array.isArray(data.transfers) ? data.transfers : [];
+        const hasWeek = adjustments.length > 0 || transfers.length > 0;
+        if (!hasWeek) return { hasWeek:false, left:[], right:[] };
+
+        const specific = adjustments.filter(item => item.driverId && String(item.driverId) === String(driver.driverEntityId || ''));
+        const generic = adjustments.filter(item => !item.driverId && String(item.carrierId || '') === String(driver.carrierEntityId || ''));
+        const carrierItems = [...specific, ...(firstVisibleDriverForCarrier3L36(driver.carrierEntityId)?.id === driver.id ? generic : [])];
+        const left = [];
+        if (carrierItems.length) {
+          const sum = carrierItems.reduce((acc,item)=>acc+Number(item.amount||0),0);
+          const effect = -sum;
+          const comments = carrierItems.map(i=>i.comment).filter(Boolean).join(' · ');
+          left.push({ text:`${effect>0?'+':''}${Math.round(effect)} zł`, cls:effect < 0 ? 'minus' : effect > 0 ? 'plus' : 'pending', title:`Wyrównanie przewoźnika${comments?` · ${comments}`:''}` });
+        }
+
+        const dispatcherUser = userByDispatcherLogin3L36(driver.dispatcher);
+        const firstDispatcherDriver = firstVisibleDriverForDispatcher3L36(driver.dispatcher);
+        const right=[];
+        if (dispatcherUser?.supabaseId && firstDispatcherDriver?.id === driver.id) {
+          transfers.filter(item => String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId) || String(item.toDispatcherId||'')===String(dispatcherUser.supabaseId)).forEach(item => {
+            const amount=Math.round(Number(item.amount||0));
+            const outgoing=String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId);
+            const other=userLabelById3L36(outgoing ? item.toDispatcherId : item.fromDispatcherId);
+            const deleted=item.status==='deleted';
+            const sign=outgoing?'-':'+';
+            const base=`${sign}${amount} PLN ${outgoing?'dla':'od'} ${other}`;
+            const deletion=deleted ? ` · usunięto ${transferDeletedTime3L36(item) || '—'}` : '';
+            const pending=transferPendingSuffix3L36(item);
+            right.push({ text:`${base}${deleted?deletion:pending}`, cls:deleted?'deleted':item.status==='pending'?'pending':outgoing?'minus':'plus', title:`${base}${item.comment?` · ${item.comment}`:''}${deleted?deletion:pending}` });
+          });
+        }
+        return { hasWeek:true, left, right };
+      }
+      function weeklyBoundaryItems3L36(dates = dateList()) {
+        const out=[];
+        dates.forEach((date,index) => {
+          const d=new Date(`${date}T12:00:00`);
+          if (d.getDay() !== 0 || index >= dates.length-1) return;
+          out.push({ weekStart:addDaysToIso(date,-6), leftPct:((index+1)/dates.length)*100 });
+        });
+        return out;
+      }
+      function renderBoardWeekSummary3L36(driver) {
+        const boundaries=weeklyBoundaryItems3L36(dateList());
+        return boundaries.map(boundary => {
+          const summary=weekSummaryForDriver3L36(driver,boundary.weekStart);
+          if (!summary.hasWeek) return '';
+          const left=summary.left.slice(0,2).map(item=>`<span class="board-week-money ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('');
+          const right=summary.right.slice(0,2).map(item=>`<span class="board-week-money ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('');
+          const more=summary.right.length>2 ? `<span class="board-week-money pending">+${summary.right.length-2} więcej</span>` : '';
+          return `<span class="board-week-summary-column" style="left:${boundary.leftPct}%" data-week-start="${attr(boundary.weekStart)}"><span class="board-week-summary-half"><span class="board-week-summary-label">Przewoźnik</span>${left}</span><span class="board-week-summary-half"><span class="board-week-summary-label">Spedytor</span>${right}${more}</span></span>`;
+        }).join('');
+      }
+
+      const originalRenderTimelineOverlay3L36 = renderTimelineOverlay;
+      renderTimelineOverlay = function(driver,row) {
+        let html=originalRenderTimelineOverlay3L36.call(this,driver,row);
+        const summary=renderBoardWeekSummary3L36(driver);
+        if (summary) html=html.replace(/\s*<\/div>\s*$/, `${summary}</div>`);
+        return html;
+      };
+
+      const originalRenderBoard3L36 = renderBoard;
+      renderBoard = function(...args) {
+        const yesterday=addDaysToIso(currentAppDate(),-1);
+        if (!state.boardWindowUserMoved && state.boardWindowStart !== yesterday) {
+          state.boardWindowStart=yesterday;
+          dateListMemo={signature:'',dates:null,indexMap:null}; boardRenderCache=null;
+        }
+        const dates=dateList();
+        requestBoardWeeklySettlements3L36(dates,false);
+        let html=originalRenderBoard3L36.apply(this,args);
+        html=html.replace(
+          '<button class="btn" type="button" onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button>',
+          '<button class="btn board-one-day-nav" type="button" onclick="shiftBoardWindow(-1)" title="Cofnij widok o 1 dzień">‹ 1 dzień</button><button class="btn" type="button" onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button>'
+        );
+        html=html.replace('<button class="btn" type="button" onclick="resetBoardWindow()">Dzisiaj</button>', '<button class="btn" type="button" onclick="resetBoardWindow()">Wczoraj</button>');
+        html=html.replace('<button class="btn" type="button" onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button>', '<button class="btn board-one-day-nav" type="button" onclick="shiftBoardWindow(1)" title="Przesuń widok o 1 dzień w stronę wczoraj">1 dzień ›</button><button class="btn" type="button" onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button>');
+        return html;
+      };
+
+      function transferStatusText3L36(item) {
+        if (item.status==='accepted') return 'zaakceptowany';
+        if (item.status==='rejected') return 'odrzucony';
+        if (item.status==='deleted') return `usunięty${transferDeletedTime3L36(item)?` ${transferDeletedTime3L36(item)}`:''}`;
+        const missing=[];
+        if (!item.recipientApprovedAt) missing.push('odbiorca');
+        if (!item.fromManagerApprovedAt) missing.push('kierownik nadawcy');
+        if (!item.toManagerApprovedAt) missing.push('kierownik odbiorcy');
+        return `oczekuje: ${missing.join(', ')}`;
+      }
+      async function ensureBoardWeeklyForExport3L36(dates) {
+        await requestBoardWeeklySettlements3L36(dates,false);
+        return visibleWeekStarts3L36(dates).map(ws=>weekData3L36(ws)).filter(Boolean);
+      }
+
+      /* Eksport planu zawiera relacje oraz finansowe podsumowanie tygodniowe. */
+      exportDriverPlan = async function() {
+        const visibleDriverIds=new Set(visibleDriversForCurrentUser().map(driver=>driver.id));
+        const dates=dateList();
+        await ensureBoardWeeklyForExport3L36(dates);
+        const headers=['Typ wpisu','Data start','Data koniec','Godz. start','Godz. koniec','Spedytor','Oddział','Przewoźnik','Kierowca','Naczepa','Narodowość','Baza','Załadunek','Drugi załadunek','Rozładunek','Drugi rozładunek','Dolot km','Kilometry','Razem km','Stawka PLN','Koszt przewoźnika','Zysk','PLN/km','Status spedytora','Status rozliczeń','Link trasy','Podsumowanie tygodniowe'];
+        const rows=activeRoutes().filter(route=>route.approvalStatus!=='rejected').filter(route=>visibleDriverIds.has(route.driverId)).filter(route=>dates.some(date=>routeOverlapsDate(route,date))).sort((a,b)=>routeGlobalStart(a)-routeGlobalStart(b)).map(route=>{
+          const driver=driverById(route.driverId)||{};
+          return ['RELACJA',formatDateForInput(route.date||START_DATE),formatDateForInput(routeEndDate(route)),hourLabel(routeStartHour(route)),hourLabel(routeEndHour(route)===24?24:routeEndHour(route)),driver.dispatcher||route.ownerDispatcher||'',driver.branch||'',driver.carrier||'',driver.driver||'',driver.trailerReg||'',driverNationality(driver),driverBaseLabel(driver),route.load||'',route.secondLoad||'',route.unload||'',route.secondUnload||'',Number(route.approachKm||0),Number(route.loadedKm||0),totalKm(route),Number(route.rate||0),carrierCost(route),profit(route),perKm(route).toFixed(2),route.dispatcherStatus||'',route.accountingStatus||'Nowe',route.routeLink||route.googleMapsLink||'',''];
+        });
+        visibleWeekStarts3L36(dates).forEach(weekStart=>{
+          const data=weekData3L36(weekStart); if(!data) return;
+          const weekEnd=addDaysToIso(weekStart,6);
+          (data.carrierAdjustments||[]).forEach(item=>{
+            const driver=visibleDriversForCurrentUser().find(d=>String(d.driverEntityId||'')===String(item.driverId||'')) || null;
+            const effect=-Number(item.amount||0);
+            rows.push(['WYRÓWNANIE PRZEWOŹNIKA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',driver?.dispatcher||'',driver?.branch||'',item.carrierName||driver?.carrier||'',item.driverName||driver?.driver||'','','','', '', '', '', '', '', '', '', '',Number(item.amount||0),effect,'','','','','',`Wyrównanie przewoźnika: ${effect>0?'+':''}${Math.round(effect)} PLN${item.comment?` · ${item.comment}`:''}`]);
+          });
+          (data.transfers||[]).forEach(item=>{
+            const from=USERS.find(u=>String(u.supabaseId||'')===String(item.fromDispatcherId||''));
+            const to=USERS.find(u=>String(u.supabaseId||'')===String(item.toDispatcherId||''));
+            const status=transferStatusText3L36(item);
+            const applied=item.status==='accepted';
+            rows.push(['PRZELEW — NADAWCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',from?.name||from?.login||'',from?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?-Number(item.amount||0):0,'','','','','',`-${Math.round(Number(item.amount||0))} PLN dla ${to?.name||to?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`]);
+            rows.push(['PRZELEW — ODBIORCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',to?.name||to?.login||'',to?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?Number(item.amount||0):0,'','','','','',`+${Math.round(Number(item.amount||0))} PLN od ${from?.name||from?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`]);
+          });
+        });
+        downloadCsvFile(`plan-kierowcow-${dates[0]||START_DATE}-${dates[dates.length-1]||START_DATE}.csv`,headers,rows);
+      };
+
+      window.addEventListener('message',event=>{
+        if(event.origin!==window.location.origin) return;
+        const message=event.data||{};
+        if(message.type==='top-dragon-board-weekly-settlement-data') {
+          (message.weeks||[]).forEach(week=>{ if(week?.weekStart) state.boardWeeklySettlements[week.weekStart]=week; });
+          const pending=BOARD_WEEK_REQUESTS.get(String(message.requestId||''));
+          if(pending){ clearTimeout(pending.timer); BOARD_WEEK_REQUESTS.delete(String(message.requestId||'')); pending.resolve(); }
+          if(state.appView==='plan') syncBoardOnly();
+        } else if(message.type==='top-dragon-weekly-settlement-invalidated') {
+          state.boardWeeklySettlements={};
+          requestBoardWeeklySettlements3L36(dateList(),true);
+        } else if(message.type==='top-dragon-weekly-settlement-operation-result' && message.ok) {
+          state.boardWeeklySettlements={};
+          requestBoardWeeklySettlements3L36(dateList(),true);
+        }
+      });
+    })();
+  </script>
+
 </body>
 </html>
