@@ -75639,6 +75639,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .join("|");
     }
 
+    function renderExpiredProposedLoadStats3L44() {
+      const rows = (Array.isArray(state.expiredProposedLoadStats) ? state.expiredProposedLoadStats : [])
+        .filter(item => Number(item?.count || 0) > 0)
+        .sort((a,b) => Number(b.count || 0) - Number(a.count || 0) || String(a.creator || "").localeCompare(String(b.creator || ""), "pl"));
+      const total = rows.reduce((sum,item) => sum + Number(item.count || 0), 0);
+      const list = rows.length
+        ? rows.map(item => {
+            let latest = "";
+            if (item.latestExpiredAt) {
+              try { latest = new Date(item.latestExpiredAt).toLocaleString("pl-PL", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }); } catch {}
+            }
+            return `<div class="expired-proposed-stat-row-3l44"><span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.creator)}">${esc(item.creator)}</span>${latest ? `<small>ostatnie wygaśnięcie: ${esc(latest)}</small>` : ""}</span><b>${Number(item.count || 0)}</b></div>`;
+          }).join("")
+        : `<div class="expired-proposed-stat-empty-3l44">Brak automatycznie wygasłych wolnych ładunków.</div>`;
+      return `<details class="expired-proposed-stats-3l44">
+        <summary><span>Automatycznie wygasłe po terminie</span><b>${total}</b><em>Pokaż kto dodał</em></summary>
+        <div class="expired-proposed-stat-list-3l44">${list}</div>
+      </details>`;
+    }
+
     function renderProposedLoadsUi() {
       if (!state.user) return "";
       const date = state.reportDate || START_DATE;
@@ -75671,6 +75691,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button class="btn btn-dark" type="button" onclick="openProposedAdd(event)">+ Dodaj wolny ładunek</button>
               </div>
             ` : ""}
+            ${renderExpiredProposedLoadStats3L44()}
             <div class="queue-drop-zone" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Upuść tutaj wolny ładunek, aby przenieść go do Planowanych relacji">Przenieś do Planowane relacje</div>
             ${loads.length ? loads.map(renderProposedLoadCard).join("") : `<div class="hint">Brak wolnych ładunków.</div>`}
           </div>
@@ -84983,6 +85004,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function applyCentralLoadQueueData(message) {
       const rows = Array.isArray(message?.rows) ? message.rows : [];
+      const expiredStatsBefore = JSON.stringify(state.expiredProposedLoadStats || []);
+      state.expiredProposedLoadStats = Array.isArray(message?.expiredProposedStats)
+        ? message.expiredProposedStats.map(item => ({
+            creator: String(item?.creator || "Nieznany użytkownik"),
+            count: Math.max(0, Number(item?.count || 0)),
+            latestExpiredAt: String(item?.latestExpiredAt || "")
+          }))
+        : [];
       const wasReady = CENTRAL_LOAD_QUEUE_READY;
       const beforeFingerprint = centralLoadQueueSetFingerprint();
       const currentByKey = new Map();
@@ -85054,7 +85083,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.proposedLoads = mergedProposed;
       CENTRAL_LOAD_QUEUE_READY = true;
       const afterFingerprint = centralLoadQueueSetFingerprint();
+      const expiredStatsChanged = expiredStatsBefore !== JSON.stringify(state.expiredProposedLoadStats || []);
       if (beforeFingerprint !== afterFingerprint) renderKeepingScroll();
+      else if (expiredStatsChanged) syncProposedPanel();
       scheduleCentralLoadQueueDiff(120);
     }
 
@@ -89937,6 +89968,109 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const finance=renderFinanceAnalysis3L43(stats);
         return html.replace('<div class="stats-drawer-body">',`<div class="stats-drawer-body">${finance}`);
       };
+    })();
+  </script>
+
+
+  <style id="targeted-3l44-autoscroll-expired-loads">
+    /* 3L.44 — autoscroll zgodny ze stylem Top Dragon + historia wygasłych Wolnych ładunków. */
+    .board-autoscroll-anchor-3l43,
+    .tms-autoscroll-anchor-3l44 {
+      width:40px !important;height:40px !important;margin:-20px 0 0 -20px !important;
+      border-radius:12px !important;background:rgba(255,255,255,.98) !important;
+      border:1px solid #cbd5e1 !important;box-shadow:0 10px 26px rgba(15,23,42,.20),0 0 0 2px rgba(220,38,38,.10) !important;
+      color:#334155 !important;font-size:10px !important;font-weight:950 !important;
+      z-index:2147483600;pointer-events:none;position:fixed;
+    }
+    .board-autoscroll-anchor-3l43::after,
+    .tms-autoscroll-anchor-3l44::after { content:"";position:absolute;inset:15px;border-radius:50%;background:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12); }
+    .board-autoscroll-anchor-3l43 .dot { background:transparent !important; }
+    .tms-autoscroll-anchor-3l44 span { position:absolute;display:block;z-index:2; }
+    .tms-autoscroll-anchor-3l44 .up { top:3px;left:50%;transform:translateX(-50%); }
+    .tms-autoscroll-anchor-3l44 .down { bottom:3px;left:50%;transform:translateX(-50%); }
+    .tms-autoscroll-anchor-3l44 .left { left:4px;top:50%;transform:translateY(-50%); }
+    .tms-autoscroll-anchor-3l44 .right { right:4px;top:50%;transform:translateY(-50%); }
+    .app.dark-mode ~ .tms-autoscroll-anchor-3l44, body:has(.app.dark-mode) .tms-autoscroll-anchor-3l44, body:has(.app.dark-mode) .board-autoscroll-anchor-3l43 { background:rgba(17,24,39,.98) !important;border-color:#475569 !important;color:#e2e8f0 !important; }
+
+    .expired-proposed-stats-3l44 { border:1px solid var(--border);border-radius:11px;background:var(--soft,#f8fafc);overflow:hidden;margin:0 0 9px; }
+    .expired-proposed-stats-3l44 summary { list-style:none;cursor:pointer;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 10px;font-size:10px;font-weight:900;color:var(--text); }
+    .expired-proposed-stats-3l44 summary::-webkit-details-marker { display:none; }
+    .expired-proposed-stats-3l44 summary b { min-width:25px;text-align:center;padding:3px 7px;border-radius:999px;background:#fee2e2;color:#b91c1c; }
+    .expired-proposed-stats-3l44 summary em { font-style:normal;color:var(--muted);font-size:9px; }
+    .expired-proposed-stat-list-3l44 { border-top:1px solid var(--border);display:grid; }
+    .expired-proposed-stat-row-3l44 { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border); }
+    .expired-proposed-stat-row-3l44:last-child { border-bottom:0; }
+    .expired-proposed-stat-row-3l44 > span { display:flex;align-items:center;gap:7px;min-width:0; }
+    .expired-proposed-stat-row-3l44 small { color:var(--muted);font-size:8px;font-weight:700; }
+    .expired-proposed-stat-row-3l44 b { font-size:12px; }
+    .expired-proposed-stat-empty-3l44 { padding:9px 10px;color:var(--muted);font-size:9px;font-weight:750; }
+  </style>
+
+  <script id="targeted-3l44-stats-autoscroll-wheel">
+    (() => {
+      /* Statystyki: własny autoscroll po kliknięciu rolki. Zapobiega natywnemu trybowi
+         przeglądarki, który wcześniej potrafił zostać aktywny bez możliwości wyłączenia. */
+      const statsAuto = { active:false, down:false, suppressUp:false, x:0,y:0,mx:0,my:0,downX:0,downY:0,raf:0,marker:null };
+      function statsBody() { return document.querySelector('.stats-drawer .stats-drawer-body'); }
+      function makeMarker(x,y) {
+        const el=document.createElement('div'); el.className='tms-autoscroll-anchor-3l44';
+        el.style.left=`${x}px`;el.style.top=`${y}px`;
+        el.innerHTML='<span class="up">▲</span><span class="down">▼</span><span class="left">◀</span><span class="right">▶</span>';
+        document.body.appendChild(el); return el;
+      }
+      function stopStatsAuto() {
+        statsAuto.active=false;statsAuto.down=false;
+        if(statsAuto.raf) cancelAnimationFrame(statsAuto.raf);statsAuto.raf=0;
+        statsAuto.marker?.remove?.();statsAuto.marker=null;
+      }
+      function speed(delta) { const dead=14, a=Math.abs(delta); if(a<=dead)return 0; return Math.sign(delta)*Math.min(28,Math.max(.65,Math.pow((a-dead)/25,1.16)*4)); }
+      function frame() {
+        if(!statsAuto.active)return; const body=statsBody(); if(!body){stopStatsAuto();return;}
+        const vx=speed(statsAuto.mx-statsAuto.x), vy=speed(statsAuto.my-statsAuto.y);
+        if(vy) body.scrollTop += vy;
+        if(vx){ const wrap=document.elementFromPoint(statsAuto.mx,statsAuto.my)?.closest?.('.stats-table-wrap,.stats-company-table-wrap,.weekly-settlement-table-wrap'); if(wrap) wrap.scrollLeft += vx; }
+        statsAuto.raf=requestAnimationFrame(frame);
+      }
+      window.addEventListener('mousedown',event=>{
+        if(event.button!==1)return;
+        const drawer=event.target?.closest?.('.stats-drawer'); if(!drawer)return;
+        event.preventDefault();event.stopImmediatePropagation();
+        if(statsAuto.active){statsAuto.suppressUp=true;stopStatsAuto();return;}
+        statsAuto.suppressUp=false;statsAuto.down=true;statsAuto.downX=event.clientX;statsAuto.downY=event.clientY;
+      },true);
+      window.addEventListener('mouseup',event=>{
+        if(event.button!==1)return;
+        if(statsAuto.suppressUp){statsAuto.suppressUp=false;event.preventDefault();event.stopImmediatePropagation();return;}
+        if(!statsAuto.down)return; statsAuto.down=false;
+        event.preventDefault();event.stopImmediatePropagation();
+        if(Math.hypot(event.clientX-statsAuto.downX,event.clientY-statsAuto.downY)>7)return;
+        statsAuto.active=true;statsAuto.x=statsAuto.mx=event.clientX;statsAuto.y=statsAuto.my=event.clientY;statsAuto.marker=makeMarker(event.clientX,event.clientY);statsAuto.raf=requestAnimationFrame(frame);
+      },true);
+      window.addEventListener('mousemove',event=>{if(statsAuto.active){statsAuto.mx=event.clientX;statsAuto.my=event.clientY;}},true);
+      window.addEventListener('auxclick',event=>{if(event.button===1 && event.target?.closest?.('.stats-drawer')){event.preventDefault();event.stopImmediatePropagation();}},true);
+      window.addEventListener('mousedown',event=>{if(statsAuto.active && event.button===0)stopStatsAuto();},true);
+      document.addEventListener('keydown',event=>{if(event.key==='Escape')stopStatsAuto();},true);
+      window.addEventListener('blur',stopStatsAuto,true);
+      document.addEventListener('visibilitychange',()=>{if(document.hidden)stopStatsAuto();},true);
+
+      /* Każdy pionowy gest rolką w Statystykach przewija cały panel, także gdy kursor
+         znajduje się nad tabelą, komórką lub poziomym wrapperem. Shift/gest poziomy
+         nadal przewija konkretną tabelę w poziomie. */
+      window.addEventListener('wheel',event=>{
+        const drawer=event.target?.closest?.('.stats-drawer'); if(!drawer)return;
+        const body=drawer.querySelector('.stats-drawer-body'); if(!body)return;
+        const dx=Number(event.deltaX||0),dy=Number(event.deltaY||0);
+        const horizontal=event.shiftKey || Math.abs(dx)>Math.abs(dy);
+        if(horizontal){
+          const wrap=event.target?.closest?.('.stats-table-wrap,.stats-company-table-wrap,.weekly-settlement-table-wrap');
+          if(wrap){event.preventDefault();event.stopImmediatePropagation();wrap.scrollLeft += event.shiftKey ? dy : dx;}
+          return;
+        }
+        if(!dy)return; event.preventDefault();event.stopImmediatePropagation(); body.scrollTop += dy;
+      },{capture:true,passive:false});
+
+      // Zamknięcie Statystyk zawsze wyłącza ich autoscroll.
+      document.addEventListener('click',event=>{if(event.target?.closest?.('.stats-drawer-head button')) stopStatsAuto();},true);
     })();
   </script>
 
