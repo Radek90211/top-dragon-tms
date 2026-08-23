@@ -88837,30 +88837,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .timeline-row .time-overlap-warning,
     .timeline-row .pause-conflict-badge { z-index: 34 !important; }
 
-    /* Zwykły kafelek jest nieprzezroczysty, więc linie siatki nie przechodzą przez niego.
-       Jeśli wiersz ma prywatny kolor, kafelek dostaje ten sam kolor — wypełnienie wiersza
-       pozostaje wizualnie ciągłe również pod relacją. */
+    /* Zwykły kafelek jest nieprzezroczysty i zawsze zachowuje WŁASNY status/kolor.
+       Prywatny kolor kierowcy dotyczy wyłącznie pola wiersza znajdującego się pod kafelkiem. */
     .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
       background:#ffffff !important;
     }
     .app.dark-mode .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
       background:#0f172a !important;
     }
-    .timeline-row.driver-private-color-yellow .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fef08a !important; }
-    .timeline-row.driver-private-color-green .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#bbf7d0 !important; }
-    .timeline-row.driver-private-color-blue .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#bfdbfe !important; }
-    .timeline-row.driver-private-color-pink .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fbcfe8 !important; }
-    .timeline-row.driver-private-color-purple .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#ddd6fe !important; }
-    .timeline-row.driver-private-color-orange .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fed7aa !important; }
-    .timeline-row.driver-private-color-gray .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#e2e8f0 !important; }
 
-    .app.dark-mode .timeline-row.driver-private-color-yellow .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4f4517 !important; }
-    .app.dark-mode .timeline-row.driver-private-color-green .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#163c2a !important; }
-    .app.dark-mode .timeline-row.driver-private-color-blue .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#173454 !important; }
-    .app.dark-mode .timeline-row.driver-private-color-pink .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4a2034 !important; }
-    .app.dark-mode .timeline-row.driver-private-color-purple .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#37275c !important; }
-    .app.dark-mode .timeline-row.driver-private-color-orange .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4d3118 !important; }
-    .app.dark-mode .timeline-row.driver-private-color-gray .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#293241 !important; }
 
     /* Dwie osobne kolumny finansowe na granicy niedziela -> poniedziałek. */
     .board-week-finance-col {
@@ -88938,9 +88923,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const target=normText3L38(dispatcher);
         return USERS.find(u=>normText3L38(u.login)===target) || USERS.find(u=>normText3L38(u.name)===target) || null;
       }
-      function userLabel3L38(id) {
+      function userLabel3L38(id, fallback='') {
         const u=USERS.find(item=>String(item.supabaseId||'')===String(id||''));
-        return String(u?.name || u?.login || 'spedytor');
+        return String(u?.name || u?.login || fallback || 'spedytor');
       }
       function firstDriverForDispatcher3L38(dispatcher) {
         const target=normText3L38(dispatcher);
@@ -88955,7 +88940,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function adjustmentBelongsToDriver3L38(item,driver) {
         const itemDriver=String(item?.driverId||'');
-        const driverIds=[driver?.driverEntityId,driver?.id].filter(Boolean).map(String);
+        const driverIds=[driver?.driverEntityId,driver?.dbAssignmentId,driver?.id].filter(Boolean).map(String);
         if (itemDriver && driverIds.includes(itemDriver)) return true;
         /* Przy starszych rekordach identyfikator mógł pochodzić z innej wersji
            mapowania floty. Nazwa kierowcy jest bezpiecznym fallbackiem prezentacyjnym. */
@@ -88979,7 +88964,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return missing.length ? ` · ${missing.join('/')}` : '';
       }
       function financeForDriverWeek3L38(driver,weekStart) {
-        const data=state.boardWeeklySettlements?.[weekStart];
+        const data=state.boardWeeklySettlements?.[weekStart] || (state.weeklySettlement?.weekStart===weekStart ? state.weeklySettlement : null);
         if (!data) return { carrier:[], dispatcher:[] };
         const carrier=[];
         (Array.isArray(data.carrierAdjustments)?data.carrierAdjustments:[])
@@ -88996,12 +88981,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const dispatcher=[];
         const dispatcherUser=userForDispatcher3L38(driver?.dispatcher);
-        if (dispatcherUser?.supabaseId && firstDriverForDispatcher3L38(driver?.dispatcher)?.id===driver?.id) {
+        if (firstDriverForDispatcher3L38(driver?.dispatcher)?.id===driver?.id) {
           (Array.isArray(data.transfers)?data.transfers:[])
-            .filter(item=>String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId) || String(item.toDispatcherId||'')===String(dispatcherUser.supabaseId))
+            .filter(item=>{
+              const dispatcherId=String(dispatcherUser?.supabaseId||'');
+              const dispatcherLogin=normText3L38(driver?.dispatcher);
+              return String(item.fromDispatcherId||'')===dispatcherId
+                || String(item.toDispatcherId||'')===dispatcherId
+                || normText3L38(item.fromDispatcherLogin||item.fromDispatcherName||'')===dispatcherLogin
+                || normText3L38(item.toDispatcherLogin||item.toDispatcherName||'')===dispatcherLogin;
+            })
             .forEach(item=>{
-              const outgoing=String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId);
-              const other=userLabel3L38(outgoing?item.toDispatcherId:item.fromDispatcherId);
+              const dispatcherId=String(dispatcherUser?.supabaseId||'');
+              const dispatcherLogin=normText3L38(driver?.dispatcher);
+              const outgoing=String(item.fromDispatcherId||'')===dispatcherId
+                || normText3L38(item.fromDispatcherLogin||item.fromDispatcherName||'')===dispatcherLogin;
+              const other=userLabel3L38(
+                outgoing?item.toDispatcherId:item.fromDispatcherId,
+                outgoing?(item.toDispatcherName||item.toDispatcherLogin):(item.fromDispatcherName||item.fromDispatcherLogin)
+              );
               const amount=Math.round(Number(item.amount||0));
               const base=`${outgoing?'-':'+'}${amount} PLN ${outgoing?'dla':'od'} ${other}`;
               const status=String(item.status||'pending');
@@ -89077,6 +89075,64 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       },true);
       document.addEventListener('keydown',event=>{ if(event.key==='Escape') stopMiddlePan3L38(); },true);
       window.addEventListener('blur',stopMiddlePan3L38);
+    })();
+  </script>
+
+
+  <style id="targeted-3l39-route-status-driver-row-finance">
+    /* 3L.39 — kolor kierowcy jest wyłącznie tłem WIERSZA.
+       Kafelek nie dziedziczy go i zachowuje własny status. */
+    .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
+      background:rgba(255,255,255,.90) !important;
+      color:#0f172a !important;
+    }
+    .app.dark-mode .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
+      background:rgba(15,23,42,.94) !important;
+      color:#e5e7eb !important;
+    }
+    .app.dark-mode .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) .time-route-title { color:#f8fafc !important; }
+    .app.dark-mode .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) .time-route-sub { color:rgba(226,232,240,.78) !important; }
+
+    /* Pole planu zachowuje prywatne oznaczenie kierowcy POD kafelkiem —
+       także wtedy, gdy komórka ma klasę route-cell. */
+    .app .day-cell.route-cell.driver-private-color-yellow { background:#fef08a !important; }
+    .app .day-cell.route-cell.driver-private-color-green { background:#bbf7d0 !important; }
+    .app .day-cell.route-cell.driver-private-color-blue { background:#bfdbfe !important; }
+    .app .day-cell.route-cell.driver-private-color-pink { background:#fbcfe8 !important; }
+    .app .day-cell.route-cell.driver-private-color-purple { background:#ddd6fe !important; }
+    .app .day-cell.route-cell.driver-private-color-orange { background:#fed7aa !important; }
+    .app .day-cell.route-cell.driver-private-color-gray { background:#e2e8f0 !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-yellow { background:#4f4517 !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-green { background:#163c2a !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-blue { background:#173454 !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-pink { background:#4a2034 !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-purple { background:#37275c !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-orange { background:#4d3118 !important; }
+    .app.dark-mode .day-cell.route-cell.driver-private-color-gray { background:#293241 !important; }
+    .day-cell[class*="driver-private-color-"] { background-clip:border-box !important; }
+    .timeline-row { background:transparent !important; }
+
+    /* Rozliczenia mają być zawsze przed kafelkami. */
+    .board-week-finance-col { z-index:120 !important; }
+  </style>
+
+  <script id="targeted-3l39-finance-cache-bridge">
+    (() => {
+      /* Jednotygodniowa odpowiedź (np. bezpośrednio po zapisaniu przelewu/dodatku)
+         zasila też cache tablicy. Dzięki temu kolumny niedziela→poniedziałek
+         pojawiają się natychmiast i nie zależą od drugiego requestu. */
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type !== 'top-dragon-weekly-settlement-data' || !message.weekStart) return;
+        state.boardWeeklySettlements = state.boardWeeklySettlements || {};
+        state.boardWeeklySettlements[String(message.weekStart)] = {
+          weekStart:String(message.weekStart),
+          carrierAdjustments:Array.isArray(message.carrierAdjustments)?message.carrierAdjustments:[],
+          transfers:Array.isArray(message.transfers)?message.transfers:[]
+        };
+        if (state.appView === 'plan') requestAnimationFrame(() => syncBoardOnly());
+      });
     })();
   </script>
 
