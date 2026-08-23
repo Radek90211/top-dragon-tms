@@ -5706,10 +5706,10 @@
 
     /* MODUŁ: szybka ocena frachtu, alert dodatkowych ładunków i świeża relacja. */
     @keyframes routeRecentBluePulse {
-      0%, 100% { border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,.78), 0 0 0 0 rgba(59,130,246,.38); }
-      50% { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(59,130,246,.92), 0 0 0 7px rgba(59,130,246,0); }
+      0%, 100% { border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,.72), 0 0 0 0 rgba(59,130,246,.26); }
+      50% { border-color:#60a5fa; box-shadow:0 0 0 1px rgba(59,130,246,.88), 0 0 0 3px rgba(59,130,246,0); }
     }
-    .time-route.route-recent { animation:routeRecentBluePulse 1.35s ease-in-out infinite; }
+    .time-route.route-recent { animation:routeRecentBluePulse 1.55s ease-in-out infinite; }
     .route-rating-icon {
       display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;margin:0;flex:0 0 13px;
       font-size:11px;font-weight:950;line-height:1;white-space:nowrap;vertical-align:middle;
@@ -67778,8 +67778,8 @@
 
     applyStoredDriverAssignments();
 
-    const BOARD_PAST_DAYS = 1;
-    const BOARD_FUTURE_DAYS = 13;
+    const BOARD_PAST_DAYS = 7;
+    const BOARD_FUTURE_DAYS = 7;
     const START_DATE = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
 
     function currentAppDate() {
@@ -87643,6 +87643,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         </section>`;
       }
 
+      window.__tmsStatsWeekly3L40 = {
+        render: renderWeeklySettlementSection,
+        request: requestWeeklySettlement,
+        weekStart: weeklyWeekStart
+      };
+
       const originalRenderStatsDrawer3L19 = renderStatsDrawer;
       renderStatsDrawer = function(stats = statsSnapshot()) {
         ensureWeeklySettlementForStats(stats);
@@ -88032,6 +88038,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               }).join("") : `<tr><td colspan="13" class="stats-muted">Brak aktywnych spedytorów lub danych w wybranym okresie.</td></tr>`}</tbody></table></div>`;
         return `<section class="stats-company-table-section"><div class="stats-company-table-head"><div><h3>Wszyscy spedytorzy</h3><p>${esc(formatDateForInput(period.from))} – ${esc(formatDateForInput(period.to))} · wspólna tabela widoczna dla każdego użytkownika</p></div><span class="stats-pill">${rows.length}</span></div>${body}</section>`;
       }
+
+      window.__tmsCompanyStats3L40 = {
+        render: renderCompanyDispatcherStatsTable,
+        request: requestCompanyDispatcherStats,
+        period: companyStatsPeriod
+      };
 
       window.refreshCompanyDispatcherStats = function() {
         requestCompanyDispatcherStats(statsSnapshot(), true);
@@ -88607,7 +88619,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       applyAuthenticatedUser = function(user) {
         state.boardWindowUserMoved = false;
         const result = originalApplyAuthenticatedUser3L36.call(this, user);
-        state.boardWindowStart = addDaysToIso(currentAppDate(), -1);
+        state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
         dateListMemo = { signature:'', dates:null, indexMap:null };
         boardRenderCache = null;
         return result;
@@ -88622,7 +88634,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       resetBoardWindow = function() {
         state.boardWindowUserMoved = false;
         const result = originalResetBoardWindow3L36.call(this);
-        state.boardWindowStart = addDaysToIso(currentAppDate(), -1);
+        state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
         dateListMemo = { signature:'', dates:null, indexMap:null };
         boardRenderCache = null;
         syncBoardOnly();
@@ -88738,9 +88750,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const originalRenderBoard3L36 = renderBoard;
       renderBoard = function(...args) {
-        const yesterday=addDaysToIso(currentAppDate(),-1);
-        if (!state.boardWindowUserMoved && state.boardWindowStart !== yesterday) {
-          state.boardWindowStart=yesterday;
+        const defaultStart=addDaysToIso(currentAppDate(),-BOARD_PAST_DAYS);
+        if (!state.boardWindowUserMoved && state.boardWindowStart !== defaultStart) {
+          state.boardWindowStart=defaultStart;
           dateListMemo={signature:'',dates:null,indexMap:null}; boardRenderCache=null;
         }
         const dates=dateList();
@@ -88879,12 +88891,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
   <script id="targeted-3l38-route-layer-week-finance-scroll-script">
     (() => {
-      /* 7 dni wstecz / 7 dni w przód przy zachowaniu startu od wczoraj. */
+      /* 7 dni wstecz + dziś + 7 dni w przód; domyślny zakres jest wyśrodkowany na dzisiejszym dniu. */
       normalizedBoardWindowStart = function(value = state.boardWindowStart) {
         const today = currentAppDate();
         const earliest = addDaysToIso(today, -BOARD_ARCHIVE_DAYS);
-        const latest = addDaysToIso(today, 6);
-        const fallback = addDaysToIso(today, -1);
+        const latest = addDaysToIso(today, BOARD_FUTURE_DAYS);
+        const fallback = addDaysToIso(today, -BOARD_PAST_DAYS);
         const candidate = isIsoDateValue(value) ? value : fallback;
         return candidate < earliest ? earliest : candidate > latest ? latest : candidate;
       };
@@ -89133,6 +89145,172 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         };
         if (state.appView === 'plan') requestAnimationFrame(() => syncBoardOnly());
       });
+    })();
+  </script>
+
+
+
+  <style id="targeted-3l40-centered-board-stats-stability">
+    /* 3L.40 — delikatniejsze oznaczenie świeżej relacji. */
+    .time-route.route-recent { overflow:visible; }
+
+    /* Statystyki: stabilny układ bez stringowych podmian poprzednich etapów. */
+    .stats-drawer.stats-stable-3l40 .stats-drawer-body { gap:12px; }
+    .stats-stable-summary-note { font-size:10px; color:var(--muted); font-weight:750; line-height:1.35; }
+    .stats-stable-actions { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+    .stats-stable-error { margin:12px; padding:14px; border:1px solid #fecaca; border-radius:12px; background:#fef2f2; color:#991b1b; font-size:11px; font-weight:800; }
+    .app.dark-mode .stats-stable-error { background:#450a0a; border-color:#7f1d1d; color:#fecaca; }
+    .stats-stable-3l40 .stats-toolbar { position:sticky; top:0; z-index:20; background:var(--card); padding-bottom:8px; border-bottom:1px solid var(--border); }
+    .stats-stable-3l40 .stats-company-table-section { margin-top:0; }
+    .stats-stable-3l40 .weekly-settlement-section { margin-top:0; }
+  </style>
+
+  <script id="targeted-3l40-centered-board-stats-stability-script">
+    (() => {
+      /* Daty statystyk liczymy wyłącznie na ISO/UTC. Poprzednie użycie lokalnego
+         Date + toISOString() mogło w strefie PL cofać dzień o 1. */
+      monthDaysForDate = function(date) {
+        const iso = String(date || currentAppDate()).slice(0,10);
+        const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return [currentAppDate()];
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+        return Array.from({length:count}, (_,i) => `${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`);
+      };
+
+      weekDaysForDate = function(date) {
+        const iso = String(date || currentAppDate()).slice(0,10);
+        const parsed = new Date(`${iso}T12:00:00Z`);
+        if (!Number.isFinite(parsed.getTime())) return [currentAppDate()];
+        const day = parsed.getUTCDay() || 7;
+        const monday = addDaysToIso(iso, -day + 1);
+        return Array.from({length:7}, (_,i) => addDaysToIso(monday, i));
+      };
+
+      function stableStatsSnapshot3L40() {
+        try {
+          const snapshot = statsSnapshot();
+          if (!snapshot || !Array.isArray(snapshot.dates)) throw new Error('Nieprawidłowy wynik obliczeń statystyk.');
+          return snapshot;
+        } catch (error) {
+          console.error('3L.40 stats snapshot:', error);
+          return {
+            __error:String(error?.message || error || 'Nie udało się obliczyć statystyk.'),
+            range:state.statsRange || 'day', date:statsSelectedDate(), dates:statsDateRange(state.statsRange || 'day', statsSelectedDate()),
+            selectedDispatcher:'all', selectedDispatcherName:'Wszyscy spedytorzy', routes:[],
+            totals:{count:0,profit:0,cost:0,loaded:0,approach:0,income:0}, byCarrier:[], byBranch:[], byDriver:[], byVehicle:[], byDispatcher:[],
+            accountingIssues:[], noKm:[], noRate:[], noCost:[], finishedNotSettled:[], lowRate:[], loadedToEmptyRatio:0, emptyPercent:0,
+            avgProfitPerRoute:0, avgProfitPerKm:0, avgRatePerKm:0, minRate:0, maxRate:0
+          };
+        }
+      }
+
+      function stableCompanyTable3L40(stats) {
+        try {
+          if (window.__tmsCompanyStats3L40?.request) window.__tmsCompanyStats3L40.request(stats, false);
+          if (window.__tmsCompanyStats3L40?.render) return window.__tmsCompanyStats3L40.render(stats);
+        } catch (error) {
+          console.error('3L.40 company stats:', error);
+          return `<section class="stats-section"><div class="stats-stable-error">Tabela wszystkich spedytorów: ${esc(error?.message || 'błąd odczytu')}</div></section>`;
+        }
+        return '';
+      }
+
+      function stableWeekly3L40(stats) {
+        if (stats.range !== 'week') return '';
+        try {
+          const helper = window.__tmsStatsWeekly3L40;
+          const ws = helper?.weekStart ? helper.weekStart(stats.date) : weekDaysForDate(stats.date)[0];
+          if (helper?.request && ws) queueMicrotask(() => helper.request(ws, false));
+          return helper?.render ? helper.render(stats) : '';
+        } catch (error) {
+          console.error('3L.40 weekly stats:', error);
+          return `<section class="weekly-settlement-section"><div class="stats-stable-error">Podsumowanie tygodniowe: ${esc(error?.message || 'błąd odczytu')}</div></section>`;
+        }
+      }
+
+      function stableStatsToolbar3L40(stats) {
+        return `<div class="stats-toolbar">
+          ${stats.range === 'custom' ? `
+            <div class="stats-custom-range">
+              <label><span>Od</span><input class="input" type="date" value="${attr(state.statsCustomDraftFrom || state.statsCustomFrom || stats.date)}" onchange="setStatsCustomDraft('from',this.value)" /></label>
+              <label><span>Do</span><input class="input" type="date" value="${attr(state.statsCustomDraftTo || state.statsCustomTo || stats.date)}" onchange="setStatsCustomDraft('to',this.value)" /></label>
+              <button class="btn btn-dark" type="button" onclick="applyStatsCustomRange()">Generuj</button>
+            </div>` : renderDateStepper(stats.date, 'shiftStatsDate(-1)', 'shiftStatsDate(1)', 'Dzień statystyk')}
+          <div class="stats-range-actions">
+            <button class="btn ${stats.range==='day'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('day')">Dzień</button>
+            <button class="btn ${stats.range==='week'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('week')">Tydzień</button>
+            <button class="btn ${stats.range==='month'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('month')">Miesiąc</button>
+            <button class="btn ${stats.range==='custom'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('custom')">Wybrany okres</button>
+          </div>
+          <div class="stats-stable-actions">
+            <button class="btn" type="button" onclick="refreshCompanyDispatcherStats()">Odśwież tabelę</button>
+            <button class="btn btn-dark" type="button" onclick="openWeeklySettlementTools('carrier')">Wyrównanie przewoźnika</button>
+            <button class="btn btn-dark" type="button" onclick="openWeeklySettlementTools('dispatcher')">Transfer spedytora</button>
+          </div>
+        </div>`;
+      }
+
+      function renderStatsDrawerStable3L40(stats) {
+        const period = statsPeriodLabel(stats.range, stats.date);
+        const financeRows = [
+          {label:'Zysk całkowity',value:statsMoney(stats.totals.profit)},
+          {label:'Koszt przewoźnika',value:statsMoney(stats.totals.cost)},
+          {label:'Kilometry',value:statsKm(stats.totals.loaded)},
+          {label:'Dolot / puste km',value:statsKm(stats.totals.approach)},
+          {label:'Procent pustych km',value:statsPercent(stats.emptyPercent)},
+          {label:'Średnia stawka PLN/km',value:statsSafeRate(stats.avgRatePerKm)}
+        ];
+        const qualityRows = [
+          {label:'Do weryfikacji przez rozliczenia',value:stats.accountingIssues.length},
+          {label:'Zakończone, ale nierozliczone',value:stats.finishedNotSettled.length},
+          {label:'Bez wpisanych km',value:stats.noKm.length},
+          {label:'Bez stawki',value:stats.noRate.length},
+          {label:'Bez kosztu przewoźnika',value:stats.noCost.length}
+        ];
+        return `<aside class="stats-drawer open stats-stable-3l40 ${state.statsFullscreen?'stats-fullscreen':''}" onclick="event.stopPropagation()">
+          <div class="stats-drawer-head">
+            <div><h2>Statystyki</h2><div class="hint">Zakres: ${esc(period)}. Wspólna tabela obejmuje wszystkich spedytorów; szczegóły niżej wynikają z danych dostępnych dla bieżącego użytkownika.</div></div>
+            <div class="stats-drawer-head-actions"><button class="btn" type="button" onclick="toggleStatsFullscreen()">${state.statsFullscreen?'Widok panelu':'Pełny ekran'}</button><button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button></div>
+          </div>
+          <div class="stats-drawer-body">
+            ${stableStatsToolbar3L40(stats)}
+            ${stats.__error ? `<div class="stats-stable-error">${esc(stats.__error)}</div>` : ''}
+            ${stableCompanyTable3L40(stats)}
+            ${renderStatsMetricGrid(stats)}
+            ${renderStatsFocus(stats)}
+            ${renderStatsList('Finanse','Najważniejsze wartości dla wybranego zakresu',financeRows)}
+            ${renderStatsTable('Pojazdy','Wyniki według pojazdu',stats.byVehicle,Math.max(12,stats.byVehicle.length))}
+            ${renderStatsTable('Przewoźnicy','Koszt, wynik i kilometry',stats.byCarrier,12)}
+            ${renderStatsTable('Kierowcy','Relacje, km, zysk i dolot',stats.byDriver,Math.max(12,stats.byDriver.length))}
+            ${renderStatsList('Dane do uzupełnienia','Kontrola danych potrzebnych do rozliczeń',qualityRows)}
+            ${stableWeekly3L40(stats)}
+          </div>
+        </aside>`;
+      }
+
+      renderStatsUi = function() {
+        if (!state.user) return '';
+        if (!state.statsPanelOpen) return renderStatsTab(null);
+        const stats = stableStatsSnapshot3L40();
+        return `${renderStatsTab(stats)}${renderStatsDrawerStable3L40(stats)}`;
+      };
+
+      /* Statystyki nie mogą zostać zablokowane przez wyjątek renderera. */
+      const syncStatsPanelBefore3L40 = syncStatsPanel;
+      syncStatsPanel = function() {
+        try { return syncStatsPanelBefore3L40.call(this); }
+        catch (error) {
+          console.error('3L.40 syncStatsPanel:', error);
+          document.querySelectorAll('.stats-tab,.stats-drawer').forEach(el=>el.remove());
+          const host=document.querySelector('.app')||document.getElementById('app');
+          if (!host || !state.user) return;
+          const template=document.createElement('template');
+          template.innerHTML=`${renderStatsTab(null)}<aside class="stats-drawer open stats-stable-3l40"><div class="stats-drawer-head"><div><h2>Statystyki</h2></div><button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button></div><div class="stats-drawer-body"><div class="stats-stable-error">${esc(error?.message || 'Nie udało się wyświetlić panelu statystyk.')}</div></div></aside>`;
+          Array.from(template.content.children).forEach(el=>host.appendChild(el));
+        }
+      };
     })();
   </script>
 
