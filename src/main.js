@@ -1843,6 +1843,9 @@ async function loadWeeklySettlementData(weekStart) {
   if (adjustmentsError) throw new Error(`Nie udało się pobrać wyrównań przewoźników: ${adjustmentsError.message}`)
   if (transfersError) throw new Error(`Nie udało się pobrać przelewów spedytorów: ${transfersError.message}`)
 
+  const directoryProfiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
+  const directoryById = new Map(directoryProfiles.map((profile) => [String(profile.id || ''), profile]))
+
   return {
     weekStart: normalizedWeek,
     carrierAdjustments: (adjustments || []).map((row) => ({
@@ -1880,6 +1883,10 @@ async function loadWeeklySettlementData(weekStart) {
       deletedBy: String(row.deleted_by || ''),
       rejectedAt: String(row.rejected_at || ''),
       rejectedBy: String(row.rejected_by || ''),
+      fromDispatcherName: String(directoryById.get(String(row.from_dispatcher_id || ''))?.displayName || ''),
+      toDispatcherName: String(directoryById.get(String(row.to_dispatcher_id || ''))?.displayName || ''),
+      fromDispatcherLogin: String(directoryById.get(String(row.from_dispatcher_id || ''))?.login || ''),
+      toDispatcherLogin: String(directoryById.get(String(row.to_dispatcher_id || ''))?.login || ''),
     })),
   }
 }
@@ -2416,7 +2423,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v58-board-finance-layer"
+        src="/tms.html?embedded=1&build=request-workflow-v59-route-status-finance-visible"
         title="Top Dragon TMS"
       ></iframe>
     </main>
