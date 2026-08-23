@@ -1833,10 +1833,13 @@ async function importFleetExcelFromTms(message) {
 function normalizeWeekStart(value) {
   const raw = String(value || '').slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return ''
-  const date = new Date(`${raw}T00:00:00`)
+  // 3L.46: obliczamy tydzień wyłącznie w UTC. Lokalny Date + toISOString()
+  // w Polsce przesuwał poniedziałek o dzień wstecz (np. 17.08 -> 16.08),
+  // przez co iframe czekał na inny weekStart niż zwracał parent.
+  const date = new Date(`${raw}T00:00:00Z`)
   if (Number.isNaN(date.getTime())) return ''
-  const isoDay = date.getDay() || 7
-  date.setDate(date.getDate() - isoDay + 1)
+  const isoDay = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() - isoDay + 1)
   return date.toISOString().slice(0, 10)
 }
 
@@ -1863,11 +1866,25 @@ async function loadWeeklySettlementData(weekStart) {
   const normalizedWeek = normalizeWeekStart(weekStart)
   if (!normalizedWeek) throw new Error('Nieprawidłowy tydzień rozliczeniowy.')
 
-  let [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await queryWeeklyFinanceRows(normalizedWeek, true)
+  const weeklyQueryWithTimeout = async (extended) => {
+    let timer = null
+    try {
+      return await Promise.race([
+        queryWeeklyFinanceRows(normalizedWeek, extended),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Przekroczono czas pobierania rozliczeń tygodniowych.')), 6000)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  let [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await weeklyQueryWithTimeout(true)
   if ((adjustmentsError && isWeeklyFinanceSchemaCacheError(adjustmentsError)) || (transfersError && isWeeklyFinanceSchemaCacheError(transfersError))) {
     // Po migracji 026 PostgREST może jeszcze przez chwilę widzieć stary schemat.
     // Nie blokujemy całego panelu czerwonym błędem — czytamy stare kolumny do czasu reloadu cache.
-    ;([{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await queryWeeklyFinanceRows(normalizedWeek, false))
+    ;([{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await weeklyQueryWithTimeout(false))
   }
 
   if (adjustmentsError) throw new Error(`Nie udało się pobrać wyrównań przewoźników: ${adjustmentsError.message}`)
@@ -2453,7 +2470,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v65-stats-controls-finance"
+        src="/tms.html?embedded=1&build=request-workflow-v66-weekly-dollar-stats-close"
         title="Top Dragon TMS"
       ></iframe>
     </main>
