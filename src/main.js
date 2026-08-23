@@ -2016,20 +2016,36 @@ async function rpcWithWeeklySchemaRetry(name, args) {
   return supabase.rpc(name, args)
 }
 
+async function refreshWeeklySettlementAfterMutation(weekStart) {
+  const normalizedWeek = normalizeWeekStart(weekStart || weeklySettlementWeekStart)
+  if (!normalizedWeek) return
+  weeklySettlementWeekStart = normalizedWeek
+  // Zapis w bazie jest operacją nadrzędną. Błąd odświeżenia widoku nie może
+  // zmieniać poprawnego zapisu w fałszywy komunikat "nie udało się zapisać".
+  try {
+    await syncWeeklySettlementToTms(normalizedWeek)
+  } catch (error) {
+    console.warn('Zapisano rozliczenie, ale nie udało się od razu odświeżyć danych tygodnia:', error)
+  }
+  activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-weekly-settlement-invalidated' }, window.location.origin)
+}
+
 async function createCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart)
   try {
     const { error } = await rpcWithWeeklySchemaRetry('create_tms_carrier_week_adjustment_v2', {
-      p_week_start: normalizeWeekStart(message?.weekStart),
+      p_week_start: weekStart,
       p_carrier_id: String(message?.carrierId || '').trim() || null,
       p_driver_id: String(message?.driverId || '').trim() || null,
       p_amount: Number(message?.amount || 0),
       p_comment: String(message?.comment || '').trim(),
     })
     if (error) throw error
-    weeklySettlementWeekStart = normalizeWeekStart(message?.weekStart)
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
+    // Potwierdzamy zapis natychmiast po sukcesie RPC. Odświeżenie danych jest
+    // osobnym krokiem i nie może spowodować duplikowania poprawnie zapisanej korekty.
     sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-create', 'Wyrównanie przewoźnika zostało zapisane.')
+    void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-create', error?.message || 'Nie udało się zapisać wyrównania przewoźnika.')
   }
@@ -2042,8 +2058,8 @@ async function deleteCarrierWeekAdjustmentFromTms(message) {
       p_adjustment_id: String(message?.adjustmentId || '').trim() || null,
     })
     if (error) throw error
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
     sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-delete', 'Wyrównanie zostało usunięte z aktywnego podsumowania.')
+    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-delete', error?.message || 'Nie udało się usunąć wyrównania.')
   }
@@ -2051,19 +2067,19 @@ async function deleteCarrierWeekAdjustmentFromTms(message) {
 
 async function createDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart)
   try {
     const { error } = await rpcWithWeeklySchemaRetry('create_tms_dispatcher_week_transfer', {
-      p_week_start: normalizeWeekStart(message?.weekStart),
+      p_week_start: weekStart,
       p_to_dispatcher_id: String(message?.toDispatcherId || '').trim() || null,
       p_amount: Number(message?.amount || 0),
       p_comment: String(message?.comment || '').trim(),
     })
     if (error) throw error
-    weeklySettlementWeekStart = normalizeWeekStart(message?.weekStart)
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-create', 'Przelew został wysłany do akceptacji odbiorcy.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-create', 'Transfer został zapisany i oczekuje na wymagane akceptacje.')
+    void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', error?.message || 'Nie udało się utworzyć przelewu.')
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', error?.message || 'Nie udało się utworzyć transferu.')
   }
 }
 
@@ -2076,10 +2092,10 @@ async function respondDispatcherWeekTransferFromTms(message) {
       p_status: status,
     })
     if (error) throw error
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Przelew został zaakceptowany.' : 'Przelew został odrzucony.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Potwierdzenie odbiorcy zostało zapisane.' : 'Transfer został odrzucony.')
+    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', error?.message || 'Nie udało się rozpatrzyć przelewu.')
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', error?.message || 'Nie udało się rozpatrzyć transferu.')
   }
 }
 
@@ -2090,10 +2106,10 @@ async function deleteDispatcherWeekTransferFromTms(message) {
       p_transfer_id: String(message?.transferId || '').trim() || null,
     })
     if (error) throw error
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-delete', 'Przelew został usunięty. Godzina usunięcia została zachowana w historii.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-delete', 'Transfer został usunięty. Godzina usunięcia została zachowana w historii.')
+    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', error?.message || 'Nie udało się usunąć przelewu.')
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', error?.message || 'Nie udało się usunąć transferu.')
   }
 }
 
@@ -2106,8 +2122,8 @@ async function approveDispatcherWeekTransferManagerFromTms(message) {
       p_status: status,
     })
     if (error) throw error
-    await syncWeeklySettlementToTms(weeklySettlementWeekStart)
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-manager-response', status === 'accepted' ? 'Decyzja kierownika została zapisana.' : 'Przelew został odrzucony przez kierownika.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-manager-response', status === 'accepted' ? 'Decyzja kierownika została zapisana.' : 'Transfer został odrzucony przez kierownika.')
+    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-manager-response', error?.message || 'Nie udało się zapisać decyzji kierownika.')
   }
@@ -2470,7 +2486,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v67-week-boundary-finance-marker"
+        src="/tms.html?embedded=1&build=request-workflow-v69-week-settlement-column-finance-audit"
         title="Top Dragon TMS"
       ></iframe>
     </main>
