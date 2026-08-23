@@ -90074,5 +90074,326 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+  <style id="targeted-3l45-stats-controls-scroll-finance">
+    /* 3L.45 — stabilne suwaki Statystyk, zwarte sterowanie datą i bez animacji kontrolek. */
+    .stats-toolbar > .map-date-nav {
+      width: 188px !important;
+      min-width: 188px !important;
+      max-width: 188px !important;
+      justify-self: start !important;
+      grid-template-columns: 34px 120px 34px !important;
+    }
+    .stats-toolbar .map-date-nav-btn {
+      width: 34px !important;
+      min-width: 34px !important;
+      max-width: 34px !important;
+      padding: 0 !important;
+      flex: 0 0 34px !important;
+      animation: none !important;
+      transform: none !important;
+      transition: background-color .08s linear, color .08s linear !important;
+    }
+    .stats-toolbar .map-date-display {
+      width: 120px !important;
+      min-width: 120px !important;
+      max-width: 120px !important;
+      box-sizing: border-box !important;
+    }
+    .stats-range-actions .btn,
+    .stats-custom-range .btn,
+    .stats-drawer-head .btn {
+      animation: none !important;
+      transform: none !important;
+      transition: background-color .08s linear, border-color .08s linear, color .08s linear !important;
+    }
+    .stats-range-actions .btn:hover,
+    .stats-custom-range .btn:hover,
+    .stats-drawer-head .btn:hover { transform: none !important; }
+
+    .stats-drawer-body,
+    .stats-table-wrap,
+    .stats-company-table-wrap,
+    .weekly-settlement-table-wrap {
+      scroll-behavior: auto !important;
+      animation: none !important;
+      transition: none !important;
+      scrollbar-color: #94a3b8 #e2e8f0;
+      scrollbar-width: auto;
+    }
+    .stats-drawer-body::-webkit-scrollbar,
+    .stats-table-wrap::-webkit-scrollbar,
+    .stats-company-table-wrap::-webkit-scrollbar,
+    .weekly-settlement-table-wrap::-webkit-scrollbar {
+      width: 12px !important;
+      height: 12px !important;
+    }
+    .stats-drawer-body::-webkit-scrollbar-track,
+    .stats-table-wrap::-webkit-scrollbar-track,
+    .stats-company-table-wrap::-webkit-scrollbar-track,
+    .weekly-settlement-table-wrap::-webkit-scrollbar-track { background: #e2e8f0 !important; }
+    .stats-drawer-body::-webkit-scrollbar-thumb,
+    .stats-table-wrap::-webkit-scrollbar-thumb,
+    .stats-company-table-wrap::-webkit-scrollbar-thumb,
+    .weekly-settlement-table-wrap::-webkit-scrollbar-thumb {
+      background: #94a3b8 !important;
+      border: 3px solid #e2e8f0 !important;
+      border-radius: 999px !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    .stats-drawer-body::-webkit-scrollbar-thumb:hover,
+    .stats-table-wrap::-webkit-scrollbar-thumb:hover,
+    .stats-company-table-wrap::-webkit-scrollbar-thumb:hover,
+    .weekly-settlement-table-wrap::-webkit-scrollbar-thumb:hover { background: #64748b !important; }
+    .app.dark-mode .stats-drawer-body,
+    .app.dark-mode .stats-table-wrap,
+    .app.dark-mode .stats-company-table-wrap,
+    .app.dark-mode .weekly-settlement-table-wrap { scrollbar-color:#64748b #1e293b; }
+    .app.dark-mode .stats-drawer-body::-webkit-scrollbar-track,
+    .app.dark-mode .stats-table-wrap::-webkit-scrollbar-track,
+    .app.dark-mode .stats-company-table-wrap::-webkit-scrollbar-track,
+    .app.dark-mode .weekly-settlement-table-wrap::-webkit-scrollbar-track { background:#1e293b !important; }
+    .app.dark-mode .stats-drawer-body::-webkit-scrollbar-thumb,
+    .app.dark-mode .stats-table-wrap::-webkit-scrollbar-thumb,
+    .app.dark-mode .stats-company-table-wrap::-webkit-scrollbar-thumb,
+    .app.dark-mode .weekly-settlement-table-wrap::-webkit-scrollbar-thumb { background:#64748b !important; border-color:#1e293b !important; }
+
+    .stats-weekly-load-error-3l45 {
+      margin: 8px 0 0;
+      padding: 9px 10px;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      background: #fef2f2;
+      color: #991b1b;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+    .stats-weekly-load-error-3l45 .btn { margin-top:7px; }
+    .app.dark-mode .stats-weekly-load-error-3l45 { background:#450a0a; border-color:#7f1d1d; color:#fecaca; }
+  </style>
+
+  <script id="targeted-3l45-stats-controls-scroll-finance-script">
+    (() => {
+      /*
+       * 3L.45
+       * 1) zatrzymuje pętlę błędnego pobierania tygodniowych rozliczeń,
+       * 2) nie podmienia DOM podczas fizycznego trzymania scrollbara,
+       * 3) daje natychmiastową reakcję Dzień/Tydzień/Miesiąc/zakres,
+       * 4) przywraca działanie wejść do narzędzi finansowych,
+       * 5) szczegóły wygasłych Wolnych ładunków są wyłącznie dla administratora.
+       */
+
+      /* --- Historia wygasłych Wolnych ładunków: tylko administrator. --- */
+      const renderExpiredBase3L45 = renderExpiredProposedLoadStats3L44;
+      renderExpiredProposedLoadStats3L44 = function() {
+        const isAdmin = state.user?.role === 'admin' || state.user?.supabaseRole === 'admin';
+        return isAdmin ? renderExpiredBase3L45.apply(this, arguments) : '';
+      };
+
+      /* --- Stabilizacja pełnej przebudowy Statystyk podczas chwytania scrollbara. --- */
+      let statsScrollbarHeld3L45 = false;
+      let statsRenderPending3L45 = false;
+      let statsRenderRaf3L45 = 0;
+      const syncStatsPanelBase3L45 = syncStatsPanel;
+
+      function statsScrollableTarget3L45(target) {
+        return target?.closest?.('.stats-drawer-body,.stats-table-wrap,.stats-company-table-wrap,.weekly-settlement-table-wrap') || null;
+      }
+
+      syncStatsPanel = function() {
+        if (statsScrollbarHeld3L45) {
+          statsRenderPending3L45 = true;
+          return;
+        }
+        statsRenderPending3L45 = false;
+        return syncStatsPanelBase3L45.apply(this, arguments);
+      };
+
+      window.addEventListener('mousedown', event => {
+        if (event.button !== 0 || !state.statsPanelOpen) return;
+        if (!statsScrollableTarget3L45(event.target)) return;
+        statsScrollbarHeld3L45 = true;
+        if (statsRenderRaf3L45) cancelAnimationFrame(statsRenderRaf3L45);
+        statsRenderRaf3L45 = 0;
+      }, true);
+
+      function releaseStatsScrollbar3L45() {
+        if (!statsScrollbarHeld3L45) return;
+        statsScrollbarHeld3L45 = false;
+        if (statsRenderPending3L45 && state.statsPanelOpen) queueStatsRender3L45();
+      }
+      window.addEventListener('mouseup', releaseStatsScrollbar3L45, true);
+      window.addEventListener('blur', releaseStatsScrollbar3L45, true);
+
+      function updateStatsRangeButtons3L45() {
+        document.querySelectorAll('.stats-range-actions .btn').forEach(btn => {
+          const label = String(btn.textContent || '').trim().toLowerCase();
+          const map = {'dzień':'day','tydzień':'week','miesiąc':'month','wybrany okres':'custom'};
+          const range = map[label];
+          if (!range) return;
+          btn.classList.toggle('toggle-active', state.statsRange === range);
+          btn.classList.toggle('toggle-inactive', state.statsRange !== range);
+        });
+      }
+
+      function updateStatsDateDisplay3L45() {
+        const input = document.querySelector('.stats-toolbar .map-date-display');
+        if (input) input.value = formatDateForInput(statsSelectedDate());
+      }
+
+      function queueStatsRender3L45() {
+        statsRenderPending3L45 = true;
+        if (statsScrollbarHeld3L45 || !state.statsPanelOpen) return;
+        if (statsRenderRaf3L45) cancelAnimationFrame(statsRenderRaf3L45);
+        statsRenderRaf3L45 = requestAnimationFrame(() => {
+          statsRenderRaf3L45 = 0;
+          if (!state.statsPanelOpen || statsScrollbarHeld3L45) return;
+          statsRenderPending3L45 = false;
+          try { syncStatsPanel(); }
+          catch (error) { console.error('3L.45 stats render', error); }
+        });
+      }
+      window.queueStatsRender3L45 = queueStatsRender3L45;
+
+      /* Toolbar reaguje wizualnie od razu; cięższe wyliczenie dopiero w następnej klatce. */
+      setStatsRange = function(range) {
+        const next = ['day','week','month','custom'].includes(range) ? range : 'day';
+        if (next === 'custom') {
+          state.statsCustomDraftFrom = state.statsCustomFrom || statsSelectedDate();
+          state.statsCustomDraftTo = state.statsCustomTo || statsSelectedDate();
+        }
+        state.statsRange = next;
+        updateStatsRangeButtons3L45();
+        queueStatsRender3L45();
+      };
+
+      shiftStatsDate = function(direction) {
+        state.statsDate = addDaysToIso(statsSelectedDate(), Number(direction || 0));
+        updateStatsDateDisplay3L45();
+        queueStatsRender3L45();
+      };
+
+      applyStatsCustomRange = function() {
+        let from = String(state.statsCustomDraftFrom || state.statsCustomFrom || statsSelectedDate()).slice(0,10);
+        let to = String(state.statsCustomDraftTo || state.statsCustomTo || from).slice(0,10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+          showAppMessage('Nieprawidłowy okres','Wybierz datę początkową i końcową statystyk.','error');
+          return;
+        }
+        if (from > to) [from,to] = [to,from];
+        state.statsCustomFrom = from;
+        state.statsCustomTo = to;
+        state.statsCustomDraftFrom = from;
+        state.statsCustomDraftTo = to;
+        state.statsRange = 'custom';
+        updateStatsRangeButtons3L45();
+        queueStatsRender3L45();
+      };
+
+      /* Wszystkie automatyczne odświeżenia Statystyk korzystają z jednego RAF. */
+      scheduleStatsPanelSync = function() {
+        if (!state.statsPanelOpen) return;
+        queueStatsRender3L45();
+      };
+
+      /* --- Tygodniowe finanse: brak nieskończonego request -> error -> request. --- */
+      function weeklyHelper3L45() { return window.__tmsStatsWeekly3L40 || null; }
+      function weekStart3L45() {
+        const helper = weeklyHelper3L45();
+        return helper?.weekStart ? helper.weekStart(statsSelectedDate()) : weekDaysForDate(statsSelectedDate())[0];
+      }
+
+      const weeklyHelper = weeklyHelper3L45();
+      if (weeklyHelper?.render && !weeklyHelper.__patched3L45) {
+        const baseRender = weeklyHelper.render;
+        weeklyHelper.render = function(stats) {
+          let html = baseRender.apply(this, arguments);
+          html = html.replace(
+            '<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>',
+            '<div class="weekly-settlement-subsection" id="weekly-carrier-tools">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>'
+          );
+          html = html.replace(
+            '<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>',
+            '<div class="weekly-settlement-subsection" id="weekly-dispatcher-transfer-tools">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>'
+          );
+          const error = String(state.weeklySettlement?.error || '').trim();
+          if (error && html.includes('<section class="weekly-settlement-section">')) {
+            html = html.replace('<section class="weekly-settlement-section">', `<section class="weekly-settlement-section"><div class="stats-weekly-load-error-3l45">Ostatnie pobranie danych rozliczeniowych nie powiodło się: ${esc(error)}<br><button class="btn" type="button" onclick="retryWeeklyFinance3L45()">Spróbuj ponownie</button></div>`);
+          }
+          return html;
+        };
+        weeklyHelper.__patched3L45 = true;
+      }
+
+      window.retryWeeklyFinance3L45 = function() {
+        const ws = weekStart3L45();
+        state.weeklySettlement = { ...(state.weeklySettlement || {}), weekStart:ws, loaded:false, loading:false, error:'' };
+        weeklyHelper3L45()?.request?.(ws, true);
+        queueStatsRender3L45();
+      };
+
+      function scrollWeeklyFocus3L45() {
+        if (!state.statsWeeklyFocus || !state.statsPanelOpen || state.statsRange !== 'week') return;
+        const id = state.statsWeeklyFocus === 'carrier' ? 'weekly-carrier-tools' : 'weekly-dispatcher-transfer-tools';
+        const target = document.getElementById(id);
+        if (!target) return;
+        target.scrollIntoView({behavior:'auto', block:'start'});
+        state.statsWeeklyFocus = '';
+      }
+
+      openWeeklySettlementTools = function(target = '') {
+        state.statsWeeklyFocus = target === 'carrier' || target === 'dispatcher' ? target : '';
+        state.statsRange = 'week';
+        updateStatsRangeButtons3L45();
+        const ws = weekStart3L45();
+        const current = state.weeklySettlement || {};
+        if (current.weekStart !== ws || (!current.loaded && !current.loading)) {
+          state.weeklySettlement = { ...current, weekStart:ws, error:'' };
+          weeklyHelper3L45()?.request?.(ws, false);
+        }
+        queueStatsRender3L45();
+        requestAnimationFrame(() => requestAnimationFrame(scrollWeeklyFocus3L45));
+      };
+
+      /* Przyciski z analizy korzystają z tego samego, pewnego wejścia. */
+      window.focusWeeklyTool3L43 = function(type) { openWeeklySettlementTools(type); };
+
+      /* Błąd samego pobrania nie może uruchamiać historycznego auto-retry w pętli.
+         Listener capture zatrzymuje tylko komunikat action=load; pozostałe operacje
+         nadal obsługuje istniejąca logika 3L.19/3L.36. */
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type === 'top-dragon-weekly-settlement-data') {
+          if (state.weeklySettlement) state.weeklySettlement.error = '';
+          requestAnimationFrame(scrollWeeklyFocus3L45);
+          return;
+        }
+        if (message.type !== 'top-dragon-weekly-settlement-operation-result' || message.action !== 'load' || message.ok) return;
+        event.stopImmediatePropagation();
+        const current = state.weeklySettlement || {};
+        state.weeklySettlement = {
+          ...current,
+          weekStart: current.weekStart || weekStart3L45(),
+          carrierAdjustments: Array.isArray(current.carrierAdjustments) ? current.carrierAdjustments : [],
+          transfers: Array.isArray(current.transfers) ? current.transfers : [],
+          loading:false,
+          loaded:true,
+          requestId:'',
+          error:String(message.message || 'Nie udało się pobrać danych rozliczeniowych.')
+        };
+        queueStatsRender3L45();
+      }, true);
+
+      /* Po pojawieniu się danych od razu przewiń do wybranego narzędzia. */
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin || event.data?.type !== 'top-dragon-weekly-settlement-data') return;
+        requestAnimationFrame(() => { queueStatsRender3L45(); requestAnimationFrame(scrollWeeklyFocus3L45); });
+      });
+    })();
+  </script>
+
 </body>
 </html>
