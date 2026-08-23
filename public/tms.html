@@ -89518,5 +89518,427 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+
+  <style id="targeted-3l43-autoscroll-stats-ux">
+    /* 3L.43 — klasyczny autoscroll rolką, stabilne suwaki i lżejsze Statystyki. */
+    .board-autoscroll-anchor-3l43 {
+      position: fixed;
+      width: 42px;
+      height: 42px;
+      margin: -21px 0 0 -21px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.96);
+      border: 2px solid #111827;
+      box-shadow: 0 8px 24px rgba(15,23,42,.24);
+      z-index: 2147483600;
+      pointer-events: none;
+      color: #050505;
+      font-size: 12px;
+      font-weight: 950;
+      line-height: 1;
+    }
+    .board-autoscroll-anchor-3l43 span { position:absolute; display:block; }
+    .board-autoscroll-anchor-3l43 .up { top:3px; left:50%; transform:translateX(-50%); }
+    .board-autoscroll-anchor-3l43 .down { bottom:3px; left:50%; transform:translateX(-50%); }
+    .board-autoscroll-anchor-3l43 .left { left:4px; top:50%; transform:translateY(-50%); }
+    .board-autoscroll-anchor-3l43 .right { right:4px; top:50%; transform:translateY(-50%); }
+    .board-autoscroll-anchor-3l43 .dot { left:50%; top:50%; width:5px; height:5px; border-radius:50%; background:#111827; transform:translate(-50%,-50%); }
+    .board-scroll.board-autoscroll-active-3l43 { cursor: all-scroll !important; }
+    .board-scroll.board-autoscroll-active-3l43 * { cursor: all-scroll !important; }
+
+    /* Kółko myszy nad tabelą ma przewijać cały panel, nie blokować się w tabeli. */
+    .stats-table-wrap,
+    .stats-company-table-wrap,
+    .weekly-settlement-table-wrap {
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
+      max-height: none !important;
+      overscroll-behavior-x: contain;
+      overscroll-behavior-y: auto;
+      scrollbar-gutter: stable;
+    }
+    .stats-drawer-body { overscroll-behavior-y: auto !important; }
+
+    /* Przyciski finansowe nie pulsują / nie zmieniają rozmiaru po najechaniu. */
+    .stats-stable-actions .btn,
+    .stats-company-actions .btn,
+    .weekly-quick-card .btn,
+    .stats-finance-analysis-3l43 .btn {
+      transition: background-color .08s linear, border-color .08s linear, color .08s linear !important;
+      animation: none !important;
+      transform: none !important;
+    }
+    .stats-stable-actions .btn:hover,
+    .stats-company-actions .btn:hover,
+    .weekly-quick-card .btn:hover,
+    .stats-finance-analysis-3l43 .btn:hover { transform:none !important; }
+    .stats-drawer.stats-updating { opacity: 1 !important; }
+
+    /* Czytelna analiza wyrównań/przelewów zawsze wysoko w Statystykach. */
+    .stats-finance-analysis-3l43 {
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      background: var(--card);
+      overflow: hidden;
+      box-shadow: 0 7px 18px rgba(15,23,42,.04);
+    }
+    .stats-finance-analysis-head-3l43 {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      padding:11px 13px; border-bottom:1px solid var(--border); background:var(--soft);
+    }
+    .stats-finance-analysis-head-3l43 b { display:block; font-size:13px; }
+    .stats-finance-analysis-head-3l43 small { display:block; margin-top:3px; color:var(--muted); font-size:10px; font-weight:750; }
+    .stats-finance-kpis-3l43 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:10px 12px; }
+    .stats-finance-kpi-3l43 { border:1px solid var(--border); border-radius:10px; padding:8px 9px; background:var(--soft); }
+    .stats-finance-kpi-3l43 small { display:block; color:var(--muted); font-size:9px; font-weight:850; }
+    .stats-finance-kpi-3l43 b { display:block; margin-top:3px; font-size:14px; }
+    .stats-finance-rows-3l43 { display:grid; border-top:1px solid var(--border); }
+    .stats-finance-row-3l43 { display:grid; grid-template-columns:105px minmax(160px,1fr) auto; gap:9px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); font-size:10px; }
+    .stats-finance-row-3l43:last-child { border-bottom:0; }
+    .stats-finance-kind-3l43 { font-weight:900; color:#475569; }
+    .stats-finance-row-3l43 .money.plus { color:#15803d; font-weight:950; }
+    .stats-finance-row-3l43 .money.minus { color:#b91c1c; font-weight:950; }
+    .stats-finance-row-3l43 .money.pending { color:#92400e; font-weight:950; }
+    .stats-finance-empty-3l43 { padding:12px; color:var(--muted); font-size:10px; font-weight:800; }
+    .app.dark-mode .stats-finance-analysis-3l43 { border-color:#334155; }
+    .app.dark-mode .stats-finance-row-3l43 { border-color:#334155; }
+    .app.dark-mode .stats-finance-kind-3l43 { color:#cbd5e1; }
+    @media(max-width:800px){
+      .stats-finance-kpis-3l43 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .stats-finance-row-3l43 { grid-template-columns:1fr auto; }
+      .stats-finance-kind-3l43 { grid-column:1/-1; }
+    }
+  </style>
+
+  <script id="targeted-3l43-autoscroll-stats-ux-script">
+    (() => {
+      /* ---------- Plan kierowców: stabilny scrollbar ---------- */
+      const boardScrollbar3L43 = { held:false, pending:false };
+      const baseSyncBoardOnly3L43 = syncBoardOnly;
+      syncBoardOnly = function(...args) {
+        if (boardScrollbar3L43.held) {
+          boardScrollbar3L43.pending = true;
+          return;
+        }
+        return baseSyncBoardOnly3L43.apply(this, args);
+      };
+
+      function boardScrollbarZone3L43(event, viewport) {
+        if (!viewport || event.button !== 0) return false;
+        const rect = viewport.getBoundingClientRect();
+        const scrollbarH = Math.max(14, viewport.offsetHeight - viewport.clientHeight + 4);
+        const scrollbarW = Math.max(14, viewport.offsetWidth - viewport.clientWidth + 4);
+        return event.clientY >= rect.bottom - scrollbarH || event.clientX >= rect.right - scrollbarW;
+      }
+
+      document.addEventListener('pointerdown', event => {
+        const viewport = event.target?.closest?.('.board-scroll');
+        if (!viewport || !boardScrollbarZone3L43(event, viewport)) return;
+        boardScrollbar3L43.held = true;
+      }, true);
+
+      function releaseBoardScrollbar3L43() {
+        if (!boardScrollbar3L43.held) return;
+        boardScrollbar3L43.held = false;
+        if (boardScrollbar3L43.pending) {
+          boardScrollbar3L43.pending = false;
+          requestAnimationFrame(() => baseSyncBoardOnly3L43());
+        }
+      }
+      document.addEventListener('pointerup', releaseBoardScrollbar3L43, true);
+      document.addEventListener('pointercancel', releaseBoardScrollbar3L43, true);
+      window.addEventListener('blur', releaseBoardScrollbar3L43, true);
+
+      /* ---------- Klasyczny autoscroll po kliknięciu rolki ----------
+         Klik i puszczenie środkowego przycisku ustawia punkt z czarnymi strzałkami.
+         Samo przesunięcie kursora od punktu nadaje stałą prędkość przewijania.
+         Drugi klik rolką, lewy klik, Esc lub utrata fokusu kończą tryb. */
+      const autoScroll3L43 = {
+        active:false, anchorX:0, anchorY:0, mouseX:0, mouseY:0,
+        downX:0, downY:0, downViewport:null, raf:0, marker:null, suppressUp:false
+      };
+
+      function marker3L43(x,y) {
+        const el=document.createElement('div');
+        el.className='board-autoscroll-anchor-3l43';
+        el.style.left=`${x}px`; el.style.top=`${y}px`;
+        el.innerHTML='<span class="up">▲</span><span class="down">▼</span><span class="left">◀</span><span class="right">▶</span><span class="dot"></span>';
+        document.body.appendChild(el);
+        return el;
+      }
+
+      function stopAutoScroll3L43() {
+        if (!autoScroll3L43.active && !autoScroll3L43.marker) return;
+        autoScroll3L43.active=false;
+        if (autoScroll3L43.raf) cancelAnimationFrame(autoScroll3L43.raf);
+        autoScroll3L43.raf=0;
+        autoScroll3L43.marker?.remove?.();
+        autoScroll3L43.marker=null;
+        document.querySelector('.board-scroll')?.classList?.remove('board-autoscroll-active-3l43');
+      }
+
+      function autoSpeed3L43(delta) {
+        const dead=14;
+        const abs=Math.abs(delta);
+        if (abs <= dead) return 0;
+        const scaled=Math.min(34, Math.pow((abs-dead)/24, 1.18)*4.2);
+        return Math.sign(delta)*Math.max(0.7, scaled);
+      }
+
+      function autoFrame3L43() {
+        if (!autoScroll3L43.active) return;
+        const viewport=document.querySelector('.board-scroll');
+        if (!viewport) { stopAutoScroll3L43(); return; }
+        viewport.classList.add('board-autoscroll-active-3l43');
+        const vx=autoSpeed3L43(autoScroll3L43.mouseX-autoScroll3L43.anchorX);
+        const vy=autoSpeed3L43(autoScroll3L43.mouseY-autoScroll3L43.anchorY);
+        if (vx || vy) viewport.scrollBy(vx,vy);
+        autoScroll3L43.raf=requestAnimationFrame(autoFrame3L43);
+      }
+
+      window.addEventListener('mousedown', event => {
+        if (event.button === 1) {
+          autoScroll3L43.downX=event.clientX;
+          autoScroll3L43.downY=event.clientY;
+          autoScroll3L43.downViewport=event.target?.closest?.('.board-scroll') || null;
+          if (autoScroll3L43.active) {
+            event.preventDefault();
+            event.stopPropagation();
+            autoScroll3L43.suppressUp=true;
+            stopAutoScroll3L43();
+          } else {
+            autoScroll3L43.suppressUp=false;
+          }
+          return;
+        }
+        if (autoScroll3L43.active && event.button === 0) stopAutoScroll3L43();
+      }, true);
+
+      window.addEventListener('mouseup', event => {
+        if (event.button !== 1) return;
+        const viewport=autoScroll3L43.downViewport;
+        if (autoScroll3L43.suppressUp) { autoScroll3L43.suppressUp=false; autoScroll3L43.downViewport=null; return; }
+        const moved=Math.hypot(event.clientX-autoScroll3L43.downX,event.clientY-autoScroll3L43.downY);
+        autoScroll3L43.downViewport=null;
+        if (!viewport || moved > 7 || autoScroll3L43.active) return;
+        event.preventDefault();
+        event.stopPropagation();
+        autoScroll3L43.active=true;
+        autoScroll3L43.anchorX=event.clientX;
+        autoScroll3L43.anchorY=event.clientY;
+        autoScroll3L43.mouseX=event.clientX;
+        autoScroll3L43.mouseY=event.clientY;
+        autoScroll3L43.marker=marker3L43(event.clientX,event.clientY);
+        document.querySelector('.board-scroll')?.classList?.add('board-autoscroll-active-3l43');
+        autoScroll3L43.raf=requestAnimationFrame(autoFrame3L43);
+      }, true);
+
+      window.addEventListener('mousemove', event => {
+        if (!autoScroll3L43.active) return;
+        autoScroll3L43.mouseX=event.clientX;
+        autoScroll3L43.mouseY=event.clientY;
+      }, true);
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') stopAutoScroll3L43(); }, true);
+      window.addEventListener('blur', stopAutoScroll3L43, true);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) stopAutoScroll3L43(); }, true);
+      window.addEventListener('auxclick', event => {
+        if (event.button === 1 && (event.target?.closest?.('.board-scroll') || autoScroll3L43.active)) {
+          event.preventDefault(); event.stopPropagation();
+        }
+      }, true);
+
+      /* ---------- Statystyki: wheel na tabeli przewija panel ---------- */
+      document.addEventListener('wheel', event => {
+        const drawer=event.target?.closest?.('.stats-drawer');
+        if (!drawer) return;
+        const tableWrap=event.target?.closest?.('.stats-table-wrap,.stats-company-table-wrap,.weekly-settlement-table-wrap');
+        if (!tableWrap) return;
+        const dx=Number(event.deltaX || 0), dy=Number(event.deltaY || 0);
+        if (event.shiftKey || Math.abs(dx) > Math.abs(dy)) {
+          if (dy && event.shiftKey) {
+            event.preventDefault();
+            tableWrap.scrollLeft += dy;
+          }
+          return;
+        }
+        if (!dy) return;
+        const body=drawer.querySelector('.stats-drawer-body');
+        if (!body) return;
+        event.preventDefault();
+        event.stopPropagation();
+        body.scrollTop += dy;
+      }, {capture:true, passive:false});
+
+      /* ---------- Statystyki: pewne zamknięcie ---------- */
+      window.forceCloseStats3L43 = function() {
+        state.statsPanelOpen=false;
+        state.statsFullscreen=false;
+        state.statsWeeklyFocus='';
+        document.querySelectorAll('.stats-drawer').forEach(el => el.remove());
+        const tab=document.querySelector('.stats-tab');
+        tab?.classList?.remove('btn-dark');
+        requestAnimationFrame(() => { try { syncQueueTabOffsets(); } catch {} });
+      };
+      document.addEventListener('click', event => {
+        const button=event.target?.closest?.('.stats-drawer-head button');
+        if (!button || String(button.textContent || '').trim() !== 'Zamknij') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        forceCloseStats3L43();
+      }, true);
+
+      /* ---------- Statystyki: szybsza reakcja toolbaru ---------- */
+      let statsScrollActiveUntil3L43=0;
+      function statsSnapshotScroll3L43() {
+        const body=document.querySelector('.stats-drawer-body');
+        const wraps=Array.from(document.querySelectorAll('.stats-drawer .stats-company-table-wrap,.stats-drawer .stats-table-wrap,.stats-drawer .weekly-settlement-table-wrap'));
+        return {bodyTop:body?.scrollTop||0,wraps:wraps.map(el=>({left:el.scrollLeft||0,top:el.scrollTop||0}))};
+      }
+      function restoreStatsSnapshot3L43(snapshot) {
+        if (!snapshot) return;
+        const body=document.querySelector('.stats-drawer-body');
+        if (body) body.scrollTop=Number(snapshot.bodyTop||0);
+        const wraps=Array.from(document.querySelectorAll('.stats-drawer .stats-company-table-wrap,.stats-drawer .stats-table-wrap,.stats-drawer .weekly-settlement-table-wrap'));
+        wraps.forEach((el,i)=>{ const pos=snapshot.wraps?.[i]; if(pos){el.scrollLeft=Number(pos.left||0);el.scrollTop=Number(pos.top||0);} });
+      }
+      /* Omijamy historyczny guard 3L.42, który potrafił opóźniać kliknięcia po scrollu. */
+      syncStatsPanel=function() {
+        const snapshot=statsSnapshotScroll3L43();
+        document.querySelectorAll('.stats-tab,.stats-drawer').forEach(el=>el.remove());
+        const host=document.querySelector('.app')||document.getElementById('app');
+        if (!host || !state.user) return;
+        const template=document.createElement('template');
+        template.innerHTML=renderStatsUi().trim();
+        Array.from(template.content.children).forEach(el=>host.appendChild(el));
+        restoreStatsSnapshot3L43(snapshot);
+      };
+      document.addEventListener('scroll',event=>{
+        if(event.target?.closest?.('.stats-drawer')) statsScrollActiveUntil3L43=Date.now()+160;
+      },true);
+
+      let statsRenderRaf3L43=0;
+      let statsRenderTimer3L43=0;
+      function immediateStatsRender3L43() {
+        clearTimeout(statsRenderTimer3L43);
+        if (statsRenderRaf3L43) cancelAnimationFrame(statsRenderRaf3L43);
+        statsRenderRaf3L43=requestAnimationFrame(() => {
+          statsRenderRaf3L43=0;
+          if (!state.statsPanelOpen) return;
+          try { syncStatsPanel(); } catch (error) { console.error('3L.43 stats immediate render',error); }
+        });
+      }
+      scheduleStatsPanelSync = function() {
+        if (!state.statsPanelOpen) return;
+        clearTimeout(statsRenderTimer3L43);
+        const wait=Math.max(35,statsScrollActiveUntil3L43-Date.now()+20);
+        statsRenderTimer3L43=setTimeout(immediateStatsRender3L43,wait);
+      };
+
+      const baseSetStatsRange3L43=setStatsRange;
+      setStatsRange=function(range) {
+        const next=["day","week","month","custom"].includes(range)?range:"day";
+        if (next === 'custom') {
+          state.statsCustomDraftFrom=state.statsCustomFrom || statsSelectedDate();
+          state.statsCustomDraftTo=state.statsCustomTo || statsSelectedDate();
+        }
+        state.statsRange=next;
+        immediateStatsRender3L43();
+      };
+      shiftStatsDate=function(direction) {
+        state.statsDate=addDaysToIso(statsSelectedDate(),Number(direction||0));
+        immediateStatsRender3L43();
+      };
+      const baseApplyStatsCustomRange3L43=applyStatsCustomRange;
+      applyStatsCustomRange=function() {
+        let from=String(state.statsCustomDraftFrom || state.statsCustomFrom || statsSelectedDate()).slice(0,10);
+        let to=String(state.statsCustomDraftTo || state.statsCustomTo || from).slice(0,10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+          showAppMessage('Nieprawidłowy okres','Wybierz datę początkową i końcową statystyk.','error'); return;
+        }
+        if (from > to) [from,to]=[to,from];
+        state.statsCustomFrom=from; state.statsCustomTo=to;
+        state.statsCustomDraftFrom=from; state.statsCustomDraftTo=to;
+        state.statsRange='custom';
+        immediateStatsRender3L43();
+      };
+
+      /* ---------- Finansowe KPI widoczne niezależnie od aktywnego zakresu ---------- */
+      function financeWeekStart3L43(date) {
+        const helper=window.__tmsStatsWeekly3L40;
+        if (helper?.weekStart) return helper.weekStart(date || statsSelectedDate());
+        return weekDaysForDate(date || statsSelectedDate())[0];
+      }
+      function transferName3L43(item, side) {
+        const direct=String(side==='from' ? item?.fromDispatcherName || item?.fromDispatcherLogin || '' : item?.toDispatcherName || item?.toDispatcherLogin || '').trim();
+        if (direct) return direct;
+        const id=String(side==='from' ? item?.fromDispatcherId || '' : item?.toDispatcherId || '');
+        const user=(USERS||[]).find(u=>String(u?.supabaseId||'')===id);
+        return String(user?.name || user?.login || 'Spedytor');
+      }
+      function transferStatus3L43(item) {
+        if (item?.status==='accepted') return 'Zaakceptowany';
+        if (item?.status==='rejected') return 'Odrzucony';
+        if (item?.status==='deleted') return item?.deletedAt ? `Usunięty ${new Date(item.deletedAt).toLocaleString('pl-PL',{hour:'2-digit',minute:'2-digit'})}` : 'Usunięty';
+        const parts=[];
+        if (!item?.recipientApprovedAt) parts.push('odbiorca');
+        if (!item?.fromManagerApprovedAt) parts.push('kier. nadawcy');
+        if (!item?.toManagerApprovedAt) parts.push('kier. odbiorcy');
+        return parts.length ? `Oczekuje: ${parts.join(', ')}` : 'Oczekuje';
+      }
+      function renderFinanceAnalysis3L43(stats) {
+        const ws=financeWeekStart3L43(stats?.date || statsSelectedDate());
+        const we=addDaysToIso(ws,6);
+        const helper=window.__tmsStatsWeekly3L40;
+        queueMicrotask(() => helper?.request?.(ws,false));
+        const match=state.weeklySettlement?.weekStart===ws;
+        const loaded=Boolean(match && state.weeklySettlement?.loaded);
+        if (!loaded) return `<section class="stats-finance-analysis-3l43"><div class="stats-finance-analysis-head-3l43"><div><b>Rozliczenia tygodniowe</b><small>${esc(formatDateForInput(ws))} – ${esc(formatDateForInput(we))}</small></div><span class="stats-pill">Pobieranie…</span></div><div class="stats-finance-empty-3l43">Pobieram wyrównania przewoźników i transfery spedytorów.</div></section>`;
+        const adjustments=Array.isArray(state.weeklySettlement.carrierAdjustments)?state.weeklySettlement.carrierAdjustments:[];
+        const transfers=Array.isArray(state.weeklySettlement.transfers)?state.weeklySettlement.transfers:[];
+        const adjSum=adjustments.reduce((s,x)=>s+Number(x.amount||0),0);
+        const accepted=transfers.filter(x=>x.status==='accepted');
+        const pending=transfers.filter(x=>x.status==='pending');
+        const transferSum=accepted.reduce((s,x)=>s+Number(x.amount||0),0);
+        const rows=[];
+        adjustments.slice(-5).reverse().forEach(item=>rows.push({kind:'Przewoźnik',text:`${item.driverName ? item.driverName+' · ' : ''}${item.carrierName || 'Przewoźnik'}${item.comment ? ' · '+item.comment : ''}`,amount:Number(item.amount||0),cls:Number(item.amount||0)>=0?'minus':'plus'}));
+        transfers.slice(-7).reverse().forEach(item=>rows.push({kind:'Transfer',text:`${transferName3L43(item,'from')} → ${transferName3L43(item,'to')} · ${transferStatus3L43(item)}${item.comment ? ' · '+item.comment : ''}`,amount:Number(item.amount||0),cls:item.status==='accepted'?'plus':item.status==='pending'?'pending':'minus'}));
+        return `<section class="stats-finance-analysis-3l43">
+          <div class="stats-finance-analysis-head-3l43"><div><b>Rozliczenia tygodniowe — analiza</b><small>${esc(formatDateForInput(ws))} – ${esc(formatDateForInput(we))} · widoczne dla pracowników w jednym miejscu</small></div><div class="stats-stable-actions"><button class="btn" type="button" onclick="focusWeeklyTool3L43('carrier')">Wyrównanie przewoźnika</button><button class="btn" type="button" onclick="focusWeeklyTool3L43('dispatcher')">Transfer spedytora</button></div></div>
+          <div class="stats-finance-kpis-3l43">
+            <div class="stats-finance-kpi-3l43"><small>Wyrównania przewoźników</small><b>${adjustments.length} · ${esc(statsMoney(adjSum))}</b></div>
+            <div class="stats-finance-kpi-3l43"><small>Transfery zaakceptowane</small><b>${accepted.length} · ${esc(statsMoney(transferSum))}</b></div>
+            <div class="stats-finance-kpi-3l43"><small>Transfery oczekujące</small><b>${pending.length}</b></div>
+            <div class="stats-finance-kpi-3l43"><small>Operacje razem</small><b>${adjustments.length+transfers.length}</b></div>
+          </div>
+          ${rows.length?`<div class="stats-finance-rows-3l43">${rows.slice(0,9).map(row=>`<div class="stats-finance-row-3l43"><span class="stats-finance-kind-3l43">${esc(row.kind)}</span><span>${esc(row.text)}</span><span class="money ${row.cls}">${row.kind==='Transfer'?'':row.amount>0?'+':''}${esc(statsMoney(row.amount))}</span></div>`).join('')}</div>`:`<div class="stats-finance-empty-3l43">Brak wyrównań i transferów w tym tygodniu.</div>`}
+        </section>`;
+      }
+
+      window.focusWeeklyTool3L43=function(type) {
+        state.statsRange='week';
+        immediateStatsRender3L43();
+        setTimeout(() => {
+          const sections=Array.from(document.querySelectorAll('.weekly-settlement-subsection'));
+          const target=sections.find(el => {
+            const text=String(el.textContent || '').toLowerCase();
+            return type==='carrier' ? (text.includes('przewoź') || text.includes('wyrówn')) : (text.includes('przelew') || text.includes('spedytor'));
+          });
+          target?.scrollIntoView?.({behavior:'smooth',block:'start'});
+        },120);
+      };
+
+      const baseRenderStatsUi3L43=renderStatsUi;
+      renderStatsUi=function() {
+        const html=baseRenderStatsUi3L43.apply(this,arguments);
+        if (!state.statsPanelOpen || !html.includes('stats-drawer-body')) return html;
+        let stats;
+        try { stats=statsSnapshot(); } catch { stats={date:statsSelectedDate()}; }
+        const finance=renderFinanceAnalysis3L43(stats);
+        return html.replace('<div class="stats-drawer-body">',`<div class="stats-drawer-body">${finance}`);
+      };
+    })();
+  </script>
+
 </body>
 </html>
