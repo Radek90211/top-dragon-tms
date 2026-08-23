@@ -90559,5 +90559,262 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
+
+  <style id="targeted-3l47-week-boundary-finance-marker">
+    /* 3L.47 — finanse tygodnia są znacznikiem NA GRANICY niedziela -> poniedziałek.
+       Duże kolumny 3L.38 oraz znacznik końca niedzieli 3L.46 są wyłączone. */
+    .board-week-finance-col,
+    .board-carrier-adjustment-dollar-3l46 { display:none !important; }
+
+    .board-week-finance-dollar-3l47 {
+      position:absolute;
+      top:50%;
+      width:22px;
+      height:22px;
+      padding:0;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      transform:translate(-50%,-50%);
+      border:1px solid #15803d;
+      border-radius:7px;
+      background:#16a34a;
+      color:#fff;
+      box-shadow:0 2px 7px rgba(22,163,74,.28);
+      font-size:13px;
+      font-weight:950;
+      line-height:1;
+      z-index:110;
+      pointer-events:auto;
+      cursor:pointer;
+    }
+    .board-week-finance-dollar-3l47:hover { background:#15803d; }
+    .board-week-finance-dollar-3l47.transfer-only {
+      border-color:#2563eb;
+      background:#2563eb;
+      box-shadow:0 2px 7px rgba(37,99,235,.28);
+    }
+    .board-week-finance-dollar-3l47.transfer-only:hover { background:#1d4ed8; }
+    .board-week-finance-dollar-3l47.negative-only {
+      border-color:#d97706;
+      background:#d97706;
+      box-shadow:0 2px 7px rgba(217,119,6,.25);
+    }
+    .app.dark-mode .board-week-finance-dollar-3l47 {
+      border-color:#4ade80;
+      background:#15803d;
+      color:#f0fdf4;
+      box-shadow:0 2px 8px rgba(74,222,128,.22);
+    }
+    .app.dark-mode .board-week-finance-dollar-3l47.transfer-only {
+      border-color:#60a5fa;
+      background:#1d4ed8;
+      color:#eff6ff;
+    }
+    .app.dark-mode .board-week-finance-dollar-3l47.negative-only {
+      border-color:#fbbf24;
+      background:#b45309;
+      color:#fffbeb;
+    }
+
+    .week-finance-backdrop-3l47 {
+      position:fixed;
+      inset:0;
+      z-index:2147483560;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(15,23,42,.42);
+    }
+    .week-finance-card-3l47 {
+      width:min(580px,calc(100vw - 36px));
+      max-height:min(74vh,680px);
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--card);
+      color:var(--text);
+      box-shadow:0 18px 50px rgba(15,23,42,.28);
+    }
+    .week-finance-head-3l47 {
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:13px 14px;
+      border-bottom:1px solid var(--border);
+    }
+    .week-finance-head-3l47 h3 { margin:0; font-size:14px; }
+    .week-finance-head-3l47 small { display:block; margin-top:3px; color:var(--muted); font-size:10px; }
+    .week-finance-section-3l47 { padding:11px 14px; border-bottom:1px solid var(--border); }
+    .week-finance-section-3l47:last-child { border-bottom:0; }
+    .week-finance-section-title-3l47 { font-size:11px; font-weight:950; margin-bottom:7px; }
+    .week-finance-row-3l47 { display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:start; padding:7px 0; border-top:1px dashed var(--border); }
+    .week-finance-row-3l47:first-of-type { border-top:0; }
+    .week-finance-amount-3l47 { font-weight:950; white-space:nowrap; }
+    .week-finance-amount-3l47.plus { color:#15803d; }
+    .week-finance-amount-3l47.minus { color:#dc2626; }
+    .week-finance-amount-3l47.pending { color:#b45309; }
+    .week-finance-copy-3l47 { font-size:11px; line-height:1.35; }
+    .week-finance-copy-3l47 small { display:block; margin-top:3px; color:var(--muted); font-size:9px; }
+  </style>
+
+  <script id="targeted-3l47-week-boundary-finance-marker-script">
+    (() => {
+      function norm3L47(value) {
+        return String(value || '').trim().toLocaleLowerCase('pl-PL').replace(/\s+/g,' ');
+      }
+      function weekStart3L47(date) {
+        const iso=String(date || currentAppDate()).slice(0,10);
+        const d=new Date(`${iso}T12:00:00`);
+        if(Number.isNaN(d.getTime())) return iso;
+        return addDaysToIso(iso,-((d.getDay()+6)%7));
+      }
+      function weekData3L47(weekStart) {
+        return state.boardWeeklySettlements?.[weekStart]
+          || (state.weeklySettlement?.weekStart===weekStart ? state.weeklySettlement : null);
+      }
+      function userForDispatcher3L47(dispatcher) {
+        const target=norm3L47(dispatcher);
+        return USERS.find(u=>norm3L47(u.login)===target)
+          || USERS.find(u=>norm3L47(u.name)===target)
+          || null;
+      }
+      function userLabel3L47(id,fallback='') {
+        const u=USERS.find(item=>String(item.supabaseId||'')===String(id||''));
+        return String(u?.name || u?.login || fallback || 'spedytor');
+      }
+      function firstDriverForCarrier3L47(driver) {
+        const cid=String(driver?.carrierEntityId||'');
+        const cname=norm3L47(driver?.carrier);
+        return visibleDriversForCurrentUser().find(item =>
+          (cid && String(item.carrierEntityId||'')===cid)
+          || (!cid && cname && norm3L47(item.carrier)===cname)
+        ) || null;
+      }
+      function firstDriverForDispatcher3L47(dispatcher) {
+        const target=norm3L47(dispatcher);
+        return visibleDriversForCurrentUser().find(item=>norm3L47(item.dispatcher)===target) || null;
+      }
+      function adjustmentBelongs3L47(item,driver) {
+        const itemDriver=String(item?.driverId||'');
+        const ids=[driver?.id,driver?.driverEntityId,driver?.dbAssignmentId].filter(Boolean).map(String);
+        if(itemDriver && ids.includes(itemDriver)) return true;
+        if(item?.driverName && norm3L47(item.driverName)===norm3L47(driver?.driver)) return true;
+        if(itemDriver) return false;
+        const cid=String(item?.carrierId||'');
+        const sameCarrier=(cid && cid===String(driver?.carrierEntityId||''))
+          || (!cid && norm3L47(item?.carrierName)===norm3L47(driver?.carrier));
+        return sameCarrier && firstDriverForCarrier3L47(driver)?.id===driver?.id;
+      }
+      function transferBelongs3L47(item,driver) {
+        if(firstDriverForDispatcher3L47(driver?.dispatcher)?.id!==driver?.id) return false;
+        const u=userForDispatcher3L47(driver?.dispatcher);
+        const uid=String(u?.supabaseId||'');
+        const login=norm3L47(driver?.dispatcher);
+        return (uid && (String(item?.fromDispatcherId||'')===uid || String(item?.toDispatcherId||'')===uid))
+          || norm3L47(item?.fromDispatcherLogin||item?.fromDispatcherName||'')===login
+          || norm3L47(item?.toDispatcherLogin||item?.toDispatcherName||'')===login;
+      }
+      function financeForDriver3L47(driver,weekStart) {
+        const data=weekData3L47(weekStart);
+        if(!data) return { carrier:[], transfers:[] };
+        const carrier=(Array.isArray(data.carrierAdjustments)?data.carrierAdjustments:[])
+          .filter(item=>adjustmentBelongs3L47(item,driver));
+        const transfers=(Array.isArray(data.transfers)?data.transfers:[])
+          .filter(item=>transferBelongs3L47(item,driver));
+        return { carrier,transfers };
+      }
+      function boundaries3L47() {
+        const dates=dateList();
+        const out=[];
+        (dates||[]).forEach((date,index)=>{
+          const d=new Date(`${date}T12:00:00`);
+          if(Number.isNaN(d.getTime()) || d.getDay()!==0 || index>=dates.length-1) return;
+          out.push({ weekStart:weekStart3L47(date), leftPct:((index+1)/dates.length)*100 });
+        });
+        return out;
+      }
+      function markerHtml3L47(driver) {
+        return boundaries3L47().map(boundary=>{
+          const finance=financeForDriver3L47(driver,boundary.weekStart);
+          if(!finance.carrier.length && !finance.transfers.length) return '';
+          const hasPositiveCarrier=finance.carrier.some(item=>Number(item.amount||0)>0);
+          const hasCarrier=finance.carrier.length>0;
+          const cls=hasPositiveCarrier ? '' : hasCarrier ? 'negative-only' : 'transfer-only';
+          return `<button type="button" class="board-week-finance-dollar-3l47 ${cls}" style="left:${boundary.leftPct}%" title="Pokaż rozliczenia tygodnia" aria-label="Pokaż rozliczenia tygodnia" onclick="event.preventDefault();event.stopPropagation();openWeekFinanceBoundary3L47('${attr(driver.id)}','${attr(boundary.weekStart)}')">$</button>`;
+        }).join('');
+      }
+
+      const renderTimelineOverlayBefore3L47=renderTimelineOverlay;
+      renderTimelineOverlay=function(driver,row) {
+        let html=renderTimelineOverlayBefore3L47.call(this,driver,row);
+        const marker=markerHtml3L47(driver);
+        if(marker) html=html.replace(/\s*<\/div>\s*$/,`${marker}</div>`);
+        return html;
+      };
+
+      function transferDirection3L47(item,driver) {
+        const u=userForDispatcher3L47(driver?.dispatcher);
+        const uid=String(u?.supabaseId||'');
+        const login=norm3L47(driver?.dispatcher);
+        const outgoing=(uid && String(item?.fromDispatcherId||'')===uid)
+          || norm3L47(item?.fromDispatcherLogin||item?.fromDispatcherName||'')===login;
+        const other=userLabel3L47(
+          outgoing?item?.toDispatcherId:item?.fromDispatcherId,
+          outgoing?(item?.toDispatcherName||item?.toDispatcherLogin):(item?.fromDispatcherName||item?.fromDispatcherLogin)
+        );
+        return {outgoing,other};
+      }
+      function dateTime3L47(value) {
+        if(!value) return '';
+        const d=new Date(value);
+        return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      }
+      function transferStatus3L47(item) {
+        const status=String(item?.status||'pending');
+        if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dateTime3L47(item.deletedAt)}`:''}`;
+        if(status==='accepted') return 'Zaakceptowany';
+        if(status==='rejected') return 'Odrzucony';
+        const missing=[];
+        if(!item?.recipientApprovedAt) missing.push('odbiorca');
+        if(!item?.fromManagerApprovedAt) missing.push('kierownik A');
+        if(!item?.toManagerApprovedAt) missing.push('kierownik B');
+        return missing.length ? `Oczekuje: ${missing.join(', ')}` : 'Oczekuje';
+      }
+
+      window.openWeekFinanceBoundary3L47=function(driverId,weekStart) {
+        const driver=driverById(driverId);
+        if(!driver) return;
+        const finance=financeForDriver3L47(driver,weekStart);
+        document.querySelectorAll('.week-finance-backdrop-3l47').forEach(el=>el.remove());
+        if(!finance.carrier.length && !finance.transfers.length) return;
+
+        const carrierHtml=finance.carrier.length ? `<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Wyrównania przewoźnika</div>${finance.carrier.map(item=>{
+          const amount=Number(item.amount||0);
+          return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amount>=0?'plus':'minus'}">${amount>=0?'+':''}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(item.carrierName||driver.carrier||'Przewoźnik')}${item.createdAt?` · ${esc(dateTime3L47(item.createdAt))}`:''}</small></div></div>`;
+        }).join('')}</div>` : '';
+
+        const transferHtml=finance.transfers.length ? `<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Transfery spedytora</div>${finance.transfers.map(item=>{
+          const {outgoing,other}=transferDirection3L47(item,driver);
+          const amount=Math.abs(Number(item.amount||0));
+          const text=`${outgoing?'-':'+'}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN ${outgoing?'dla':'od'} ${other}`;
+          const status=transferStatus3L47(item);
+          return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${String(item.status||'')==='pending'?'pending':outgoing?'minus':'plus'}">${esc(text)}</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(status)}${item.createdAt?` · ${esc(dateTime3L47(item.createdAt))}`:''}</small></div></div>`;
+        }).join('')}</div>` : '';
+
+        document.body.insertAdjacentHTML('beforeend',`<div class="week-finance-backdrop-3l47" onclick="if(event.target===this)closeWeekFinanceBoundary3L47()"><div class="week-finance-card-3l47" onclick="event.stopPropagation()"><div class="week-finance-head-3l47"><div><h3>Rozliczenia tygodnia</h3><small>${esc(driver.driver||'Kierowca')} · ${esc(formatDateForInput(weekStart))} – ${esc(formatDateForInput(addDaysToIso(weekStart,6)))}</small></div><button type="button" class="btn" onclick="closeWeekFinanceBoundary3L47()">Zamknij</button></div>${carrierHtml}${transferHtml}</div></div>`);
+      };
+      window.closeWeekFinanceBoundary3L47=function(){
+        document.querySelectorAll('.week-finance-backdrop-3l47').forEach(el=>el.remove());
+      };
+      document.addEventListener('keydown',event=>{
+        if(event.key==='Escape') closeWeekFinanceBoundary3L47();
+      },true);
+    })();
+  </script>
+
+
 </body>
 </html>
