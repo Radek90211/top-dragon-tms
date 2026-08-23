@@ -89055,38 +89055,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return html;
       };
 
-      /* Środkowy przycisk myszy: własne przesuwanie planszy zamiast natywnego
-         autoscrolla przeglądarki. Tryb zawsze kończy się po puszczeniu rolki,
-         Escape albo utracie fokusu, więc nie może zostać "włączony na stałe". */
-      const middlePan={active:false,viewport:null,startX:0,startY:0,startLeft:0,startTop:0};
-      function stopMiddlePan3L38(){
-        if (!middlePan.active) return;
-        middlePan.viewport?.classList?.remove('board-middle-pan-active');
-        middlePan.active=false; middlePan.viewport=null;
-      }
-      document.addEventListener('mousedown',event=>{
-        if (event.button!==1) return;
-        const viewport=event.target?.closest?.('.board-scroll');
-        if (!viewport) return;
-        event.preventDefault(); event.stopPropagation();
-        stopMiddlePan3L38();
-        middlePan.active=true; middlePan.viewport=viewport;
-        middlePan.startX=event.clientX; middlePan.startY=event.clientY;
-        middlePan.startLeft=viewport.scrollLeft; middlePan.startTop=viewport.scrollTop;
-        viewport.classList.add('board-middle-pan-active');
-      },true);
-      document.addEventListener('mousemove',event=>{
-        if (!middlePan.active || !middlePan.viewport) return;
-        event.preventDefault();
-        middlePan.viewport.scrollLeft=middlePan.startLeft-(event.clientX-middlePan.startX);
-        middlePan.viewport.scrollTop=middlePan.startTop-(event.clientY-middlePan.startY);
-      },true);
-      document.addEventListener('mouseup',event=>{ if(event.button===1) stopMiddlePan3L38(); },true);
-      document.addEventListener('auxclick',event=>{
-        if(event.button===1 && event.target?.closest?.('.board-scroll')) event.preventDefault();
-      },true);
-      document.addEventListener('keydown',event=>{ if(event.key==='Escape') stopMiddlePan3L38(); },true);
-      window.addEventListener('blur',stopMiddlePan3L38);
+      /* 3L.41 przejmuje obsługę środkowego przycisku myszy. Stary handler 3L.38
+         został celowo usunięty, aby dwa mechanizmy nie walczyły o scrollLeft. */
     })();
   </script>
 
@@ -89311,6 +89281,157 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           Array.from(template.content.children).forEach(el=>host.appendChild(el));
         }
       };
+    })();
+  </script>
+
+
+  <style id="targeted-3l41-board-scroll-stability">
+    /* Stabilny natywny suwak i własny pan środkowym przyciskiem. */
+    .board-scroll {
+      scrollbar-gutter: stable;
+      touch-action: pan-x pan-y;
+    }
+    .board-scroll.board-middle-pan-active {
+      cursor: grabbing !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+    }
+    .board-scroll.board-middle-pan-active * { cursor: grabbing !important; }
+  </style>
+
+  <script id="targeted-3l41-board-scroll-stability-script">
+    (() => {
+      const guard = { freeze:false, pending:false, reason:'', viewport:null };
+      const originalSyncBoardOnly3L41 = syncBoardOnly;
+
+      function flushPendingBoardSync3L41() {
+        if (guard.freeze || !guard.pending) return;
+        guard.pending = false;
+        requestAnimationFrame(() => {
+          if (!guard.freeze) originalSyncBoardOnly3L41.call(window);
+          else guard.pending = true;
+        });
+      }
+
+      syncBoardOnly = function(...args) {
+        if (guard.freeze) {
+          guard.pending = true;
+          return;
+        }
+        return originalSyncBoardOnly3L41.apply(this, args);
+      };
+
+      function beginFreeze3L41(viewport, reason) {
+        guard.freeze = true;
+        guard.reason = reason || 'scroll';
+        guard.viewport = viewport || null;
+      }
+
+      function endFreeze3L41() {
+        guard.freeze = false;
+        guard.reason = '';
+        guard.viewport = null;
+        flushPendingBoardSync3L41();
+      }
+
+      /* Natywny poziomy suwak: podczas przeciągania nie wolno wymieniać elementu
+         .board-scroll, bo Chrome traci wtedy aktywny thumb i wygląda to jak zawieszenie. */
+      document.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        const viewport = event.target?.closest?.('.board-scroll');
+        if (!viewport) return;
+        const rect = viewport.getBoundingClientRect();
+        const hScrollbar = Math.max(0, viewport.offsetHeight - viewport.clientHeight);
+        const vScrollbar = Math.max(0, viewport.offsetWidth - viewport.clientWidth);
+        const onHorizontalScrollbar = hScrollbar > 0 && event.clientY >= rect.bottom - hScrollbar - 3;
+        const onVerticalScrollbar = vScrollbar > 0 && event.clientX >= rect.right - vScrollbar - 3;
+        if (onHorizontalScrollbar || onVerticalScrollbar) beginFreeze3L41(viewport, 'native-scrollbar');
+      }, true);
+
+      document.addEventListener('pointerup', event => {
+        if (event.button === 0 && guard.reason === 'native-scrollbar') endFreeze3L41();
+      }, true);
+      document.addEventListener('pointercancel', () => {
+        if (guard.reason === 'native-scrollbar') endFreeze3L41();
+      }, true);
+
+      let trustedScrollTimer3L41 = null;
+      document.addEventListener('scroll', event => {
+        const viewport = event.target;
+        if (!event.isTrusted || !viewport?.classList?.contains?.('board-scroll')) return;
+        if (!guard.freeze) beginFreeze3L41(viewport, 'native-scroll');
+        if (guard.reason !== 'native-scroll') return;
+        clearTimeout(trustedScrollTimer3L41);
+        trustedScrollTimer3L41 = setTimeout(() => {
+          if (guard.reason === 'native-scroll') endFreeze3L41();
+        }, 180);
+      }, true);
+
+      /* Środkowy przycisk: pointer capture gwarantuje dalsze przewijanie nawet gdy
+         kursor wyjedzie poza kafelek/wiersz. Puszczenie rolki zawsze kończy gest. */
+      const pan = { active:false, viewport:null, pointerId:null, startX:0, startY:0, startLeft:0, startTop:0 };
+
+      function stopMiddlePan3L41() {
+        if (!pan.active) return;
+        const viewport = pan.viewport;
+        try {
+          if (viewport && pan.pointerId != null && viewport.hasPointerCapture?.(pan.pointerId)) viewport.releasePointerCapture(pan.pointerId);
+        } catch (_) {}
+        viewport?.classList?.remove('board-middle-pan-active');
+        pan.active = false;
+        pan.viewport = null;
+        pan.pointerId = null;
+        if (guard.reason === 'middle-pan') endFreeze3L41();
+      }
+
+      document.addEventListener('pointerdown', event => {
+        if (event.button !== 1) return;
+        const viewport = event.target?.closest?.('.board-scroll');
+        if (!viewport) return;
+        event.preventDefault();
+        event.stopPropagation();
+        stopMiddlePan3L41();
+        pan.active = true;
+        pan.viewport = viewport;
+        pan.pointerId = event.pointerId;
+        pan.startX = event.clientX;
+        pan.startY = event.clientY;
+        pan.startLeft = viewport.scrollLeft;
+        pan.startTop = viewport.scrollTop;
+        viewport.classList.add('board-middle-pan-active');
+        beginFreeze3L41(viewport, 'middle-pan');
+        try { viewport.setPointerCapture?.(event.pointerId); } catch (_) {}
+      }, true);
+
+      document.addEventListener('pointermove', event => {
+        if (!pan.active || !pan.viewport || event.pointerId !== pan.pointerId) return;
+        if ((event.buttons & 4) === 0) { stopMiddlePan3L41(); return; }
+        event.preventDefault();
+        pan.viewport.scrollLeft = pan.startLeft - (event.clientX - pan.startX);
+        pan.viewport.scrollTop = pan.startTop - (event.clientY - pan.startY);
+      }, true);
+
+      document.addEventListener('pointerup', event => {
+        if (pan.active && event.pointerId === pan.pointerId) stopMiddlePan3L41();
+      }, true);
+      document.addEventListener('lostpointercapture', event => {
+        if (pan.active && event.pointerId === pan.pointerId) stopMiddlePan3L41();
+      }, true);
+      document.addEventListener('auxclick', event => {
+        if (event.button === 1 && event.target?.closest?.('.board-scroll')) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') stopMiddlePan3L41(); }, true);
+      window.addEventListener('blur', () => { stopMiddlePan3L41(); if (guard.freeze) endFreeze3L41(); });
+      document.addEventListener('visibilitychange', () => { if (document.hidden) { stopMiddlePan3L41(); if (guard.freeze) endFreeze3L41(); } });
+
+      /* Awaryjnie: jeżeli przeglądarka nie dostarczy pointerup po opuszczeniu okna,
+         brak wciśniętej rolki przy kolejnym ruchu kończy tryb. */
+      window.addEventListener('mousemove', event => {
+        if (pan.active && (event.buttons & 4) === 0) stopMiddlePan3L41();
+      }, true);
     })();
   </script>
 
