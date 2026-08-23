@@ -87428,7 +87428,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const current = state.weeklySettlement || {};
         if (!force && current.weekStart === ws && (current.loaded || current.loading)) return;
         const requestId = `weekly-settlement-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-        state.weeklySettlement = { ...(current || {}), weekStart:ws, loading:true, loaded:false, requestId };
+        const requestStartedAt = Date.now();
+        state.weeklySettlement = { ...(current || {}), weekStart:ws, loading:true, loaded:false, requestId, requestStartedAt, error:"" };
+        /* 3L.46: żaden request rozliczeń nie może pozostawić Statystyk na stałe w stanie
+           „Pobieranie…”. Po 7 s pokazujemy czytelny błąd; spóźniona poprawna odpowiedź
+           nadal może nadpisać ten stan normalnymi danymi. */
+        setTimeout(() => {
+          const latest = state.weeklySettlement || {};
+          if (latest.requestId !== requestId || !latest.loading) return;
+          state.weeklySettlement = {
+            ...latest,
+            loading:false,
+            loaded:true,
+            requestId:"",
+            error:"Przekroczono czas pobierania rozliczeń tygodniowych. Spróbuj ponownie."
+          };
+          if (state.statsPanelOpen && state.statsRange === "week") scheduleStatsPanelSync();
+        }, 7000);
         window.parent?.postMessage({ type:"top-dragon-weekly-settlement-request", requestId, weekStart:ws }, window.location.origin);
       }
 
@@ -90392,6 +90408,154 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (event.origin !== window.location.origin || event.data?.type !== 'top-dragon-weekly-settlement-data') return;
         requestAnimationFrame(() => { queueStatsRender3L45(); requestAnimationFrame(scrollWeeklyFocus3L45); });
       });
+    })();
+  </script>
+
+
+  <style id="targeted-3l46-weekly-dollar-stats-close">
+    /* 3L.46 — tygodniowa dopłata przewoźnika: zielony $ na końcu niedzieli. */
+    .board-carrier-adjustment-dollar-3l46 {
+      position:absolute; top:50%; width:22px; height:22px; margin-top:-11px;
+      display:inline-flex; align-items:center; justify-content:center;
+      border:1px solid #15803d; border-radius:7px; background:#16a34a; color:#fff;
+      box-shadow:0 2px 7px rgba(22,163,74,.28); font-size:13px; font-weight:950;
+      line-height:1; z-index:96; pointer-events:auto; cursor:pointer;
+      transform:translateX(-100%);
+    }
+    .board-carrier-adjustment-dollar-3l46:hover { background:#15803d; transform:translateX(-100%); }
+    .app.dark-mode .board-carrier-adjustment-dollar-3l46 {
+      border-color:#4ade80; background:#15803d; color:#f0fdf4; box-shadow:0 2px 8px rgba(74,222,128,.22);
+    }
+    .carrier-adjustment-backdrop-3l46 {
+      position:fixed; inset:0; z-index:2147483550; display:flex; align-items:center; justify-content:center;
+      padding:18px; background:rgba(15,23,42,.42);
+    }
+    .carrier-adjustment-card-3l46 {
+      width:min(520px,calc(100vw - 36px)); max-height:min(70vh,620px); overflow:auto;
+      border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text);
+      box-shadow:0 18px 50px rgba(15,23,42,.28);
+    }
+    .carrier-adjustment-head-3l46 { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:13px 14px; border-bottom:1px solid var(--border); }
+    .carrier-adjustment-head-3l46 h3 { margin:0; font-size:14px; }
+    .carrier-adjustment-head-3l46 small { display:block; margin-top:3px; color:var(--muted); font-size:10px; }
+    .carrier-adjustment-list-3l46 { display:grid; }
+    .carrier-adjustment-row-3l46 { display:grid; grid-template-columns:auto 1fr; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); align-items:start; }
+    .carrier-adjustment-row-3l46:last-child { border-bottom:0; }
+    .carrier-adjustment-amount-3l46 { color:#15803d; font-weight:950; white-space:nowrap; }
+    .carrier-adjustment-comment-3l46 { font-size:11px; line-height:1.35; }
+    .carrier-adjustment-comment-3l46 small { display:block; color:var(--muted); margin-top:3px; font-size:9px; }
+  </style>
+
+  <script id="targeted-3l46-weekly-dollar-stats-close-script">
+    (() => {
+      function weekStart3L46(date) {
+        const iso=String(date||currentAppDate()).slice(0,10);
+        const d=new Date(`${iso}T12:00:00`);
+        if(Number.isNaN(d.getTime())) return iso;
+        return addDaysToIso(iso,-((d.getDay()+6)%7));
+      }
+      function weekData3L46(weekStart) {
+        return state.boardWeeklySettlements?.[weekStart] || (state.weeklySettlement?.weekStart===weekStart ? state.weeklySettlement : null);
+      }
+      function norm3L46(value){ return String(value||'').trim().toLocaleLowerCase('pl-PL'); }
+      function firstVisibleForCarrier3L46(driver) {
+        const cid=String(driver?.carrierEntityId||'');
+        return visibleDriversForCurrentUser().find(item => cid && String(item.carrierEntityId||'')===cid) || null;
+      }
+      function adjustmentsForDriver3L46(driver, weekStart) {
+        const data=weekData3L46(weekStart);
+        const all=Array.isArray(data?.carrierAdjustments)?data.carrierAdjustments:[];
+        if(!all.length || !driver) return [];
+        const driverIds=new Set([driver.id,driver.driverEntityId].filter(Boolean).map(String));
+        const driverName=norm3L46(driver.driver);
+        const carrierId=String(driver.carrierEntityId||'');
+        const specific=all.filter(item => {
+          const iid=String(item.driverId||'');
+          if(iid && driverIds.has(iid)) return true;
+          if(!iid && item.driverName && driverName && norm3L46(item.driverName)===driverName) return true;
+          return false;
+        });
+        const generic=all.filter(item => !item.driverId && !item.driverName && carrierId && String(item.carrierId||'')===carrierId);
+        const first=firstVisibleForCarrier3L46(driver);
+        return [...specific,...(first?.id===driver.id?generic:[])];
+      }
+      function sundayDollarHtml3L46(driver) {
+        const dates=dateList();
+        if(!dates?.length) return '';
+        const items=[];
+        dates.forEach((date,index)=>{
+          const d=new Date(`${date}T12:00:00`);
+          if(Number.isNaN(d.getTime()) || d.getDay()!==0) return;
+          const ws=weekStart3L46(date);
+          const adjustments=adjustmentsForDriver3L46(driver,ws).filter(item=>Number(item.amount||0)>0);
+          if(!adjustments.length) return;
+          const sum=adjustments.reduce((acc,item)=>acc+Number(item.amount||0),0);
+          const left=((index+1)/dates.length)*100;
+          const title=`Dopłata / wyrównanie przewoźnika: ${sum>=0?'+':''}${sum.toFixed(2)} PLN`;
+          items.push(`<button type="button" class="board-carrier-adjustment-dollar-3l46" style="left:calc(${left}% - 4px)" title="${attr(title)}" onclick="event.preventDefault();event.stopPropagation();openCarrierAdjustmentSunday3L46('${attr(driver.id)}','${attr(ws)}')">$</button>`);
+        });
+        return items.join('');
+      }
+      const renderTimelineOverlayBefore3L46=renderTimelineOverlay;
+      renderTimelineOverlay=function(driver,row){
+        let html=renderTimelineOverlayBefore3L46.call(this,driver,row);
+        const dollar=sundayDollarHtml3L46(driver);
+        if(dollar) html=html.replace(/\s*<\/div>\s*$/,`${dollar}</div>`);
+        return html;
+      };
+      window.openCarrierAdjustmentSunday3L46=function(driverId,weekStart){
+        const driver=driverById(driverId);
+        const adjustments=adjustmentsForDriver3L46(driver,weekStart).filter(item=>Number(item.amount||0)>0);
+        document.querySelectorAll('.carrier-adjustment-backdrop-3l46').forEach(el=>el.remove());
+        if(!adjustments.length) return;
+        const sum=adjustments.reduce((acc,item)=>acc+Number(item.amount||0),0);
+        const rows=adjustments.map(item=>{
+          const amount=Number(item.amount||0);
+          const created=item.createdAt?new Date(item.createdAt):null;
+          const when=created&&!Number.isNaN(created.getTime())?created.toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+          return `<div class="carrier-adjustment-row-3l46"><div class="carrier-adjustment-amount-3l46">${amount>=0?'+':''}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN</div><div class="carrier-adjustment-comment-3l46">${esc(item.comment||'Brak komentarza')}<small>${esc(item.carrierName||driver?.carrier||'Przewoźnik')}${when?` · ${esc(when)}`:''}</small></div></div>`;
+        }).join('');
+        document.body.insertAdjacentHTML('beforeend',`<div class="carrier-adjustment-backdrop-3l46" onclick="if(event.target===this)closeCarrierAdjustmentSunday3L46()"><div class="carrier-adjustment-card-3l46" onclick="event.stopPropagation()"><div class="carrier-adjustment-head-3l46"><div><h3>Dopłata / wyrównanie przewoźnika</h3><small>${esc(driver?.driver||'Kierowca')} · tydzień ${esc(formatDateForInput(weekStart))} – ${esc(formatDateForInput(addDaysToIso(weekStart,6)))}</small></div><button type="button" class="btn" onclick="closeCarrierAdjustmentSunday3L46()">Zamknij</button></div><div class="carrier-adjustment-row-3l46"><div class="carrier-adjustment-amount-3l46">Razem ${sum>=0?'+':''}${sum.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN</div><div class="carrier-adjustment-comment-3l46">Podsumowanie dopłat w tym tygodniu.</div></div><div class="carrier-adjustment-list-3l46">${rows}</div></div></div>`);
+      };
+      window.closeCarrierAdjustmentSunday3L46=function(){ document.querySelectorAll('.carrier-adjustment-backdrop-3l46').forEach(el=>el.remove()); };
+
+      /* Jeżeli pobranie tygodnia zakończyło się błędem/timeoutem, pokaż go również
+         wysoko w Statystykach zamiast sugerować, że brak operacji finansowych. */
+      const renderStatsUiBefore3L46=renderStatsUi;
+      renderStatsUi=function(){
+        let html=renderStatsUiBefore3L46.apply(this,arguments);
+        const error=String(state.weeklySettlement?.error||'').trim();
+        if(error && state.statsPanelOpen && html.includes('<div class="stats-drawer-body">')) {
+          const banner=`<div class="stats-weekly-load-error-3l45" style="margin:0 0 10px">Rozliczenia tygodniowe: ${esc(error)} <button class="btn-mini" type="button" onclick="retryWeeklyFinance3L45()">Spróbuj ponownie</button></div>`;
+          html=html.replace('<div class="stats-drawer-body">',`<div class="stats-drawer-body">${banner}`);
+        }
+        return html;
+      };
+
+      /* Zamknięcie Statystyk na pointerdown: nie może zostać zgubione przez re-render
+         pomiędzy mousedown a click. */
+      window.forceCloseStats3L46=function(){
+        state.statsPanelOpen=false;
+        state.statsFullscreen=false;
+        state.statsWeeklyFocus='';
+        document.querySelectorAll('.stats-drawer').forEach(el=>el.remove());
+        try { syncStatsPanel(); } catch(error) { console.error('3L.46 close stats',error); }
+        requestAnimationFrame(()=>{ try{syncQueueTabOffsets();}catch(_){} });
+      };
+      window.addEventListener('pointerdown',event=>{
+        if(event.button!==0) return;
+        const btn=event.target?.closest?.('.stats-drawer-head button');
+        if(!btn || String(btn.textContent||'').trim()!=='Zamknij') return;
+        event.preventDefault();
+        forceCloseStats3L46();
+      },true);
+
+      /* Escape zamyka modal dopłaty; przy otwartych Statystykach działa również jako
+         pewny awaryjny sposób ich zamknięcia. */
+      document.addEventListener('keydown',event=>{
+        if(event.key!=='Escape') return;
+        closeCarrierAdjustmentSunday3L46();
+      },true);
     })();
   </script>
 
