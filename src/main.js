@@ -1845,7 +1845,7 @@ function normalizeWeekStart(value) {
 
 function isWeeklyFinanceSchemaCacheError(error) {
   const text = `${String(error?.code || '')} ${String(error?.message || '')} ${String(error?.details || '')}`
-  return /PGRST20[024]|schema cache|driver_id|driver_name|recipient_approved|manager_approved|deleted_at|rejected_at/i.test(text)
+  return /PGRST20[024]|schema cache|driver_id|driver_name|recipient_approved|manager_approved|deleted_at|rejected_at|tms_driver_week_settlement_statuses/i.test(text)
 }
 
 async function queryWeeklyFinanceRows(normalizedWeek, extended = true) {
@@ -1860,6 +1860,21 @@ async function queryWeeklyFinanceRows(normalizedWeek, extended = true) {
     supabase.from('tms_carrier_week_adjustments').select(adjustmentSelect).eq('week_start', normalizedWeek).eq('active', true).order('created_at', { ascending: true }),
     supabase.from('tms_dispatcher_week_transfers').select(transferSelect).eq('week_start', normalizedWeek).order('created_at', { ascending: true }),
   ])
+}
+
+async function queryWeeklySettlementStatusRows(normalizedWeek) {
+  const result = await supabase
+    .from('tms_driver_week_settlement_statuses')
+    .select('id,week_start,driver_id,driver_name,status,updated_by,updated_at')
+    .eq('week_start', normalizedWeek)
+    .order('updated_at', { ascending: true })
+
+  if (result.error && (String(result.error?.code || '') === 'PGRST205' || /tms_driver_week_settlement_statuses|schema cache/i.test(String(result.error?.message || '')))) {
+    // Pozwala wdrożyć frontend przed uruchomieniem migracji 028 bez blokowania
+    // dotychczasowych wyrównań i transferów. Po migracji statusy pojawią się automatycznie.
+    return { data: [], error: null, schemaMissing: true }
+  }
+  return result
 }
 
 async function loadWeeklySettlementData(weekStart) {
@@ -1890,6 +1905,9 @@ async function loadWeeklySettlementData(weekStart) {
   if (adjustmentsError) throw new Error(`Nie udało się pobrać wyrównań przewoźników: ${adjustmentsError.message}`)
   if (transfersError) throw new Error(`Nie udało się pobrać przelewów spedytorów: ${transfersError.message}`)
 
+  const { data: settlementStatuses, error: settlementStatusesError } = await queryWeeklySettlementStatusRows(normalizedWeek)
+  if (settlementStatusesError) throw new Error(`Nie udało się pobrać statusów rozliczeń tygodnia: ${settlementStatusesError.message}`)
+
   const directoryProfiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
   const directoryById = new Map(directoryProfiles.map((profile) => [String(profile.id || ''), profile]))
 
@@ -1907,6 +1925,15 @@ async function loadWeeklySettlementData(weekStart) {
       comment: String(row.comment || ''),
       createdBy: String(row.created_by || ''),
       createdAt: String(row.created_at || ''),
+    })),
+    settlementStatuses: (settlementStatuses || []).map((row) => ({
+      id: String(row.id || ''),
+      weekStart: String(row.week_start || normalizedWeek),
+      driverId: String(row.driver_id || ''),
+      driverName: String(row.driver_name || ''),
+      status: String(row.status || 'Nowe'),
+      updatedBy: String(row.updated_by || ''),
+      updatedAt: String(row.updated_at || ''),
     })),
     transfers: (transfers || []).map((row) => ({
       id: String(row.id || ''),
@@ -1990,6 +2017,10 @@ function subscribeWeeklySettlement() {
       activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-weekly-settlement-invalidated' }, window.location.origin)
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_dispatcher_week_transfers' }, () => {
+      scheduleWeeklySettlementReload(70)
+      activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-weekly-settlement-invalidated' }, window.location.origin)
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_driver_week_settlement_statuses' }, () => {
       scheduleWeeklySettlementReload(70)
       activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-weekly-settlement-invalidated' }, window.location.origin)
     })
@@ -2129,6 +2160,25 @@ async function approveDispatcherWeekTransferManagerFromTms(message) {
   }
 }
 
+
+async function setDriverWeekSettlementStatusFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart)
+  const driverId = String(message?.driverId || '').trim()
+  const status = String(message?.status || '').trim()
+  try {
+    const { error } = await rpcWithWeeklySchemaRetry('set_tms_driver_week_settlement_status', {
+      p_week_start: weekStart,
+      p_driver_id: driverId || null,
+      p_status: status,
+    })
+    if (error) throw error
+    sendWeeklySettlementOperationResult(requestId, true, 'week-settlement-status-update', `Status rozliczenia tygodnia zmieniono na „${status}”.`)
+    void refreshWeeklySettlementAfterMutation(weekStart)
+  } catch (error) {
+    sendWeeklySettlementOperationResult(requestId, false, 'week-settlement-status-update', error?.message || 'Nie udało się zmienić statusu rozliczenia tygodnia.')
+  }
+}
 
 function isMissingWorkflowSchemaError(error) {
   const code = String(error?.code || '')
@@ -2486,7 +2536,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v69-week-settlement-column-finance-audit"
+        src="/tms.html?embedded=1&build=request-workflow-v70-week-settlement-real-column-status"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2796,6 +2846,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-dispatcher-week-transfer-manager-response') {
       await approveDispatcherWeekTransferManagerFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-week-settlement-status-update') {
+      await setDriverWeekSettlementStatusFromTms(event.data)
       return
     }
 
