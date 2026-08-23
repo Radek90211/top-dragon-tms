@@ -19,6 +19,7 @@ let clientsChannel = null
 let clientsReloadTimer = null
 let loadQueueChannel = null
 let loadQueueReloadTimer = null
+let loadQueueHousekeepingTimer = null
 let loadRequestsChannel = null
 let loadRequestsReloadTimer = null
 let auditChannel = null
@@ -109,6 +110,10 @@ function renderLogin(message = '') {
   if (loadQueueReloadTimer) {
     clearTimeout(loadQueueReloadTimer)
     loadQueueReloadTimer = null
+  }
+  if (loadQueueHousekeepingTimer) {
+    clearInterval(loadQueueHousekeepingTimer)
+    loadQueueHousekeepingTimer = null
   }
   if (loadQueueChannel) {
     supabase.removeChannel(loadQueueChannel)
@@ -1170,19 +1175,33 @@ async function archiveCentralClientFromTms(message) {
 
 
 async function loadCentralLoadQueue() {
-  if (!currentProfile) return []
+  if (!currentProfile) return { rows: [], expiredProposedStats: [] }
 
-  const { data, error } = await supabase
-    .from('tms_load_queue')
-    .select('branch_id, queue_type, load_ref, payload, updated_at')
-    .eq('active', true)
-    .order('updated_at', { ascending: true })
+  // 3L.44: housekeeping Wolnych ładunków. Termin załadunku, który już minął
+  // w strefie Europe/Warsaw, jest automatycznie przenoszony poza aktywną kolejkę.
+  // RPC jest celowo idempotentne — można je wywoływać przy każdym odświeżeniu.
+  const { error: expireError } = await supabase.rpc('archive_expired_tms_proposed_loads')
+  if (expireError) {
+    const message = String(expireError.message || '')
+    if (!message.includes('archive_expired_tms_proposed_loads') && !message.includes('Could not find the function')) {
+      console.warn('Nie udało się automatycznie wygasić przeterminowanych wolnych ładunków:', expireError)
+    }
+  }
+
+  const [{ data, error }, statsResult] = await Promise.all([
+    supabase
+      .from('tms_load_queue')
+      .select('branch_id, queue_type, load_ref, payload, updated_at')
+      .eq('active', true)
+      .order('updated_at', { ascending: true }),
+    supabase.rpc('tms_expired_proposed_load_stats'),
+  ])
 
   if (error) {
     throw new Error(`Nie udało się pobrać kolejki ładunków: ${error.message}`)
   }
 
-  return (data || [])
+  const rows = (data || [])
     .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
     .map((row) => ({
       id: String(row.load_ref || ''),
@@ -1191,13 +1210,24 @@ async function loadCentralLoadQueue() {
       payload: row.payload,
       updatedAt: String(row.updated_at || ''),
     }))
+
+  const expiredProposedStats = statsResult?.error
+    ? []
+    : (statsResult?.data || []).map((row) => ({
+        creator: String(row?.creator || 'Nieznany użytkownik'),
+        count: Number(row?.expired_count || 0),
+        latestExpiredAt: String(row?.latest_expired_at || ''),
+      }))
+
+  return { rows, expiredProposedStats }
 }
 
 async function syncCentralLoadQueueToTms() {
-  const rows = await loadCentralLoadQueue()
+  const { rows, expiredProposedStats } = await loadCentralLoadQueue()
   activeLoadQueueMessage = {
     type: 'top-dragon-load-queue-data',
     rows,
+    expiredProposedStats,
   }
   activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueMessage, window.location.origin)
 }
@@ -2423,7 +2453,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v63-autoscroll-stats-ux"
+        src="/tms.html?embedded=1&build=request-workflow-v64-autoscroll-expired-loads"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2476,6 +2506,12 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować kolejki ładunków z TMS:', error)
   })
   subscribeCentralLoadQueue()
+  if (loadQueueHousekeepingTimer) clearInterval(loadQueueHousekeepingTimer)
+  loadQueueHousekeepingTimer = setInterval(() => {
+    syncCentralLoadQueueToTms().catch((error) => {
+      console.warn('Nie udało się wykonać okresowego porządkowania Wolnych ładunków:', error)
+    })
+  }, 60000)
 
   syncCentralLoadRequestsToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
