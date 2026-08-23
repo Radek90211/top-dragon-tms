@@ -2470,7 +2470,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v66-weekly-dollar-stats-close"
+        src="/tms.html?embedded=1&build=request-workflow-v67-week-boundary-finance-marker"
         title="Top Dragon TMS"
       ></iframe>
     </main>
