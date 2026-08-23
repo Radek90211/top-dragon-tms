@@ -70164,7 +70164,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
 
       restoreScrollState(scrollState);
-      if (state.statsPanelOpen) syncStatsPanel();
+      if (state.statsPanelOpen) scheduleStatsPanelSync();
       return true;
     }
 
@@ -70684,8 +70684,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncUnloadPanelDom();
       syncProposedPanel();
       syncFuturePanel();
-      syncStatsPanel();
-      syncStatsPanel();
+      scheduleStatsPanelSync();
       notifyProposedLoadsIfNeeded();
     }
 
@@ -71139,7 +71138,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncCurrentTimeLines();
       setTimeout(() => scheduleNearbyDispatcherBadgeSync(), 0);
       restoreScrollState(scrollState);
-      if (state.statsPanelOpen) syncStatsPanel();
+      if (state.statsPanelOpen) scheduleStatsPanelSync();
     }
 
     function renderUnloadPanelPlaceholder() {
@@ -81557,7 +81556,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (title) title.insertAdjacentHTML("afterend", renderRouteLoadSub(route, true));
         }
       }
-      if (state.statsPanelOpen) syncStatsPanel();
+      if (state.statsPanelOpen) scheduleStatsPanelSync();
       if (scrollState) restoreScrollState(scrollState);
     }
 
@@ -89284,154 +89283,238 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-
-  <style id="targeted-3l41-board-scroll-stability">
-    /* Stabilny natywny suwak i własny pan środkowym przyciskiem. */
+  <style id="targeted-3l42-scroll-stats-stability">
+    /* 3L.42 — przewijanie planu bez migania i stabilne scrollbary Statystyk. */
     .board-scroll {
       scrollbar-gutter: stable;
-      touch-action: pan-x pan-y;
+      overscroll-behavior: contain;
     }
-    .board-scroll.board-middle-pan-active {
+    .board-scroll.board-middle-pan-active,
+    .board-scroll.board-middle-pan-active * {
       cursor: grabbing !important;
       user-select: none !important;
       -webkit-user-select: none !important;
     }
-    .board-scroll.board-middle-pan-active * { cursor: grabbing !important; }
+
+    .stats-drawer {
+      overflow: hidden !important;
+    }
+    .stats-drawer-body {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      touch-action: pan-y;
+    }
+    .stats-table-wrap,
+    .stats-company-table-wrap {
+      overflow-x: auto !important;
+      overflow-y: auto !important;
+      scrollbar-gutter: stable;
+      overscroll-behavior: contain;
+      touch-action: pan-x pan-y;
+    }
+    .stats-drawer.stats-scroll-active,
+    .stats-drawer.stats-scroll-active * {
+      scroll-behavior: auto !important;
+    }
   </style>
 
-  <script id="targeted-3l41-board-scroll-stability-script">
+  <script id="targeted-3l42-scroll-stats-stability-script">
     (() => {
-      const guard = { freeze:false, pending:false, reason:'', viewport:null };
-      const originalSyncBoardOnly3L41 = syncBoardOnly;
-
-      function flushPendingBoardSync3L41() {
-        if (guard.freeze || !guard.pending) return;
-        guard.pending = false;
-        requestAnimationFrame(() => {
-          if (!guard.freeze) originalSyncBoardOnly3L41.call(window);
-          else guard.pending = true;
-        });
-      }
-
-      syncBoardOnly = function(...args) {
-        if (guard.freeze) {
-          guard.pending = true;
-          return;
+      /*
+       * Miganie planu powstawało, gdy .board-scroll był wymieniany przez realtime,
+       * a scrollLeft wracał dopiero w następnym requestAnimationFrame. Przywracamy
+       * pozycję nowego elementu synchronicznie, jeszcze przed kolejnym paintem.
+       */
+      restoreScrollState = function(scrollState) {
+        if (!scrollState) return;
+        const board = document.querySelector('.board-scroll');
+        if (board) {
+          board.scrollLeft = Number(scrollState.boardLeft || 0);
+          board.scrollTop = Number(scrollState.boardTop || 0);
         }
-        return originalSyncBoardOnly3L41.apply(this, args);
+        const side = document.querySelector('.side-panel');
+        if (side) side.scrollTop = Number(scrollState.sideTop || 0);
+        const map = document.querySelector('.map-viewport');
+        if (map) {
+          map.scrollLeft = Number(scrollState.mapLeft || 0);
+          map.scrollTop = Number(scrollState.mapTop || 0);
+        }
+        const wx = Number(scrollState.windowX || 0);
+        const wy = Number(scrollState.windowY || 0);
+        if ((window.scrollX || 0) !== wx || (window.scrollY || 0) !== wy) {
+          window.scrollTo(wx, wy);
+        }
       };
 
-      function beginFreeze3L41(viewport, reason) {
-        guard.freeze = true;
-        guard.reason = reason || 'scroll';
-        guard.viewport = viewport || null;
+      /* Środkowy przycisk myszy: klasyczny drag-to-pan. Używamy Mouse Events,
+         bo są bardziej przewidywalne dla fizycznego przycisku rolki niż Pointer
+         Events na elementach draggable. Nie ingerujemy w lewy przycisk / drag&drop. */
+      const middlePan = {
+        active: false,
+        viewport: null,
+        startX: 0,
+        startY: 0,
+        startLeft: 0,
+        startTop: 0
+      };
+
+      function stopMiddlePan3L42() {
+        if (!middlePan.active) return;
+        middlePan.viewport?.classList?.remove('board-middle-pan-active');
+        middlePan.active = false;
+        middlePan.viewport = null;
       }
 
-      function endFreeze3L41() {
-        guard.freeze = false;
-        guard.reason = '';
-        guard.viewport = null;
-        flushPendingBoardSync3L41();
-      }
-
-      /* Natywny poziomy suwak: podczas przeciągania nie wolno wymieniać elementu
-         .board-scroll, bo Chrome traci wtedy aktywny thumb i wygląda to jak zawieszenie. */
-      document.addEventListener('pointerdown', event => {
-        if (event.button !== 0) return;
-        const viewport = event.target?.closest?.('.board-scroll');
-        if (!viewport) return;
-        const rect = viewport.getBoundingClientRect();
-        const hScrollbar = Math.max(0, viewport.offsetHeight - viewport.clientHeight);
-        const vScrollbar = Math.max(0, viewport.offsetWidth - viewport.clientWidth);
-        const onHorizontalScrollbar = hScrollbar > 0 && event.clientY >= rect.bottom - hScrollbar - 3;
-        const onVerticalScrollbar = vScrollbar > 0 && event.clientX >= rect.right - vScrollbar - 3;
-        if (onHorizontalScrollbar || onVerticalScrollbar) beginFreeze3L41(viewport, 'native-scrollbar');
-      }, true);
-
-      document.addEventListener('pointerup', event => {
-        if (event.button === 0 && guard.reason === 'native-scrollbar') endFreeze3L41();
-      }, true);
-      document.addEventListener('pointercancel', () => {
-        if (guard.reason === 'native-scrollbar') endFreeze3L41();
-      }, true);
-
-      let trustedScrollTimer3L41 = null;
-      document.addEventListener('scroll', event => {
-        const viewport = event.target;
-        if (!event.isTrusted || !viewport?.classList?.contains?.('board-scroll')) return;
-        if (!guard.freeze) beginFreeze3L41(viewport, 'native-scroll');
-        if (guard.reason !== 'native-scroll') return;
-        clearTimeout(trustedScrollTimer3L41);
-        trustedScrollTimer3L41 = setTimeout(() => {
-          if (guard.reason === 'native-scroll') endFreeze3L41();
-        }, 180);
-      }, true);
-
-      /* Środkowy przycisk: pointer capture gwarantuje dalsze przewijanie nawet gdy
-         kursor wyjedzie poza kafelek/wiersz. Puszczenie rolki zawsze kończy gest. */
-      const pan = { active:false, viewport:null, pointerId:null, startX:0, startY:0, startLeft:0, startTop:0 };
-
-      function stopMiddlePan3L41() {
-        if (!pan.active) return;
-        const viewport = pan.viewport;
-        try {
-          if (viewport && pan.pointerId != null && viewport.hasPointerCapture?.(pan.pointerId)) viewport.releasePointerCapture(pan.pointerId);
-        } catch (_) {}
-        viewport?.classList?.remove('board-middle-pan-active');
-        pan.active = false;
-        pan.viewport = null;
-        pan.pointerId = null;
-        if (guard.reason === 'middle-pan') endFreeze3L41();
-      }
-
-      document.addEventListener('pointerdown', event => {
+      window.addEventListener('mousedown', event => {
         if (event.button !== 1) return;
         const viewport = event.target?.closest?.('.board-scroll');
         if (!viewport) return;
         event.preventDefault();
         event.stopPropagation();
-        stopMiddlePan3L41();
-        pan.active = true;
-        pan.viewport = viewport;
-        pan.pointerId = event.pointerId;
-        pan.startX = event.clientX;
-        pan.startY = event.clientY;
-        pan.startLeft = viewport.scrollLeft;
-        pan.startTop = viewport.scrollTop;
+        stopMiddlePan3L42();
+        middlePan.active = true;
+        middlePan.viewport = viewport;
+        middlePan.startX = event.clientX;
+        middlePan.startY = event.clientY;
+        middlePan.startLeft = viewport.scrollLeft;
+        middlePan.startTop = viewport.scrollTop;
         viewport.classList.add('board-middle-pan-active');
-        beginFreeze3L41(viewport, 'middle-pan');
-        try { viewport.setPointerCapture?.(event.pointerId); } catch (_) {}
       }, true);
 
-      document.addEventListener('pointermove', event => {
-        if (!pan.active || !pan.viewport || event.pointerId !== pan.pointerId) return;
-        if ((event.buttons & 4) === 0) { stopMiddlePan3L41(); return; }
+      window.addEventListener('mousemove', event => {
+        if (!middlePan.active || !middlePan.viewport) return;
+        if ((event.buttons & 4) === 0) {
+          stopMiddlePan3L42();
+          return;
+        }
         event.preventDefault();
-        pan.viewport.scrollLeft = pan.startLeft - (event.clientX - pan.startX);
-        pan.viewport.scrollTop = pan.startTop - (event.clientY - pan.startY);
+        middlePan.viewport.scrollLeft = middlePan.startLeft - (event.clientX - middlePan.startX);
+        middlePan.viewport.scrollTop = middlePan.startTop - (event.clientY - middlePan.startY);
       }, true);
 
-      document.addEventListener('pointerup', event => {
-        if (pan.active && event.pointerId === pan.pointerId) stopMiddlePan3L41();
+      window.addEventListener('mouseup', event => {
+        if (event.button === 1) stopMiddlePan3L42();
       }, true);
-      document.addEventListener('lostpointercapture', event => {
-        if (pan.active && event.pointerId === pan.pointerId) stopMiddlePan3L41();
-      }, true);
-      document.addEventListener('auxclick', event => {
+      window.addEventListener('auxclick', event => {
         if (event.button === 1 && event.target?.closest?.('.board-scroll')) {
           event.preventDefault();
           event.stopPropagation();
         }
       }, true);
-      document.addEventListener('keydown', event => { if (event.key === 'Escape') stopMiddlePan3L41(); }, true);
-      window.addEventListener('blur', () => { stopMiddlePan3L41(); if (guard.freeze) endFreeze3L41(); });
-      document.addEventListener('visibilitychange', () => { if (document.hidden) { stopMiddlePan3L41(); if (guard.freeze) endFreeze3L41(); } });
+      window.addEventListener('blur', stopMiddlePan3L42, true);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) stopMiddlePan3L42(); }, true);
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') stopMiddlePan3L42(); }, true);
 
-      /* Awaryjnie: jeżeli przeglądarka nie dostarczy pointerup po opuszczeniu okna,
-         brak wciśniętej rolki przy kolejnym ruchu kończy tryb. */
-      window.addEventListener('mousemove', event => {
-        if (pan.active && (event.buttons & 4) === 0) stopMiddlePan3L41();
+      /* Statystyki: poprzednio każdy komunikat realtime potrafił wymienić cały drawer
+         podczas przewijania. To resetowało uchwyt scrollbara i dawało wrażenie laga.
+         Podczas aktywnego scrollowania render jest odkładany i wykonywany raz po ciszy. */
+      const statsGuard = {
+        interacting: false,
+        pending: false,
+        scrollTimer: null,
+        renderTimer: null
+      };
+
+      function statsScrollSnapshot3L42() {
+        const body = document.querySelector('.stats-drawer-body');
+        const wraps = Array.from(document.querySelectorAll('.stats-drawer .stats-company-table-wrap, .stats-drawer .stats-table-wrap'));
+        return {
+          bodyTop: body?.scrollTop || 0,
+          bodyLeft: body?.scrollLeft || 0,
+          wraps: wraps.map(el => ({ left: el.scrollLeft || 0, top: el.scrollTop || 0 }))
+        };
+      }
+
+      function restoreStatsScroll3L42(snapshot) {
+        if (!snapshot) return;
+        const body = document.querySelector('.stats-drawer-body');
+        if (body) {
+          body.scrollTop = Number(snapshot.bodyTop || 0);
+          body.scrollLeft = Number(snapshot.bodyLeft || 0);
+        }
+        const wraps = Array.from(document.querySelectorAll('.stats-drawer .stats-company-table-wrap, .stats-drawer .stats-table-wrap'));
+        wraps.forEach((el, index) => {
+          const pos = snapshot.wraps?.[index];
+          if (!pos) return;
+          el.scrollLeft = Number(pos.left || 0);
+          el.scrollTop = Number(pos.top || 0);
+        });
+      }
+
+      const syncStatsPanel3L42Base = syncStatsPanel;
+      syncStatsPanel = function(...args) {
+        if (statsGuard.interacting) {
+          statsGuard.pending = true;
+          return;
+        }
+        const snapshot = statsScrollSnapshot3L42();
+        const result = syncStatsPanel3L42Base.apply(this, args);
+        restoreStatsScroll3L42(snapshot);
+        return result;
+      };
+
+      function flushStats3L42(delay = 0) {
+        clearTimeout(statsGuard.renderTimer);
+        statsGuard.renderTimer = setTimeout(() => {
+          if (statsGuard.interacting) {
+            statsGuard.pending = true;
+            return;
+          }
+          if (!state.statsPanelOpen) {
+            statsGuard.pending = false;
+            return;
+          }
+          statsGuard.pending = false;
+          syncStatsPanel();
+        }, delay);
+      }
+
+      scheduleStatsPanelSync = function() {
+        statsGuard.pending = true;
+        if (statsGuard.interacting) return;
+        /* Łączymy serię odpowiedzi: tabela firmy + finanse tygodnia + realtime. */
+        flushStats3L42(90);
+      };
+
+      function beginStatsInteraction3L42() {
+        statsGuard.interacting = true;
+        document.querySelector('.stats-drawer')?.classList?.add('stats-scroll-active');
+      }
+
+      function endStatsInteraction3L42(delay = 100) {
+        clearTimeout(statsGuard.scrollTimer);
+        statsGuard.scrollTimer = setTimeout(() => {
+          statsGuard.interacting = false;
+          document.querySelector('.stats-drawer')?.classList?.remove('stats-scroll-active');
+          if (statsGuard.pending) flushStats3L42(0);
+        }, delay);
+      }
+
+      document.addEventListener('scroll', event => {
+        const target = event.target;
+        if (!event.isTrusted || !target?.closest) return;
+        if (!target.closest('.stats-drawer')) return;
+        beginStatsInteraction3L42();
+        endStatsInteraction3L42(180);
       }, true);
+
+      document.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        const target = event.target;
+        if (!target?.closest?.('.stats-drawer')) return;
+        if (target.closest('button,input,select,textarea,a')) return;
+        if (target.closest('.stats-drawer-body,.stats-table-wrap,.stats-company-table-wrap')) beginStatsInteraction3L42();
+      }, true);
+      document.addEventListener('pointerup', event => {
+        if (event.button === 0 && statsGuard.interacting) endStatsInteraction3L42(80);
+      }, true);
+      document.addEventListener('pointercancel', () => { if (statsGuard.interacting) endStatsInteraction3L42(0); }, true);
+      window.addEventListener('blur', () => { if (statsGuard.interacting) endStatsInteraction3L42(0); }, true);
     })();
   </script>
 
