@@ -88826,5 +88826,259 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       backdrop-filter:none !important;
     }
   </style>
+
+
+  <style id="targeted-3l38-route-layer-week-finance-scroll">
+    /* 3L.38 — kolejność warstw: kolor wiersza -> siatka -> kafelek relacji -> finanse tygodnia. */
+    .timeline-row { z-index: 8 !important; }
+    .timeline-row .time-route { z-index: 30 !important; backdrop-filter:none !important; }
+    .timeline-row .time-resize,
+    .timeline-row .time-route-match-markers,
+    .timeline-row .time-overlap-warning,
+    .timeline-row .pause-conflict-badge { z-index: 34 !important; }
+
+    /* Zwykły kafelek jest nieprzezroczysty, więc linie siatki nie przechodzą przez niego.
+       Jeśli wiersz ma prywatny kolor, kafelek dostaje ten sam kolor — wypełnienie wiersza
+       pozostaje wizualnie ciągłe również pod relacją. */
+    .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
+      background:#ffffff !important;
+    }
+    .app.dark-mode .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) {
+      background:#0f172a !important;
+    }
+    .timeline-row.driver-private-color-yellow .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fef08a !important; }
+    .timeline-row.driver-private-color-green .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#bbf7d0 !important; }
+    .timeline-row.driver-private-color-blue .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#bfdbfe !important; }
+    .timeline-row.driver-private-color-pink .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fbcfe8 !important; }
+    .timeline-row.driver-private-color-purple .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#ddd6fe !important; }
+    .timeline-row.driver-private-color-orange .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#fed7aa !important; }
+    .timeline-row.driver-private-color-gray .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#e2e8f0 !important; }
+
+    .app.dark-mode .timeline-row.driver-private-color-yellow .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4f4517 !important; }
+    .app.dark-mode .timeline-row.driver-private-color-green .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#163c2a !important; }
+    .app.dark-mode .timeline-row.driver-private-color-blue .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#173454 !important; }
+    .app.dark-mode .timeline-row.driver-private-color-pink .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4a2034 !important; }
+    .app.dark-mode .timeline-row.driver-private-color-purple .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#37275c !important; }
+    .app.dark-mode .timeline-row.driver-private-color-orange .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#4d3118 !important; }
+    .app.dark-mode .timeline-row.driver-private-color-gray .time-route:not(.status-accounting-final):not(.status-accounting-check):not(.status-dispatcher-sms):not(.status-free-day):not(.route-metric-profit-positive):not(.route-metric-profit-negative):not(.route-metric-km-high):not(.route-metric-km-mid):not(.route-metric-km-low):not(.status-planned-board) { background:#293241 !important; }
+
+    /* Dwie osobne kolumny finansowe na granicy niedziela -> poniedziałek. */
+    .board-week-finance-col {
+      position:absolute; top:1px; bottom:1px; width:92px; z-index:80; pointer-events:none;
+      display:flex; flex-direction:column; justify-content:center; gap:2px; padding:3px 5px;
+      border:1px solid rgba(245,158,11,.72); background:#fff7ed; color:#0f172a;
+      box-shadow:0 2px 8px rgba(15,23,42,.14); overflow:hidden;
+    }
+    .board-week-finance-col.carrier { transform:translateX(-100%); border-radius:8px 0 0 8px; }
+    .board-week-finance-col.dispatcher { transform:none; border-radius:0 8px 8px 0; }
+    .app.dark-mode .board-week-finance-col { background:#431407; border-color:#f59e0b; color:#f8fafc; box-shadow:0 2px 9px rgba(0,0,0,.34); }
+    .board-week-finance-title { font-size:7px; line-height:1; font-weight:950; text-transform:uppercase; letter-spacing:.035em; color:#9a3412; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .app.dark-mode .board-week-finance-title { color:#fdba74; }
+    .board-week-finance-entry { display:block; font-size:9px; line-height:1.08; font-weight:950; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .board-week-finance-entry.minus { color:#dc2626; }
+    .board-week-finance-entry.plus { color:#15803d; }
+    .board-week-finance-entry.pending { color:#b45309; }
+    .board-week-finance-entry.deleted { color:#64748b; text-decoration:line-through; }
+    .app.dark-mode .board-week-finance-entry.minus { color:#fca5a5; }
+    .app.dark-mode .board-week-finance-entry.plus { color:#86efac; }
+    .app.dark-mode .board-week-finance-entry.pending { color:#fcd34d; }
+    .app.dark-mode .board-week-finance-entry.deleted { color:#94a3b8; }
+
+    /* Stara pojedyncza kolumna 3L.36 nie jest już używana. */
+    .board-week-summary-column { display:none !important; }
+
+    /* Kontrolowane przesuwanie planszy środkowym przyciskiem myszy. */
+    .board-scroll.board-middle-pan-active { cursor:grabbing !important; user-select:none !important; }
+    .board-scroll.board-middle-pan-active * { cursor:grabbing !important; }
+  </style>
+
+  <script id="targeted-3l38-route-layer-week-finance-scroll-script">
+    (() => {
+      /* 7 dni wstecz / 7 dni w przód przy zachowaniu startu od wczoraj. */
+      normalizedBoardWindowStart = function(value = state.boardWindowStart) {
+        const today = currentAppDate();
+        const earliest = addDaysToIso(today, -BOARD_ARCHIVE_DAYS);
+        const latest = addDaysToIso(today, 6);
+        const fallback = addDaysToIso(today, -1);
+        const candidate = isIsoDateValue(value) ? value : fallback;
+        return candidate < earliest ? earliest : candidate > latest ? latest : candidate;
+      };
+
+      const previousShiftBoardWindow3L38 = shiftBoardWindow;
+      shiftBoardWindow = function(days) {
+        state.boardWindowUserMoved = true;
+        const current = normalizedBoardWindowStart(state.boardWindowStart);
+        const next = normalizedBoardWindowStart(addDaysToIso(current, Number(days || 0)));
+        if (next === current) return;
+        state.boardWindowStart = next;
+        dateListMemo = { signature:"", dates:null, indexMap:null };
+        boardRenderCache = null;
+        syncBoardOnly();
+      };
+
+      const previousRenderBoard3L38 = renderBoard;
+      renderBoard = function(...args) {
+        let html = previousRenderBoard3L38.apply(this,args);
+        html = html
+          .replace('onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button>', 'onclick="shiftBoardWindow(-7)" title="Pokaż wcześniejsze 7 dni">‹ 7 dni</button>')
+          .replace('onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button>', 'onclick="shiftBoardWindow(7)" title="Pokaż kolejne 7 dni">7 dni ›</button>');
+        return html;
+      };
+
+      function normText3L38(value) {
+        return String(value || '').trim().toLocaleLowerCase('pl-PL').replace(/\s+/g,' ');
+      }
+      function weekStart3L38(date) {
+        const iso=String(date||currentAppDate()).slice(0,10);
+        const d=new Date(`${iso}T12:00:00`);
+        if (!Number.isFinite(d.getTime())) return iso;
+        return addDaysToIso(iso,-((d.getDay()+6)%7));
+      }
+      function userForDispatcher3L38(dispatcher) {
+        const target=normText3L38(dispatcher);
+        return USERS.find(u=>normText3L38(u.login)===target) || USERS.find(u=>normText3L38(u.name)===target) || null;
+      }
+      function userLabel3L38(id) {
+        const u=USERS.find(item=>String(item.supabaseId||'')===String(id||''));
+        return String(u?.name || u?.login || 'spedytor');
+      }
+      function firstDriverForDispatcher3L38(dispatcher) {
+        const target=normText3L38(dispatcher);
+        return visibleDriversForCurrentUser().find(d=>normText3L38(d.dispatcher)===target) || null;
+      }
+      function firstDriverForCarrier3L38(driver) {
+        const carrierId=String(driver?.carrierEntityId||'');
+        const carrierName=normText3L38(driver?.carrier);
+        return visibleDriversForCurrentUser().find(d =>
+          (carrierId && String(d.carrierEntityId||'')===carrierId) || (!carrierId && carrierName && normText3L38(d.carrier)===carrierName)
+        ) || null;
+      }
+      function adjustmentBelongsToDriver3L38(item,driver) {
+        const itemDriver=String(item?.driverId||'');
+        const driverIds=[driver?.driverEntityId,driver?.id].filter(Boolean).map(String);
+        if (itemDriver && driverIds.includes(itemDriver)) return true;
+        /* Przy starszych rekordach identyfikator mógł pochodzić z innej wersji
+           mapowania floty. Nazwa kierowcy jest bezpiecznym fallbackiem prezentacyjnym. */
+        if (item?.driverName && normText3L38(item.driverName)===normText3L38(driver?.driver)) return true;
+        if (itemDriver) return false;
+        const carrierId=String(item?.carrierId||'');
+        const sameCarrier=(carrierId && carrierId===String(driver?.carrierEntityId||'')) || (!carrierId && normText3L38(item?.carrierName)===normText3L38(driver?.carrier));
+        return sameCarrier && firstDriverForCarrier3L38(driver)?.id===driver?.id;
+      }
+      function deletedTime3L38(item) {
+        if (!item?.deletedAt) return '';
+        const d=new Date(item.deletedAt); if (!Number.isFinite(d.getTime())) return '';
+        return d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
+      }
+      function transferPending3L38(item) {
+        if (String(item?.status||'')!=='pending') return '';
+        const missing=[];
+        if (!item.recipientApprovedAt) missing.push('odb.');
+        if (!item.fromManagerApprovedAt) missing.push('kier. A');
+        if (!item.toManagerApprovedAt) missing.push('kier. B');
+        return missing.length ? ` · ${missing.join('/')}` : '';
+      }
+      function financeForDriverWeek3L38(driver,weekStart) {
+        const data=state.boardWeeklySettlements?.[weekStart];
+        if (!data) return { carrier:[], dispatcher:[] };
+        const carrier=[];
+        (Array.isArray(data.carrierAdjustments)?data.carrierAdjustments:[])
+          .filter(item=>adjustmentBelongsToDriver3L38(item,driver))
+          .forEach(item=>{
+            const amount=Number(item.amount||0);
+            const effect=-amount;
+            carrier.push({
+              text:`${effect>0?'+':''}${Math.round(effect)} zł`,
+              cls:effect<0?'minus':effect>0?'plus':'pending',
+              title:`${driver.driver||'Kierowca'} · wyrównanie przewoźnika${item.comment?` · ${item.comment}`:''}`
+            });
+          });
+
+        const dispatcher=[];
+        const dispatcherUser=userForDispatcher3L38(driver?.dispatcher);
+        if (dispatcherUser?.supabaseId && firstDriverForDispatcher3L38(driver?.dispatcher)?.id===driver?.id) {
+          (Array.isArray(data.transfers)?data.transfers:[])
+            .filter(item=>String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId) || String(item.toDispatcherId||'')===String(dispatcherUser.supabaseId))
+            .forEach(item=>{
+              const outgoing=String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId);
+              const other=userLabel3L38(outgoing?item.toDispatcherId:item.fromDispatcherId);
+              const amount=Math.round(Number(item.amount||0));
+              const base=`${outgoing?'-':'+'}${amount} PLN ${outgoing?'dla':'od'} ${other}`;
+              const status=String(item.status||'pending');
+              const deleted=status==='deleted';
+              const suffix=deleted?` · usunięto ${deletedTime3L38(item)||'—'}`:transferPending3L38(item);
+              dispatcher.push({
+                text:`${base}${suffix}`,
+                cls:deleted?'deleted':status==='pending'?'pending':outgoing?'minus':'plus',
+                title:`${base}${item.comment?` · ${item.comment}`:''}${suffix}`
+              });
+            });
+        }
+        return {carrier,dispatcher};
+      }
+      function financeBoundaries3L38(dates=dateList()) {
+        const out=[];
+        dates.forEach((date,index)=>{
+          const d=new Date(`${date}T12:00:00`);
+          if (d.getDay()!==0 || index>=dates.length-1) return;
+          out.push({weekStart:addDaysToIso(date,-6),leftPct:((index+1)/dates.length)*100});
+        });
+        return out;
+      }
+      function renderFinanceColumns3L38(driver) {
+        return financeBoundaries3L38(dateList()).map(boundary=>{
+          const finance=financeForDriverWeek3L38(driver,boundary.weekStart);
+          if (!finance.carrier.length && !finance.dispatcher.length) return '';
+          const carrierEntries=finance.carrier.slice(0,2).map(item=>`<span class="board-week-finance-entry ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('') || '<span class="board-week-finance-entry pending">—</span>';
+          const dispatcherEntries=finance.dispatcher.slice(0,2).map(item=>`<span class="board-week-finance-entry ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('') || '<span class="board-week-finance-entry pending">—</span>';
+          const extra=finance.dispatcher.length>2?`<span class="board-week-finance-entry pending">+${finance.dispatcher.length-2} więcej</span>`:'';
+          return `<span class="board-week-finance-col carrier" style="left:${boundary.leftPct}%" data-week-start="${attr(boundary.weekStart)}"><span class="board-week-finance-title">Przewoźnik</span>${carrierEntries}</span><span class="board-week-finance-col dispatcher" style="left:${boundary.leftPct}%" data-week-start="${attr(boundary.weekStart)}"><span class="board-week-finance-title">Spedytor</span>${dispatcherEntries}${extra}</span>`;
+        }).join('');
+      }
+
+      const previousRenderTimelineOverlay3L38=renderTimelineOverlay;
+      renderTimelineOverlay=function(driver,row) {
+        let html=previousRenderTimelineOverlay3L38.call(this,driver,row);
+        /* Stary overlay 3L.36 pozostaje w HTML, ale jest ukryty CSS-em. */
+        const finance=renderFinanceColumns3L38(driver);
+        if (finance) html=html.replace(/\s*<\/div>\s*$/,`${finance}</div>`);
+        return html;
+      };
+
+      /* Środkowy przycisk myszy: własne przesuwanie planszy zamiast natywnego
+         autoscrolla przeglądarki. Tryb zawsze kończy się po puszczeniu rolki,
+         Escape albo utracie fokusu, więc nie może zostać "włączony na stałe". */
+      const middlePan={active:false,viewport:null,startX:0,startY:0,startLeft:0,startTop:0};
+      function stopMiddlePan3L38(){
+        if (!middlePan.active) return;
+        middlePan.viewport?.classList?.remove('board-middle-pan-active');
+        middlePan.active=false; middlePan.viewport=null;
+      }
+      document.addEventListener('mousedown',event=>{
+        if (event.button!==1) return;
+        const viewport=event.target?.closest?.('.board-scroll');
+        if (!viewport) return;
+        event.preventDefault(); event.stopPropagation();
+        stopMiddlePan3L38();
+        middlePan.active=true; middlePan.viewport=viewport;
+        middlePan.startX=event.clientX; middlePan.startY=event.clientY;
+        middlePan.startLeft=viewport.scrollLeft; middlePan.startTop=viewport.scrollTop;
+        viewport.classList.add('board-middle-pan-active');
+      },true);
+      document.addEventListener('mousemove',event=>{
+        if (!middlePan.active || !middlePan.viewport) return;
+        event.preventDefault();
+        middlePan.viewport.scrollLeft=middlePan.startLeft-(event.clientX-middlePan.startX);
+        middlePan.viewport.scrollTop=middlePan.startTop-(event.clientY-middlePan.startY);
+      },true);
+      document.addEventListener('mouseup',event=>{ if(event.button===1) stopMiddlePan3L38(); },true);
+      document.addEventListener('auxclick',event=>{
+        if(event.button===1 && event.target?.closest?.('.board-scroll')) event.preventDefault();
+      },true);
+      document.addEventListener('keydown',event=>{ if(event.key==='Escape') stopMiddlePan3L38(); },true);
+      window.addEventListener('blur',stopMiddlePan3L38);
+    })();
+  </script>
+
 </body>
 </html>
