@@ -45,6 +45,12 @@ const ROLE_LABELS = {
   admin: 'Administrator',
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isValidUuid(value) {
+  return UUID_PATTERN.test(String(value || '').trim())
+}
+
 function suspendTmsRuntimeForAdminPanel() {
   activeTmsFrame = null
 
@@ -1130,6 +1136,10 @@ async function upsertCentralRelationFromTms(message) {
     sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Brak identyfikatora relacji lub oddziału.')
     return
   }
+  if (!isValidUuid(branchId)) {
+    sendRelationOperationResult(requestId, false, 'upsert', relationId, '', `Nieprawidłowy identyfikator oddziału. Import/zapis został zatrzymany (${branchId || 'brak'}).`)
+    return
+  }
 
   if (currentProfile?.role === 'dispatcher') {
     const actor = String(currentProfile?.display_name || '').trim()
@@ -1319,6 +1329,10 @@ async function upsertCentralClientFromTms(message) {
     sendClientOperationResult(requestId, false, 'upsert', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
     return
   }
+  if (!isValidUuid(branchId)) {
+    sendClientOperationResult(requestId, false, 'upsert', clientId, '', `Nieprawidłowy identyfikator oddziału. Import został zatrzymany przed zapisem do Supabase (${branchId || 'brak'}).`)
+    return
+  }
 
   try {
     const { error } = await supabase.rpc('upsert_tms_client', {
@@ -1345,6 +1359,10 @@ async function archiveCentralClientFromTms(message) {
 
   if (!clientId || !branchId) {
     sendClientOperationResult(requestId, false, 'archive', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
+    return
+  }
+  if (!isValidUuid(branchId)) {
+    sendClientOperationResult(requestId, false, 'archive', clientId, '', 'Nieprawidłowy identyfikator oddziału.')
     return
   }
 
@@ -2258,6 +2276,17 @@ async function importFleetExcelFromTms(message) {
     return
   }
 
+  const invalidRowIndex = rows.findIndex((row) => {
+    const branchId = String(row?.branchId || '').trim()
+    const dispatcherId = String(row?.assignedDispatcherId || '').trim()
+    const assignmentId = String(row?.assignmentId || '').trim()
+    return !isValidUuid(branchId) || !isValidUuid(dispatcherId) || (assignmentId && !isValidUuid(assignmentId))
+  })
+  if (invalidRowIndex >= 0) {
+    sendFleetOperationResult(requestId, false, 'import', `Wiersz ${invalidRowIndex + 2} zawiera nieprawidłowy identyfikator oddziału, spedytora lub zestawu. Import zatrzymano przed zapisem.`)
+    return
+  }
+
   try {
     const { data, error } = await supabase.rpc('import_fleet_rows_excel', { p_rows: rows })
     if (error) throw error
@@ -2999,7 +3028,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v75-ai-admin-import"
+        src="/tms.html?embedded=1&build=request-workflow-v76-import-validation"
         title="Top Dragon TMS"
       ></iframe>
     </main>
