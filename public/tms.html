@@ -67048,7 +67048,7 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=1"></script>
+  <script src="/xlsx-lite.js?v=2-import-validation"></script>
   <script>
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
 
@@ -84814,10 +84814,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (String(state.user?.supabaseRole || "") === "accounting") return;
 
       const currentKeys = new Set();
+      let sentUpserts = 0;
+      let hasMoreUpserts = false;
+      const maxUpsertsPerPass = 12;
       (state.clients || []).forEach(client => {
         if (!client || client.sample) return;
         const clientId = String(client.id || "").trim();
-        const branchId = centralClientBranchId(client);
+        const branchId = excelUuid(centralClientBranchId(client));
+        // 3L.56: nigdy nie wysyłamy do RPC wartości typu #REF!/tekst jako UUID.
+        // Stare, częściowo zaimportowane wpisy pozostają lokalnie do czasu ponownego
+        // poprawnego importu, ale nie generują już zapętlonych błędów synchronizacji.
         if (!clientId || !branchId) return;
 
         const key = centralClientKey(branchId, clientId);
@@ -84829,9 +84835,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const payload = centralSerializableClient(client);
         if (!payload) return;
+        if (sentUpserts >= maxUpsertsPerPass) { hasMoreUpserts = true; return; }
         const requestId = `client-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         CENTRAL_CLIENT_PENDING_UPSERT.add(key);
         CENTRAL_CLIENT_BASELINE.set(key, fingerprint);
+        sentUpserts += 1;
 
         window.parent?.postMessage({
           type: "top-dragon-client-upsert",
@@ -84845,7 +84853,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       for (const key of Array.from(CENTRAL_CLIENT_BASELINE.keys())) {
         if (currentKeys.has(key) || CENTRAL_CLIENT_PENDING_DELETE.has(key) || CENTRAL_CLIENT_PENDING_UPSERT.has(key)) continue;
         const separator = key.indexOf("::");
-        const branchId = separator >= 0 ? key.slice(0, separator) : "";
+        const branchId = excelUuid(separator >= 0 ? key.slice(0, separator) : "");
         const clientId = separator >= 0 ? key.slice(separator + 2) : key;
         if (!branchId || !clientId) continue;
 
@@ -84860,6 +84868,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           branchId
         }, window.location.origin);
       }
+      if (hasMoreUpserts) scheduleCentralClientsDiff(180);
     }
 
     function scheduleCentralClientsDiff(delay = 80) {
@@ -85891,7 +85900,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('relations')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('relations')">Import Excel</button>
                     <button type="button" class="btn" onclick="adminOpenAiImport('relations')">✨ Import AI</button>
-                    <button type="button" class="btn" onclick="adminChooseImport('relations')">Import JSON</button>
                   </div>
                 </div>
                 <div class="admin-transfer-group">
@@ -85901,7 +85909,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('clients')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('clients')">Import Excel</button>
                     <button type="button" class="btn" onclick="adminOpenAiImport('clients')">✨ Import AI</button>
-                    <button type="button" class="btn" onclick="adminChooseImport('clients')">Import JSON</button>
                   </div>
                 </div>
                 <div class="admin-transfer-group">
@@ -85935,18 +85942,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.adminDataTransferOpen = false;
         document.querySelectorAll(".admin-transfer-backdrop").forEach(element => element.remove());
       };
-
-      function downloadAdminJson(filename, payload) {
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-      }
 
       function vehicleExportItemFromDriver(driver) {
         if (!driver || !driver.tractorReg) return null;
@@ -86059,12 +86054,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return fallback;
       }
 
+      const EXCEL_ERROR_TOKENS = new Set(["#REF!", "#N/A", "#VALUE!", "#NAME?", "#DIV/0!", "#NUM!", "#NULL!"]);
+      const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
       function excelString(value) {
         return String(value ?? "").trim();
       }
 
+      function excelIsErrorValue(value) {
+        return EXCEL_ERROR_TOKENS.has(excelString(value).toUpperCase());
+      }
+
+      function excelSafeString(value, fallback = "") {
+        const text = excelString(value);
+        return !text || excelIsErrorValue(text) ? excelString(fallback) : text;
+      }
+
+      function excelUuid(value) {
+        const text = excelSafeString(value);
+        return UUID_PATTERN.test(text) ? text : "";
+      }
+
       function excelNumber(value, fallback = 0) {
-        if (value === "" || value == null) return fallback;
+        if (value === "" || value == null || excelIsErrorValue(value)) return fallback;
         const normalized = String(value).trim().replace(/\s/g, "").replace(",", ".");
         const number = Number(normalized);
         return Number.isFinite(number) ? number : fallback;
@@ -86072,6 +86084,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function excelBoolean(value, fallback = false) {
         if (typeof value === "boolean") return value;
+        if (excelIsErrorValue(value)) return fallback;
         const normalized = removePolishChars(String(value ?? "").trim().toLowerCase());
         if (["1","true","tak","yes","x","ukryty","przyblizona"].includes(normalized)) return true;
         if (["0","false","nie","no","","widoczny"].includes(normalized)) return false;
@@ -86079,6 +86092,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function excelDateValue(value) {
+        if (excelIsErrorValue(value)) return "";
         if (typeof value === "number" && Number.isFinite(value) && value > 1000) {
           const ms = Date.UTC(1899, 11, 30) + Math.round(value * 86400000);
           return new Date(ms).toISOString().slice(0, 10);
@@ -86093,7 +86107,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function excelJsonObject(value) {
-        const text = excelString(value);
+        const text = excelSafeString(value);
         if (!text) return null;
         try {
           const parsed = JSON.parse(text);
@@ -86104,11 +86118,104 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function excelDispatcherUser(value) {
-        const query = excelString(value).toUpperCase();
+        const queryRaw = excelSafeString(value);
+        const query = removePolishChars(queryRaw.toLowerCase()).replace(/[^a-z0-9]+/g, " ").trim();
         if (!query) return null;
-        return USERS.find(user => user?.role === "spedytor" && (
-          String(user?.login || "").toUpperCase() === query || String(user?.name || "").toUpperCase() === query
-        )) || null;
+        return USERS.find(user => user?.role === "spedytor" &&
+          excelDispatcherImportVariants(user).some(variant => variant === query)
+        ) || null;
+      }
+
+      const EXCEL_DISPATCHER_IMPORT_ALIASES = {
+        TOM:["tomasz","tomek"], NATI:["natalia"], MARC:["marcin"], DAN:["daniel"],
+        BART:["bartek","bartosz"], MATI:["mateusz"], MARIO:["mariusz"]
+      };
+
+      function excelDispatcherImportVariants(user) {
+        const login = String(user?.login || "").trim().toUpperCase();
+        return [user?.login, user?.name, ...(EXCEL_DISPATCHER_IMPORT_ALIASES[login] || [])]
+          .map(value => removePolishChars(String(value || "").toLowerCase()).replace(/[^a-z0-9]+/g, " ").trim())
+          .filter(value => value.length >= 3);
+      }
+
+      function excelDispatcherUsersFromRow(row) {
+        const raw = Object.values(row || {}).map(value => excelIsErrorValue(value) ? "" : String(value ?? "")).join(" ");
+        const haystack = ` ${removePolishChars(raw.toLowerCase()).replace(/[^a-z0-9]+/g, " ").trim()} `;
+        if (!haystack.trim()) return [];
+        return (USERS || []).filter(user => user?.role === "spedytor").filter(user =>
+          excelDispatcherImportVariants(user).some(value => haystack.includes(` ${value} `))
+        );
+      }
+
+      function excelResolveBranchIds(row, map, dispatcherCell = "", jsonBranchId = "", fallbackBranchId = "") {
+        const explicit = excelUuid(excelValue(map, ["Oddział ID", "branchId", "branch_id"]));
+        if (explicit) return [explicit];
+
+        const dispatcher = excelDispatcherUser(dispatcherCell);
+        const dispatcherBranch = excelUuid(dispatcher?.branchId);
+        if (dispatcherBranch) return [dispatcherBranch];
+
+        const jsonBranch = excelUuid(jsonBranchId);
+        if (jsonBranch) return [jsonBranch];
+
+        const branchText = excelSafeString(excelValue(map, ["Oddział", "Nazwa oddziału", "branch", "branchName"]));
+        if (branchText) {
+          const branchKey = removePolishChars(branchText.toLowerCase());
+          const matches = adminAiBranchOptions().filter(branch => removePolishChars(String(branch?.name || "").toLowerCase()) === branchKey).map(branch => excelUuid(branch.id)).filter(Boolean);
+          if (matches.length) return Array.from(new Set(matches));
+        }
+
+        const inferredBranches = Array.from(new Set(excelDispatcherUsersFromRow(row).map(user => excelUuid(user?.branchId)).filter(Boolean)));
+        if (inferredBranches.length) return inferredBranches;
+
+        const rowText = removePolishChars(Object.values(row || {}).map(value => excelIsErrorValue(value) ? "" : String(value ?? "")).join(" ").toLowerCase());
+        if (/\bwszyscy\b/.test(rowText)) {
+          const allBranches = adminAiBranchOptions().map(branch => excelUuid(branch?.id)).filter(Boolean);
+          if (allBranches.length) return Array.from(new Set(allBranches));
+        }
+
+        const fallback = excelUuid(fallbackBranchId);
+        return fallback ? [fallback] : [];
+      }
+
+      function excelResolveBranchId(row, map, dispatcherCell = "", jsonBranchId = "", fallbackBranchId = "") {
+        const ids = excelResolveBranchIds(row, map, dispatcherCell, jsonBranchId, fallbackBranchId);
+        return ids.length === 1 ? ids[0] : "";
+      }
+
+      function excelStableImportId(prefix, ...parts) {
+        const text = parts.map(value => removePolishChars(String(value || "").toLowerCase())).join("|");
+        let hash = 2166136261;
+        for (let index = 0; index < text.length; index += 1) {
+          hash ^= text.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return `${prefix}-${(hash >>> 0).toString(36)}`;
+      }
+
+      function excelImportIssueLabel(row, index) {
+        const map = excelRowMap(row);
+        return excelSafeString(excelValue(map, ["Nazwa", "Klient", "Kierowca", "Załadunek", "name", "client", "driverName", "load"])) || `wiersz ${index + 2}`;
+      }
+
+      function excelSelectImportSheet(workbook, kind) {
+        const sheets = Array.isArray(workbook?.sheets) ? workbook.sheets : [];
+        if (!sheets.length) return null;
+        const wanted = kind === "clients"
+          ? [["nazwa","name"],["adres","address"]]
+          : kind === "vehicles"
+            ? [["kierowca","drivername","driver"],["przewoznik","carriername","carrier"],["nrrejpojazdu","vehicleregistrationno","tractorreg"]]
+            : [["relacjaid","relationid","id"],["zaladunek","load"],["rozladunek","unload"],["danejson","payloadjson"]];
+        let best = null;
+        sheets.forEach(sheet => {
+          const headers = new Set((sheet?.headers || Object.keys(sheet?.rows?.[0] || {})).map(excelKey));
+          let score = 0;
+          wanted.forEach(group => { if (group.some(alias => headers.has(excelKey(alias)))) score += 1; });
+          const name = excelKey(sheet?.name || "");
+          if ((kind === "clients" && name.includes("klient")) || (kind === "vehicles" && name.includes("pojaz")) || (kind === "relations" && name.includes("relac"))) score += 2;
+          if (!best || score > best.score) best = { sheet, score };
+        });
+        return best?.score > 0 ? best.sheet : sheets[0];
       }
 
       function excelClientRows() {
@@ -86180,132 +86287,271 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }).filter(row => row.driverName || row.vehicleRegistrationNo);
       }
 
-      function excelFleetImportRows(dataRows) {
-        return (Array.isArray(dataRows) ? dataRows : []).map(row => {
+      function excelFleetImportRows(dataRows, options = {}) {
+        const issues = [];
+        const rows = [];
+        (Array.isArray(dataRows) ? dataRows : []).forEach((row, rowIndex) => {
           const map = excelRowMap(row);
-          const dispatcherText = excelString(excelValue(map, ["Spedytor", "dispatcher"]));
-          const dispatcher = excelDispatcherUser(dispatcherText);
-          const assignedDispatcherId = excelString(excelValue(map, ["Spedytor ID", "assignedDispatcherId"])) || String(dispatcher?.supabaseId || "");
-          const branchId = excelString(excelValue(map, ["Oddział ID", "branchId"])) || String(dispatcher?.branchId || state.user?.branchId || "");
-          return {
-            assignmentId: excelString(excelValue(map, ["Zestaw ID", "assignmentId"])),
+          const dispatcherText = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], options.defaultDispatcher || ""));
+          const dispatcher = excelDispatcherUser(dispatcherText) || excelDispatcherUser(options.defaultDispatcher || "");
+          const assignedDispatcherId = excelUuid(excelValue(map, ["Spedytor ID", "assignedDispatcherId", "assigned_dispatcher_id"])) || excelUuid(dispatcher?.supabaseId);
+          const branchId = excelResolveBranchId(row, map, dispatcher?.login || dispatcherText, "", options.defaultBranchId || "");
+          const normalized = {
+            assignmentId: excelUuid(excelValue(map, ["Zestaw ID", "assignmentId", "assignment_id"])),
             branchId,
             assignedDispatcherId,
-            carrierName: excelString(excelValue(map, ["Przewoźnik", "carrierName", "carrier"])),
-            driverName: excelString(excelValue(map, ["Kierowca", "driverName", "driver"])),
-            phone: excelString(excelValue(map, ["Telefon", "phone"])),
-            nationality: excelString(excelValue(map, ["Narodowość", "nationality"], "PL")).toUpperCase() || "PL",
-            baseLocation: excelString(excelValue(map, ["Baza kierowcy", "baseLocation", "base"])),
-            vehicleRegistrationNo: excelString(excelValue(map, ["Nr rej. pojazdu", "Numer rejestracyjny pojazdu", "vehicleRegistrationNo", "tractorReg"])).toUpperCase(),
-            vehicleBrand: excelString(excelValue(map, ["Marka pojazdu", "vehicleBrand"])),
-            trailerRegistrationNo: excelString(excelValue(map, ["Nr rej. naczepy", "Numer rejestracyjny naczepy", "trailerRegistrationNo", "trailerReg"])).toUpperCase(),
+            carrierName: excelSafeString(excelValue(map, ["Przewoźnik", "carrierName", "carrier"])),
+            driverName: excelSafeString(excelValue(map, ["Kierowca", "driverName", "driver"])),
+            phone: excelSafeString(excelValue(map, ["Telefon", "phone"])),
+            nationality: excelSafeString(excelValue(map, ["Narodowość", "nationality"], "PL"), "PL").toUpperCase() || "PL",
+            baseLocation: excelSafeString(excelValue(map, ["Baza kierowcy", "baseLocation", "base"])),
+            vehicleRegistrationNo: excelSafeString(excelValue(map, ["Nr rej. pojazdu", "Numer rejestracyjny pojazdu", "vehicleRegistrationNo", "tractorReg"])).toUpperCase(),
+            vehicleBrand: excelSafeString(excelValue(map, ["Marka pojazdu", "vehicleBrand"])),
+            trailerRegistrationNo: excelSafeString(excelValue(map, ["Nr rej. naczepy", "Numer rejestracyjny naczepy", "trailerRegistrationNo", "trailerReg"])).toUpperCase(),
             trailerHeightM: excelNumber(excelValue(map, ["Wysokość naczepy", "trailerHeightM", "trailerHeight"]), 0) || null,
             hidden: excelBoolean(excelValue(map, ["Ukryty", "hidden"]), false)
           };
-        }).filter(row => row.carrierName || row.driverName || row.vehicleRegistrationNo);
+          if (!normalized.carrierName && !normalized.driverName && !normalized.vehicleRegistrationNo) return;
+          if (!branchId) {
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: brak prawidłowego oddziału.`);
+            return;
+          }
+          if (!assignedDispatcherId) {
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: nie udało się dopasować aktywnego spedytora do użytkownika Supabase.`);
+            return;
+          }
+          if (!normalized.carrierName || !normalized.driverName) {
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: wymagany jest przewoźnik i kierowca.`);
+            return;
+          }
+          rows.push(normalized);
+        });
+        try { Object.defineProperty(rows, "issues", { value:issues, enumerable:false }); } catch (error) { rows.issues = issues; }
+        return rows;
       }
 
-      function importClientRowsFromExcel(dataRows) {
+      function importClientRowsFromExcel(dataRows, options = {}) {
         const clients = Array.isArray(state.clients) ? state.clients.slice() : [];
+        const issues = [];
         let imported = 0;
         let skipped = 0;
-        (dataRows || []).forEach(row => {
+        (dataRows || []).forEach((row, rowIndex) => {
           const map = excelRowMap(row);
           const json = excelJsonObject(excelValue(map, ["Dane JSON", "payloadJson"])) || {};
-          const dispatcherCell = excelString(excelValue(map, ["Spedytor", "dispatcher"], json.dispatcher || ""));
-          const dispatcherUser = excelDispatcherUser(dispatcherCell);
-          const branchId = excelString(excelValue(map, ["Oddział ID", "branchId"])) || String(dispatcherUser?.branchId || json._centralBranchId || "");
+          const dispatcherCell = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], json.dispatcher || ""));
+          const branchIds = excelResolveBranchIds(row, map, dispatcherCell, json._centralBranchId || json.branchId || json.branch_id, options.defaultBranchId || "");
           const raw = { ...json };
-          const id = excelString(excelValue(map, ["Klient ID", "clientId", "id"]));
-          if (id) raw.id = id;
-          raw.databaseType = excelString(excelValue(map, ["Baza", "databaseType"], raw.databaseType || "operations")) || "operations";
-          raw.name = excelString(excelValue(map, ["Nazwa", "name"], raw.name || ""));
-          raw.address = excelString(excelValue(map, ["Adres", "address"], raw.address || ""));
-          raw.nip = excelString(excelValue(map, ["NIP", "nip"], raw.nip || ""));
-          raw.cargoTypes = excelString(excelValue(map, ["Typy ładunków", "cargoTypes"], raw.cargoTypes || ""));
-          raw.businessType = excelString(excelValue(map, ["Typ działalności", "businessType"], raw.businessType || ""));
-          raw.dispatcher = dispatcherCell;
+          const sourceId = excelSafeString(excelValue(map, ["Klient ID", "clientId", "id"]));
+          raw.databaseType = excelSafeString(excelValue(map, ["Baza", "databaseType"], raw.databaseType || "operations"), "operations") || "operations";
+          raw.name = excelSafeString(excelValue(map, ["Nazwa", "name"], raw.name || ""));
+          raw.address = excelSafeString(excelValue(map, ["Adres", "address"], raw.address || ""));
+          raw.nip = excelSafeString(excelValue(map, ["NIP", "nip"], raw.nip || ""));
+          raw.cargoTypes = excelSafeString(excelValue(map, ["Typy ładunków", "cargoTypes"], raw.cargoTypes || ""));
+          raw.businessType = excelSafeString(excelValue(map, ["Typ działalności", "businessType"], raw.businessType || ""));
+          raw.dispatcher = excelDispatcherUser(dispatcherCell)?.login || dispatcherCell;
           raw.lat = excelNumber(excelValue(map, ["Szerokość geogr.", "Szerokość geograficzna", "lat"], raw.lat), Number(raw.lat));
           raw.lng = excelNumber(excelValue(map, ["Długość geogr.", "Długość geograficzna", "lng", "lon"], raw.lng), Number(raw.lng));
           raw.approximate = excelBoolean(excelValue(map, ["Przybliżona lokalizacja", "approximate"], raw.approximate), Boolean(raw.approximate));
           raw.qualityRating = excelNumber(excelValue(map, ["Ocena jakości", "qualityRating"], raw.qualityRating), Number(raw.qualityRating || 3));
           raw.paymentDays = excelNumber(excelValue(map, ["Termin płatności dni", "paymentDays"], raw.paymentDays), Number(raw.paymentDays || 30));
-          raw.cooperationNotes = excelString(excelValue(map, ["Notatki", "cooperationNotes"], raw.cooperationNotes || ""));
-          raw.lastContactAt = excelString(excelValue(map, ["Ostatni kontakt", "lastContactAt"], raw.lastContactAt || ""));
+          raw.cooperationNotes = excelSafeString(excelValue(map, ["Notatki", "cooperationNotes"], raw.cooperationNotes || ""));
+          raw.lastContactAt = excelSafeString(excelValue(map, ["Ostatni kontakt", "lastContactAt"], raw.lastContactAt || ""));
           raw.updatedAt = new Date().toISOString();
-          const normalized = normalizeStoredClient(raw);
-          if (!branchId || !normalized?.id) { skipped += 1; return; }
-          try { Object.defineProperty(normalized, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
-          catch (error) { normalized._centralBranchId = branchId; }
-          const key = centralClientKey(branchId, normalized.id);
-          const index = clients.findIndex(client => centralClientKey(centralClientBranchId(client), client?.id) === key);
-          if (index >= 0) clients[index] = normalized; else clients.push(normalized);
-          CENTRAL_CLIENT_BASELINE.delete(key);
-          CENTRAL_CLIENT_PENDING_DELETE.delete(key);
-          imported += 1;
+
+          if (!branchIds.length) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: nie udało się ustalić oddziału. Błędne wartości Excela (np. #REF!) są ignorowane; podaj UUID oddziału, nazwę oddziału albo spedytora.`);
+            return;
+          }
+          if (!raw.name || !raw.address) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: brak nazwy lub adresu klienta.`);
+            return;
+          }
+          if (!Number.isFinite(Number(raw.lat)) || !Number.isFinite(Number(raw.lng))) {
+            const resolved = coordsFromSearchText(raw.address);
+            if (resolved?.coords) {
+              raw.lat = Number(resolved.coords[0]);
+              raw.lng = Number(resolved.coords[1]);
+              raw.approximate = true;
+            }
+          }
+          if (!Number.isFinite(Number(raw.lat)) || !Number.isFinite(Number(raw.lng))) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: brak prawidłowych współrzędnych i nie udało się ustalić punktu z adresu.`);
+            return;
+          }
+
+          branchIds.forEach(branchId => {
+            const validBranchId = excelUuid(branchId);
+            if (!validBranchId) return;
+            const candidate = { ...raw };
+            candidate.id = sourceId || raw.id || excelStableImportId("client-import", validBranchId, raw.name, raw.address);
+            const normalized = normalizeStoredClient(candidate);
+            if (!normalized?.id) return;
+
+            // Samonaprawa po nieudanym imporcie ze starszej wersji: usuń lokalny
+            // duplikat tego samego klienta, jeżeli miał błędny/pusty identyfikator oddziału.
+            for (let index = clients.length - 1; index >= 0; index -= 1) {
+              const previous = clients[index];
+              if (String(previous?.id || "").trim() !== String(normalized.id || "").trim()) continue;
+              if (!excelUuid(centralClientBranchId(previous))) clients.splice(index, 1);
+            }
+
+            try { Object.defineProperty(normalized, "_centralBranchId", { value:validBranchId, writable:true, configurable:true, enumerable:false }); }
+            catch (error) { normalized._centralBranchId = validBranchId; }
+            const key = centralClientKey(validBranchId, normalized.id);
+            const index = clients.findIndex(client => centralClientKey(excelUuid(centralClientBranchId(client)), client?.id) === key);
+            if (index >= 0) clients[index] = normalized; else clients.push(normalized);
+            CENTRAL_CLIENT_BASELINE.delete(key);
+            CENTRAL_CLIENT_PENDING_DELETE.delete(key);
+            imported += 1;
+          });
         });
         state.clients = clients;
         saveClientDatabaseToStorage();
         invalidateRegionOpportunityCache();
-        scheduleCentralClientsDiff(0);
-        return { imported, skipped };
+        if (imported) scheduleCentralClientsDiff(0);
+        return { imported, skipped, issues };
       }
 
-      function importRelationRowsFromExcel(dataRows) {
+      function importRelationRowsFromExcel(dataRows, options = {}) {
         const routes = Array.isArray(state.routes) ? state.routes.slice() : [];
+        const futureRoutes = Array.isArray(state.futureRoutes) ? state.futureRoutes.slice() : [];
+        const issues = [];
         let imported = 0;
+        let planned = 0;
         let skipped = 0;
-        (dataRows || []).forEach(row => {
+        (dataRows || []).forEach((row, rowIndex) => {
           const map = excelRowMap(row);
-          const id = excelString(excelValue(map, ["Relacja ID", "relationId", "id"]));
+          const sourceId = excelSafeString(excelValue(map, ["Relacja ID", "relationId", "id"]));
           const json = excelJsonObject(excelValue(map, ["Dane JSON", "payloadJson"]));
-          const existing = id ? routes.find(route => String(route?.id || "") === id) : null;
-          const payload = json ? cloneData(json) : (existing ? cloneData(existing) : null);
-          if (!payload) { skipped += 1; return; }
-          if (id) payload.id = id;
-          const dispatcherText = excelString(excelValue(map, ["Spedytor", "dispatcher"], payload.ownerDispatcher || payload.createdBy || ""));
-          const dispatcherUser = excelDispatcherUser(dispatcherText);
-          const branchId = excelString(excelValue(map, ["Oddział ID", "branchId"])) || String(dispatcherUser?.branchId || centralRouteBranchId(existing) || "");
-          if (!branchId || !payload.id || payload.futureQueue || payload.proposedLoad) { skipped += 1; return; }
-          const date = excelDateValue(excelValue(map, ["Data", "date"], payload.date || ""));
-          if (date) payload.date = date;
-          const load = excelString(excelValue(map, ["Załadunek", "load"], payload.load || ""));
-          const unload = excelString(excelValue(map, ["Rozładunek", "unload"], payload.unload || ""));
-          const client = excelString(excelValue(map, ["Klient", "client"], payload.client || ""));
-          if (load) payload.load = load;
-          if (unload) payload.unload = unload;
-          if (client || Object.prototype.hasOwnProperty.call(row, "Klient")) payload.client = client;
-          payload.rate = excelNumber(excelValue(map, ["Stawka PLN", "Stawka", "rate"], payload.rate), Number(payload.rate || 0));
-          payload.cost = excelNumber(excelValue(map, ["Koszt PLN", "Koszt", "cost"], payload.cost), Number(payload.cost || 0));
-          payload.loadedKm = excelNumber(excelValue(map, ["KM z ładunkiem", "loadedKm"], payload.loadedKm), Number(payload.loadedKm || 0));
-          payload.approachKm = excelNumber(excelValue(map, ["KM dolot", "approachKm"], payload.approachKm), Number(payload.approachKm || 0));
-          payload.baseKm = excelNumber(excelValue(map, ["KM powrót/baza", "baseKm"], payload.baseKm), Number(payload.baseKm || 0));
-          const accountingStatus = excelString(excelValue(map, ["Status rozliczeń", "accountingStatus"], payload.accountingStatus || ""));
-          if (accountingStatus) payload.accountingStatus = accountingStatus;
-          try { Object.defineProperty(payload, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
-          catch (error) { payload._centralBranchId = branchId; }
-          const key = centralRelationKey(branchId, payload.id);
-          const index = routes.findIndex(route => centralRelationKey(centralRouteBranchId(route), route?.id) === key);
-          if (index >= 0) routes[index] = payload; else routes.push(payload);
-          CENTRAL_RELATION_BASELINE.delete(key);
-          CENTRAL_RELATION_PENDING_DELETE.delete(key);
-          imported += 1;
+          const existing = sourceId ? routes.find(route => String(route?.id || "") === sourceId) : null;
+          let payload = json ? cloneData(json) : (existing ? cloneData(existing) : null);
+          const dispatcherText = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], payload?.ownerDispatcher || payload?.createdBy || options.defaultDispatcher || ""));
+          const dispatcherUser = excelDispatcherUser(dispatcherText) || excelDispatcherUser(options.defaultDispatcher || "");
+          const dispatcherLogin = String(dispatcherUser?.login || "").trim();
+          const branchId = excelResolveBranchId(row, map, dispatcherLogin || dispatcherText, centralRouteBranchId(existing), options.defaultBranchId || "");
+
+          if (!branchId) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: brak prawidłowego oddziału.`);
+            return;
+          }
+
+          // Eksport Top Dragon zawiera Dane JSON i zachowuje pełny rekord planu.
+          if (payload && !payload.futureQueue && !payload.proposedLoad) {
+            payload.id = sourceId || payload.id || excelStableImportId("relation-import", branchId, rowIndex, payload.date, payload.load, payload.unload);
+            const date = excelDateValue(excelValue(map, ["Data", "date"], payload.date || ""));
+            if (date) payload.date = date;
+            const load = excelSafeString(excelValue(map, ["Załadunek", "load"], payload.load || ""));
+            const unload = excelSafeString(excelValue(map, ["Rozładunek", "unload"], payload.unload || ""));
+            const client = excelSafeString(excelValue(map, ["Klient", "client"], payload.client || ""));
+            if (load) payload.load = load;
+            if (unload) payload.unload = unload;
+            if (client || Object.prototype.hasOwnProperty.call(row, "Klient")) payload.client = client;
+            payload.rate = excelNumber(excelValue(map, ["Stawka PLN", "Stawka", "rate"], payload.rate), Number(payload.rate || 0));
+            payload.cost = excelNumber(excelValue(map, ["Koszt PLN", "Koszt", "cost"], payload.cost), Number(payload.cost || 0));
+            payload.loadedKm = excelNumber(excelValue(map, ["KM z ładunkiem", "loadedKm"], payload.loadedKm), Number(payload.loadedKm || 0));
+            payload.approachKm = excelNumber(excelValue(map, ["KM dolot", "approachKm"], payload.approachKm), Number(payload.approachKm || 0));
+            payload.baseKm = excelNumber(excelValue(map, ["KM powrót/baza", "baseKm"], payload.baseKm), Number(payload.baseKm || 0));
+            const accountingStatus = excelSafeString(excelValue(map, ["Status rozliczeń", "accountingStatus"], payload.accountingStatus || ""));
+            if (accountingStatus) payload.accountingStatus = accountingStatus;
+            try { Object.defineProperty(payload, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
+            catch (error) { payload._centralBranchId = branchId; }
+            const key = centralRelationKey(branchId, payload.id);
+            const index = routes.findIndex(route => centralRelationKey(centralRouteBranchId(route), route?.id) === key);
+            if (index >= 0) routes[index] = payload; else routes.push(payload);
+            CENTRAL_RELATION_BASELINE.delete(key);
+            CENTRAL_RELATION_PENDING_DELETE.delete(key);
+            imported += 1;
+            return;
+          }
+
+          // Zwykły arkusz bez wewnętrznego JSON: nie próbujemy tworzyć „pół-relacji” na planie.
+          // Bezpiecznie kierujemy ją do Planowanych relacji, skąd spedytor przypisze pojazd.
+          const load = normalizeLocation(excelSafeString(excelValue(map, ["Załadunek", "load"])));
+          const unload = normalizeLocation(excelSafeString(excelValue(map, ["Rozładunek", "unload"])));
+          if (!load || !unload || !dispatcherLogin) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: zwykły arkusz relacji wymaga Załadunku, Rozładunku i prawidłowego Spedytora.`);
+            return;
+          }
+          const date = excelDateValue(excelValue(map, ["Data", "Data załadunku", "loadDate", "date"])) || currentAppDate();
+          const client = excelSafeString(excelValue(map, ["Klient", "client"]), "Klient z importu Excel") || "Klient z importu Excel";
+          const future = {
+            id: sourceId || excelStableImportId("excel-plan", branchId, date, load, unload, client, rowIndex),
+            driverId: "",
+            date,
+            loadDate: date,
+            load,
+            unload,
+            client,
+            approachKm: excelNumber(excelValue(map, ["KM dolot", "approachKm"]), 0),
+            loadedKm: excelNumber(excelValue(map, ["KM z ładunkiem", "loadedKm"]), 0),
+            baseKm: excelNumber(excelValue(map, ["KM powrót/baza", "baseKm"]), 0),
+            rate: excelNumber(excelValue(map, ["Stawka PLN", "Stawka", "rate"]), 0),
+            cost: excelNumber(excelValue(map, ["Koszt PLN", "Koszt", "cost"]), 0),
+            startHour: 8,
+            endDate: date,
+            endHour: 16,
+            notes: excelSafeString(excelValue(map, ["Notatki", "Uwagi", "notes"])),
+            createdBy: dispatcherLogin,
+            ownerDispatcher: dispatcherLogin,
+            futureQueue: true,
+            proposedLoad: false,
+            status: "planned",
+            approvalStatus: "accepted",
+            accountingStatus: "Nowe",
+            visibilityScope: "branch",
+            visibilityBranch: dispatcherBranch(dispatcherLogin) || "",
+            aiSourceType: "excel-import"
+          };
+          try { Object.defineProperty(future, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
+          catch (error) { future._centralBranchId = branchId; }
+          const futureKey = centralLoadQueueKey(branchId, "future", future.id);
+          const existingFutureIndex = futureRoutes.findIndex(item => centralLoadQueueKey(centralLoadQueueBranchId(item), "future", item?.id) === futureKey);
+          if (existingFutureIndex >= 0) futureRoutes[existingFutureIndex] = future; else futureRoutes.push(future);
+          planned += 1;
         });
         state.routes = routes;
+        state.futureRoutes = futureRoutes;
         boardRenderCache = null;
         invalidateCombinedClientHistoryCache();
-        scheduleCentralRelationsDiff(0);
-        return { imported, skipped };
+        if (imported) scheduleCentralRelationsDiff(0);
+        if (planned) scheduleCentralLoadQueueDiff(0);
+        return { imported, planned, skipped, issues };
+      }
+
+      function excelImportIssuesText(issues = [], max = 3) {
+        const list = (Array.isArray(issues) ? issues : []).filter(Boolean);
+        if (!list.length) return "";
+        const shown = list.slice(0, max).join(" • ");
+        return `${shown}${list.length > max ? ` • +${list.length - max} kolejnych` : ""}`;
+      }
+
+      function excelDefaultImportOptions() {
+        const branches = adminAiBranchOptions().filter(branch => excelUuid(branch?.id));
+        return {
+          defaultBranchId: branches.length === 1 ? branches[0].id : "",
+          defaultDispatcher: ""
+        };
       }
 
       function postFleetExcelImport(rows) {
-        if (!rows.length) throw new Error("Arkusz nie zawiera danych floty.");
+        if (!rows.length) {
+          const details = excelImportIssuesText(rows?.issues || []);
+          throw new Error(`Arkusz nie zawiera prawidłowych danych floty.${details ? ` ${details}` : ""}`);
+        }
         if (FLEET_OPERATION_BUSY) throw new Error("Poczekaj na zakończenie poprzedniej operacji floty.");
+        if (rows.issues?.length) {
+          showAppMessage("Część wierszy floty pominięto", excelImportIssuesText(rows.issues), "info");
+        }
         FLEET_OPERATION_BUSY = true;
         window.parent?.postMessage({
           type:"top-dragon-fleet-excel-import",
           requestId:`fleet-excel-import-${Date.now()}`,
-          rows
+          rows:Array.from(rows)
         }, window.location.origin);
       }
 
@@ -86346,20 +86592,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       async function adminImportExcel(kind, file) {
         try {
           const workbook = await excelApi().readWorkbook(file);
-          const rows = workbook?.sheets?.[0]?.rows || [];
-          if (!rows.length) throw new Error("Pierwszy arkusz nie zawiera danych do importu.");
+          const sheet = excelSelectImportSheet(workbook, kind);
+          const rows = sheet?.rows || [];
+          if (!rows.length) throw new Error("Nie znaleziono arkusza zawierającego dane do tego typu importu.");
+          const options = excelDefaultImportOptions();
           if (kind === "vehicles") {
-            const fleetRows = excelFleetImportRows(rows);
+            const fleetRows = excelFleetImportRows(rows, options);
             postFleetExcelImport(fleetRows);
             state.adminDataTransferOpen = false;
             document.querySelectorAll(".admin-transfer-backdrop").forEach(element => element.remove());
             return;
           }
-          const result = kind === "clients" ? importClientRowsFromExcel(rows) : importRelationRowsFromExcel(rows);
+          const result = kind === "clients" ? importClientRowsFromExcel(rows, options) : importRelationRowsFromExcel(rows, options);
+          if (!result.imported && !result.planned) {
+            throw new Error(`Nie zaimportowano żadnego rekordu. ${excelImportIssuesText(result.issues, 5) || "Sprawdź nagłówki, oddział, spedytora i wymagane pola."}`);
+          }
           state.adminDataTransferOpen = false;
           renderKeepingScroll();
-          recordAuditOperation(`Import Excel ${kind === "clients" ? "klientów" : "relacji"}`, kind, "", `${result.imported} rekordów${result.skipped ? ` · pominięto ${result.skipped}` : ""}`);
-          showAppMessage("Import Excel zakończony", `Zaimportowano ${result.imported} rekordów.${result.skipped ? ` Pominięto ${result.skipped} wierszy.` : ""}`, "success");
+          const totalImported = Number(result.imported || 0) + Number(result.planned || 0);
+          const plannedText = result.planned ? ` ${result.planned} relacji dodano do Planowanych relacji.` : "";
+          const skippedText = result.skipped ? ` Pominięto ${result.skipped} wierszy.` : "";
+          recordAuditOperation(`Import Excel ${kind === "clients" ? "klientów" : "relacji"}`, kind, "", `${totalImported} rekordów${result.skipped ? ` · pominięto ${result.skipped}` : ""}`);
+          showAppMessage("Import Excel zakończony", `Zaimportowano ${totalImported} rekordów.${plannedText}${skippedText}${result.issues?.length ? ` ${excelImportIssuesText(result.issues)}` : ""}`, result.skipped ? "info" : "success");
         } catch (error) {
           FLEET_OPERATION_BUSY = false;
           showAppMessage("Nie udało się zaimportować Excela", String(error?.message || error), "error");
@@ -86392,12 +86646,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function adminAiBranchOptions() {
         const map = new Map();
         (USERS || []).filter(user => user?.role === "spedytor").forEach(user => {
-          const id = String(user?.branchId || "").trim();
+          const id = excelUuid(user?.branchId);
           if (!id) return;
           map.set(id, { id, name: String(user?.branch || "").trim() || `Oddział ${id.slice(0, 8)}` });
         });
         (DRIVERS || []).forEach(driver => {
-          const id = String(driver?.branchId || "").trim();
+          const id = excelUuid(driver?.branchId);
           if (!id) return;
           const dispatcher = USERS.find(user => user?.role === "spedytor" && user?.login === driver?.dispatcher);
           map.set(id, { id, name: String(dispatcher?.branch || "").trim() || `Oddział ${id.slice(0, 8)}` });
@@ -86406,16 +86660,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function adminAiDispatcherOptions(branchId = "") {
-        return (USERS || []).filter(user => user?.role === "spedytor" && (!branchId || String(user?.branchId || "") === String(branchId))).sort((a,b) => String(a.login).localeCompare(String(b.login), "pl"));
+        const validBranch = excelUuid(branchId);
+        return (USERS || []).filter(user => user?.role === "spedytor" && excelUuid(user?.supabaseId) && excelUuid(user?.branchId) && (!validBranch || excelUuid(user?.branchId) === validBranch)).sort((a,b) => String(a.login).localeCompare(String(b.login), "pl"));
       }
 
       function adminAiResolveDispatcher(value, fallback = "") {
-        return String(excelDispatcherUser(value)?.login || excelDispatcherUser(fallback)?.login || fallback || "").trim();
+        return String(excelDispatcherUser(value)?.login || excelDispatcherUser(fallback)?.login || "").trim();
       }
 
       function adminAiResolveBranchId(itemDispatcher = "") {
         const dispatcher = excelDispatcherUser(itemDispatcher);
-        return String(dispatcher?.branchId || ADMIN_AI_IMPORT_STATE.defaultBranchId || "").trim();
+        return excelUuid(dispatcher?.branchId) || excelUuid(ADMIN_AI_IMPORT_STATE.defaultBranchId) || "";
       }
 
       function adminAiEscText(value) {
@@ -86481,9 +86736,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${kind === "relations" ? `<div class="admin-ai-warning">Dla bezpieczeństwa relacje zaimportowane przez AI trafią do <b>Planowanych relacji</b>. Spedytor przypisze je później do właściwego pojazdu.</div>` : ""}
                 <section class="admin-ai-import-source">
                   <div class="admin-ai-import-actions" style="margin-bottom:9px;">
-                    <input id="admin-ai-import-file" type="file" hidden accept=".xlsx,.csv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain,application/json" onchange="adminAiReadFile(event)" />
+                    <input id="admin-ai-import-file" type="file" hidden accept=".xlsx,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain" onchange="adminAiReadFile(event)" />
                     <button type="button" class="btn" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="document.getElementById('admin-ai-import-file')?.click()">Wybierz plik</button>
-                    ${ADMIN_AI_IMPORT_STATE.sourceName ? `<span class="small"><b>${esc(ADMIN_AI_IMPORT_STATE.sourceName)}</b></span>` : `<span class="small">Excel / CSV / TXT / JSON albo tekst wklejony poniżej</span>`}
+                    ${ADMIN_AI_IMPORT_STATE.sourceName ? `<span class="small"><b>${esc(ADMIN_AI_IMPORT_STATE.sourceName)}</b></span>` : `<span class="small">Excel / CSV / TXT albo tekst wklejony poniżej</span>`}
                   </div>
                   <textarea id="admin-ai-import-text" class="textarea" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} placeholder="Możesz też wkleić dowolną tabelę, listę lub dane z innego systemu…" oninput="ADMIN_AI_IMPORT_STATE.sourceText=this.value">${esc(ADMIN_AI_IMPORT_STATE.sourceText)}</textarea>
                 </section>
@@ -86542,7 +86797,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.adminAiSetBranch = function(value) {
-        ADMIN_AI_IMPORT_STATE.defaultBranchId = String(value || "");
+        ADMIN_AI_IMPORT_STATE.defaultBranchId = excelUuid(value);
         const dispatchers = adminAiDispatcherOptions(ADMIN_AI_IMPORT_STATE.defaultBranchId);
         if (!dispatchers.some(user => user.login === ADMIN_AI_IMPORT_STATE.defaultDispatcher)) {
           ADMIN_AI_IMPORT_STATE.defaultDispatcher = dispatchers[0]?.login || "";
@@ -86567,16 +86822,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         syncAdminAiImportModal();
       };
 
-      function adminAiRowsToText(workbook) {
+      function adminAiRowsToText(workbook, kind = ADMIN_AI_IMPORT_STATE.kind) {
         const sheets = Array.isArray(workbook?.sheets) ? workbook.sheets : [];
+        const preferred = excelSelectImportSheet(workbook, kind);
+        const ordered = preferred ? [preferred, ...sheets.filter(sheet => sheet !== preferred)] : sheets;
         const blocks = [];
         let remaining = 300;
-        for (const sheet of sheets) {
+        for (const sheet of ordered) {
           if (remaining <= 0) break;
-          const rows = Array.isArray(sheet?.rows) ? sheet.rows.slice(0, remaining) : [];
+          const rows = Array.isArray(sheet?.rows) ? sheet.rows.slice(0, remaining).map(row => {
+            const clean = {};
+            Object.entries(row || {}).forEach(([key, value]) => {
+              const normalizedKey = excelKey(key);
+              if (["danejson", "payloadjson"].includes(normalizedKey)) return;
+              clean[key] = excelIsErrorValue(value) ? "" : value;
+            });
+            return clean;
+          }) : [];
           if (!rows.length) continue;
           remaining -= rows.length;
           blocks.push(`ARKUSZ: ${String(sheet?.name || "Arkusz")}\n${JSON.stringify(rows)}`);
+          // Jeżeli znaleźliśmy arkusz odpowiadający typowi importu i ma dane, nie mieszamy go z arkuszami ustawień/analiz.
+          if (sheet === preferred) break;
         }
         return blocks.join("\n\n");
       }
@@ -86592,7 +86859,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           let text = "";
           if (lower.endsWith(".xlsx")) {
             const workbook = await excelApi().readWorkbook(file);
-            text = adminAiRowsToText(workbook);
+            text = adminAiRowsToText(workbook, ADMIN_AI_IMPORT_STATE.kind);
           } else {
             text = await file.text();
           }
@@ -86681,7 +86948,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function adminAiClientRows(items) {
         return items.map(item => {
           const dispatcher = adminAiResolveDispatcher(item?.dispatcher, ADMIN_AI_IMPORT_STATE.defaultDispatcher);
-          const branchId = adminAiResolveBranchId(dispatcher);
+          const branchId = excelUuid(adminAiResolveBranchId(dispatcher));
           return {
             "Oddział ID": branchId,
             "Baza": "operations",
@@ -86707,8 +86974,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const dispatcher = adminAiResolveDispatcher(item?.dispatcher, ADMIN_AI_IMPORT_STATE.defaultDispatcher);
           const dispatcherUser = excelDispatcherUser(dispatcher);
           return {
-            "Oddział ID": String(dispatcherUser?.branchId || ADMIN_AI_IMPORT_STATE.defaultBranchId || ""),
-            "Spedytor ID": String(dispatcherUser?.supabaseId || ""),
+            "Oddział ID": excelUuid(dispatcherUser?.branchId) || excelUuid(ADMIN_AI_IMPORT_STATE.defaultBranchId),
+            "Spedytor ID": excelUuid(dispatcherUser?.supabaseId),
             "Spedytor": dispatcher,
             "Ukryty": Boolean(item?.hidden),
             "Przewoźnik": String(item?.carrierName || "").trim(),
@@ -86779,16 +87046,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const selectedItems = (ADMIN_AI_IMPORT_STATE.items || []).filter((_, index) => ADMIN_AI_IMPORT_STATE.selected.has(index));
         if (!selectedItems.length) return;
         try {
+          const defaultBranchId = excelUuid(ADMIN_AI_IMPORT_STATE.defaultBranchId);
+          const defaultDispatcher = adminAiResolveDispatcher(ADMIN_AI_IMPORT_STATE.defaultDispatcher);
           if (ADMIN_AI_IMPORT_STATE.kind === "clients") {
-            const valid = selectedItems.filter(item => item?.name && item?.address && Number(item?.lat) && Number(item?.lng));
-            const result = importClientRowsFromExcel(adminAiClientRows(valid));
+            const valid = selectedItems.filter(item => item?.name && (item?.address || item?.postalCode || item?.city));
+            const result = importClientRowsFromExcel(adminAiClientRows(valid), { defaultBranchId, defaultDispatcher });
             const missing = selectedItems.length - valid.length;
-            showAppMessage("Import AI klientów zakończony", `Zaimportowano ${result.imported} rekordów.${missing || result.skipped ? ` Pominięto ${missing + result.skipped} rekordów bez wymaganej lokalizacji lub oddziału.` : ""}`, "success");
+            if (!result.imported) throw new Error(`AI rozpoznało rekordy, ale żaden nie przeszedł walidacji importu. ${excelImportIssuesText(result.issues, 5)}`);
+            showAppMessage("Import AI klientów zakończony", `Zaimportowano ${result.imported} rekordów.${missing || result.skipped ? ` Pominięto ${missing + result.skipped} rekordów.` : ""}${result.issues?.length ? ` ${excelImportIssuesText(result.issues)}` : ""}`, result.skipped || missing ? "info" : "success");
           } else if (ADMIN_AI_IMPORT_STATE.kind === "vehicles") {
-            const rows = excelFleetImportRows(adminAiVehicleRows(selectedItems));
-            if (!rows.length) throw new Error("Po analizie nie pozostał żaden prawidłowy rekord floty.");
+            const rows = excelFleetImportRows(adminAiVehicleRows(selectedItems), { defaultBranchId, defaultDispatcher });
+            if (!rows.length) throw new Error(`Po analizie nie pozostał żaden prawidłowy rekord floty. ${excelImportIssuesText(rows.issues, 5)}`);
             postFleetExcelImport(rows);
-            showAppMessage("Import AI floty", `Przekazano ${rows.length} zestawów do bezpiecznego importu w Supabase.`, "success");
+            showAppMessage("Import AI floty", `Przekazano ${rows.length} zestawów do bezpiecznego importu w Supabase.${rows.issues?.length ? ` ${rows.issues.length} rekordów pominięto.` : ""}`, rows.issues?.length ? "info" : "success");
           } else {
             const future = selectedItems.map(adminAiRelationToFuture).filter(Boolean);
             if (!future.length) throw new Error("Relacje nie zawierają wymaganych lokalizacji albo spedytora.");
@@ -86811,114 +87081,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       };
 
-
-      window.adminExportData = function(kind) {
-        if (!canUseAdminDataTransfer()) {
-          showAppMessage("Brak uprawnień", "Eksport danych jest dostępny wyłącznie dla administratora.", "error");
-          return;
-        }
-        const exportedAt = new Date().toISOString();
-        const type = kind === "clients" ? "clients" : kind === "vehicles" ? "vehicles" : "relations";
-        let items = [];
-        if (type === "clients") {
-          items = (state.clients || []).filter(client => client && !client.sample).map(client => ({
-            branchId: centralClientBranchId(client),
-            payload: centralSerializableClient(client)
-          })).filter(item => item.branchId && item.payload?.id);
-        } else if (type === "vehicles") {
-          items = DRIVERS.map(vehicleExportItemFromDriver).filter(Boolean);
-        } else {
-          items = (state.routes || []).filter(route => route && !route.futureQueue && !route.proposedLoad).map(route => ({
-            branchId: centralRouteBranchId(route),
-            payload: centralSerializableRoute(route)
-          })).filter(item => item.branchId && item.payload?.id);
-        }
-        const payload = { format: "top-dragon-tms", version: 1, type, exportedAt, items };
-        const date = exportedAt.slice(0, 10);
-        downloadAdminJson(`top-dragon-${type}-${date}.json`, payload);
-        const exportLabel = type === "clients" ? "klientów" : type === "vehicles" ? "pojazdów" : "relacji";
-        recordAuditOperation(`Eksport ${exportLabel}`, type, "", `${items.length} rekordów`);
-      };
-
-      window.adminChooseImport = function(kind) {
-        if (!canUseAdminDataTransfer()) {
-          showAppMessage("Brak uprawnień", "Import danych jest dostępny wyłącznie dla administratora.", "error");
-          return;
-        }
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = "application/json,.json";
-        input.addEventListener("change", async () => {
-          const file = input.files?.[0];
-          if (file) await adminImportData(kind, file);
-        }, { once: true });
-        input.click();
-      };
-
-      async function adminImportData(kind, file) {
-        if (!canUseAdminDataTransfer()) return;
-        const expectedType = kind === "clients" ? "clients" : "relations";
-        try {
-          const text = await file.text();
-          const parsed = JSON.parse(text);
-          if (parsed?.format !== "top-dragon-tms" || Number(parsed?.version) !== 1 || parsed?.type !== expectedType || !Array.isArray(parsed?.items)) {
-            throw new Error(`Plik nie jest prawidłowym eksportem ${expectedType === "clients" ? "klientów" : "relacji"} Top Dragon TMS.`);
-          }
-          let imported = 0;
-          let skipped = 0;
-
-          if (expectedType === "relations") {
-            const routes = Array.isArray(state.routes) ? state.routes.slice() : [];
-            parsed.items.forEach(entry => {
-              const branchId = String(entry?.branchId || "").trim();
-              const payload = entry?.payload && typeof entry.payload === "object" ? cloneData(entry.payload) : null;
-              const id = String(payload?.id || "").trim();
-              if (!branchId || !id || !payload || payload.futureQueue || payload.proposedLoad) { skipped += 1; return; }
-              payload.id = id;
-              try { Object.defineProperty(payload, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
-              catch (error) { payload._centralBranchId = branchId; }
-              const key = centralRelationKey(branchId, id);
-              const index = routes.findIndex(route => centralRelationKey(centralRouteBranchId(route), route?.id) === key);
-              if (index >= 0) routes[index] = payload; else routes.push(payload);
-              CENTRAL_RELATION_BASELINE.delete(key);
-              CENTRAL_RELATION_PENDING_DELETE.delete(key);
-              imported += 1;
-            });
-            state.routes = routes;
-            boardRenderCache = null;
-            invalidateCombinedClientHistoryCache();
-            scheduleCentralRelationsDiff(0);
-          } else {
-            const clients = Array.isArray(state.clients) ? state.clients.slice() : [];
-            parsed.items.forEach(entry => {
-              const branchId = String(entry?.branchId || "").trim();
-              const raw = entry?.payload && typeof entry.payload === "object" ? cloneData(entry.payload) : null;
-              const normalized = raw ? normalizeStoredClient(raw) : null;
-              const id = String(normalized?.id || "").trim();
-              if (!branchId || !id || !normalized) { skipped += 1; return; }
-              try { Object.defineProperty(normalized, "_centralBranchId", { value:branchId, writable:true, configurable:true, enumerable:false }); }
-              catch (error) { normalized._centralBranchId = branchId; }
-              const key = centralClientKey(branchId, id);
-              const index = clients.findIndex(client => centralClientKey(centralClientBranchId(client), client?.id) === key);
-              if (index >= 0) clients[index] = normalized; else clients.push(normalized);
-              CENTRAL_CLIENT_BASELINE.delete(key);
-              CENTRAL_CLIENT_PENDING_DELETE.delete(key);
-              imported += 1;
-            });
-            state.clients = clients;
-            saveClientDatabaseToStorage();
-            invalidateRegionOpportunityCache();
-            scheduleCentralClientsDiff(0);
-          }
-
-          state.adminDataTransferOpen = false;
-          renderKeepingScroll();
-          recordAuditOperation(`Import ${expectedType === "clients" ? "klientów" : "relacji"}`, expectedType, "", `${imported} rekordów${skipped ? ` · pominięto ${skipped}` : ""}`);
-          showAppMessage("Import zakończony", `Zaimportowano ${imported} rekordów.${skipped ? ` Pominięto ${skipped} nieprawidłowych wpisów.` : ""}`, "success");
-        } catch (error) {
-          showAppMessage("Nie udało się zaimportować danych", String(error?.message || error), "error");
-        }
-      }
 
       let FLEET_OPERATION_BUSY = false;
       let LAST_FLEET_REQUEST_ID = "";
@@ -87365,21 +87527,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         </div>`;
       };
 
-      window.exportFleetVehicles = function() {
-        if (!state.user || !["spedytor", "admin"].includes(state.user.role)) {
-          showAppMessage("Brak uprawnień", "Nie możesz eksportować floty.", "error");
-          return;
-        }
-        const drivers = (isAdminUser() ? DRIVERS : DRIVERS.filter(driver => driver.dispatcher === state.user.login));
-        const items = drivers.map(vehicleExportItemFromDriver).filter(Boolean);
-        const exportedAt = new Date().toISOString();
-        const payload = { format: "top-dragon-tms", version: 1, type: "vehicles", exportedAt, items };
-        downloadAdminJson(`top-dragon-vehicles-${exportedAt.slice(0, 10)}.json`, payload);
-        recordAuditOperation("Eksport pojazdów", "vehicles", "", `${items.length} rekordów`);
-        showAppMessage("Eksport gotowy", `Wyeksportowano ${items.length} ${items.length === 1 ? "pojazd" : "pojazdów"}.`, "success");
-      };
-
-
       window.exportFleetVehiclesExcel = function() {
         if (!state.user || !["spedytor", "admin"].includes(state.user.role)) {
           showAppMessage("Brak uprawnień", "Nie możesz eksportować floty.", "error");
@@ -87411,7 +87558,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!file) return;
           try {
             const workbook = await excelApi().readWorkbook(file);
-            const rows = excelFleetImportRows(workbook?.sheets?.[0]?.rows || []);
+            const sheet = excelSelectImportSheet(workbook, "vehicles");
+            const options = {
+              defaultBranchId: excelUuid(state.user?.branchId) || (adminAiBranchOptions().filter(branch => excelUuid(branch?.id)).length === 1 ? adminAiBranchOptions().filter(branch => excelUuid(branch?.id))[0].id : ""),
+              defaultDispatcher: state.user?.role === "spedytor" ? String(state.user.login || "") : ""
+            };
+            const rows = excelFleetImportRows(sheet?.rows || [], options);
             postFleetExcelImport(rows);
           } catch (error) {
             FLEET_OPERATION_BUSY = false;

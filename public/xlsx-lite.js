@@ -319,7 +319,8 @@
           const raw = cell.getElementsByTagName('v')[0]?.textContent ?? '';
           if (type === 's') value = sharedStrings[Number(raw)] ?? '';
           else if (type === 'b') value = raw === '1';
-          else if (type === 'str' || type === 'e') value = raw;
+          else if (type === 'e') value = ''; // 3L.56: błąd Excela (#REF!, #N/A...) nie jest danymi importowymi
+          else if (type === 'str') value = raw;
           else if (raw !== '' && Number.isFinite(Number(raw))) value = Number(raw);
           else value = raw;
         }
