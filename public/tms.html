@@ -67062,12 +67062,15 @@
 
     const USERS = [];
 
+    // Status pojazdu na mapie ma dwa niezależne progi biznesowe:
+    // 1) jeżeli po zakończeniu relacji nie ma żadnej kolejnej relacji, spedytor ma 2 h na jej przypisanie;
+    // 2) jeżeli kolejna relacja istnieje, odstęp między końcem pierwszej a początkiem drugiej
+    //    może wynosić maksymalnie 4 h, aby pojazd był nadal traktowany jako mający następny ładunek.
     const NEXT_LOAD_GRACE_HOURS = 2;
-    // 3L.54: po zakończeniu relacji spedytor ma 2 h na przypisanie kolejnego ładunku.
-    // Alias pozostaje wyłącznie dla zgodności starszych pomocniczych widoków.
-    const NEXT_LOAD_READY_WINDOW_HOURS = NEXT_LOAD_GRACE_HOURS;
+    const NEXT_LOAD_MAX_GAP_HOURS = 4;
+    const NEXT_LOAD_READY_WINDOW_HOURS = NEXT_LOAD_MAX_GAP_HOURS;
     const MAX_VEHICLE_WITH_LOAD_HEIGHT_M = 4.3;
-    const NEXT_LOAD_WORK_WINDOW_HOURS = NEXT_LOAD_GRACE_HOURS;
+    const NEXT_LOAD_WORK_WINDOW_HOURS = NEXT_LOAD_MAX_GAP_HOURS;
 
     const DISPATCHER_CLASS = {
       TOM: "bg-tom",
@@ -71951,11 +71954,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return { start: unloadGlobal, end: unloadGlobal + NEXT_LOAD_GRACE_HOURS };
     }
 
-    // Zachowana nazwa dla kompatybilności starszych modułów. Od 3L.54 każdy
-    // zaplanowany kolejny ładunek jest traktowany jako następny ładunek niezależnie
-    // od odstępu czasowego. Limit 2 h dotyczy wyłącznie momentu czerwonego statusu.
+    // Zachowana nazwa dla kompatybilności starszych modułów. Kwalifikowana kolejna
+    // relacja musi zaczynać się maksymalnie 4 h po zakończeniu bieżącej relacji.
     function nextEligibleRouteAfterPausePlusBuffer(routeId) {
-      return nextRouteAfterRoute(routeId);
+      const current = state.routes.find(route => route.id === routeId);
+      const next = nextRouteAfterRoute(routeId);
+      if (!current || !next) return null;
+      const gapHours = routeGlobalStart(next) - routeGlobalEnd(current);
+      return Number.isFinite(gapHours) && gapHours <= NEXT_LOAD_MAX_GAP_HOURS ? next : null;
     }
 
     function formatGapHours(value) {
@@ -71991,15 +71997,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       if (nearestNext) {
         const gapHours = routeGlobalStart(nearestNext) - unloadGlobal;
+        const withinLoadGap = Number.isFinite(gapHours) && gapHours <= NEXT_LOAD_MAX_GAP_HOURS;
         return {
-          hasNext:true,
-          isSoon:gapHours <= NEXT_LOAD_GRACE_HOURS,
-          statusKey:"has-next",
-          colorClass:"available-soon",
-          label:`Ma następny zaplanowany ładunek${Number.isFinite(gapHours) ? ` za ok. ${formatGapHours(gapHours)}` : ""}.`,
-          next:nearestNext, gapHours, readyGapHours:gapHours, pauseHours:0,
-          thresholdGapHours:routeGlobalStart(nearestNext) - thresholdGlobal,
-          statusDate, statusGlobal:thresholdGlobal
+          hasNext:withinLoadGap,
+          isSoon:withinLoadGap,
+          statusKey:withinLoadGap ? "has-next" : "no-next",
+          colorClass:withinLoadGap ? "available-soon" : "no-soon-load",
+          label:withinLoadGap
+            ? `Ma następny zaplanowany ładunek za ok. ${formatGapHours(gapHours)} — odstęp nie przekracza ${NEXT_LOAD_MAX_GAP_HOURS} h.`
+            : `Brak ciągłości ładunku — kolejna relacja zaczyna się za ok. ${formatGapHours(gapHours)}, czyli po ponad ${NEXT_LOAD_MAX_GAP_HOURS} h.`,
+          next:nearestNext, gapHours, readyGapHours:gapHours, pauseHours:gapHours,
+          thresholdGapHours:gapHours - NEXT_LOAD_MAX_GAP_HOURS,
+          statusDate, statusGlobal:unloadGlobal + NEXT_LOAD_MAX_GAP_HOURS
         };
       }
 
@@ -72028,10 +72037,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function nextRouteInfoForMapPoint(routeId) {
       const status = nextRouteStatusForRoute(routeId);
-      const statusDateText = status.statusDate ? `<br>Próg 2 h: ${esc(formatDateForInput(status.statusDate))}` : "";
-      if (!status.next) return `${esc(status.label)}${statusDateText}`;
+      const statusThresholdText = status.next
+        ? `<br>Limit ciągłości między relacjami: ${NEXT_LOAD_MAX_GAP_HOURS} h`
+        : (status.statusDate ? `<br>Czas na przypisanie kolejnej relacji: ${NEXT_LOAD_GRACE_HOURS} h · ${esc(formatDateForInput(status.statusDate))}` : "");
+      if (!status.next) return `${esc(status.label)}${statusThresholdText}`;
       const timing = Number.isFinite(Number(status.gapHours)) ? `za ok. ${formatGapHours(status.gapHours)}` : "w późniejszym terminie";
-      return `Następny ładunek ${timing}: ${esc(displayCity(status.next.load) || "—")} → ${esc(displayCity(status.next.unload) || "—")}<br>Data załadunku: ${esc(formatDateForInput(status.next.date))}${statusDateText}`;
+      return `Następny ładunek ${timing}: ${esc(displayCity(status.next.load) || "—")} → ${esc(displayCity(status.next.unload) || "—")}<br>Data załadunku: ${esc(formatDateForInput(status.next.date))}${statusThresholdText}`;
     }
 
     function nextRelationTextForRoute(routeId) {
@@ -74869,7 +74880,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const selectedEnd = selectedIdx * 24 + 24;
       const byDriver = new Map();
       activeRoutes().forEach(route => {
-        if (route.futureQueue || route.approvalStatus === "rejected" || isFreeDayRoute(route) || routeGlobalStart(route) > selectedEnd) return;
+        // Do wyznaczenia statusu potrzebujemy także kolejnej relacji zaczynającej się
+        // po końcu wybranego dnia. Nie odcinamy jej na selectedEnd, bo np. rozładunek
+        // o 23:00 i kolejny załadunek o 02:00 następnego dnia to tylko 3 h przerwy.
+        if (route.futureQueue || route.approvalStatus === "rejected" || isFreeDayRoute(route)) return;
         if (!byDriver.has(route.driverId)) byDriver.set(route.driverId, []);
         byDriver.get(route.driverId).push(route);
       });
@@ -74960,7 +74974,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             positionLabel:snapshot.label,
             hasNextLoad:snapshot.isSoon,
             mapColorClass:snapshot.isSoon ? "available-soon" : "no-soon-load",
-            loadStatusLabel:snapshot.next ? (snapshot.isSoon ? `Ma następny ładunek przed upływem ${NEXT_LOAD_READY_WINDOW_HOURS} h.` : `Kolejny ładunek za ok. ${formatGapHours(snapshot.gapHours)}.`) : "Brak zaplanowanej następnej relacji z ładunkiem.",
+            loadStatusLabel:snapshot.next
+              ? (snapshot.isSoon
+                  ? `Ma następny ładunek — odstęp między relacjami nie przekracza ${NEXT_LOAD_READY_WINDOW_HOURS} h.`
+                  : `Pojazd bez ładunku — kolejna relacja dopiero za ok. ${formatGapHours(snapshot.gapHours)} (limit ${NEXT_LOAD_READY_WINDOW_HOURS} h).`)
+              : "Brak zaplanowanej następnej relacji z ładunkiem.",
             nextLoadLabel:snapshot.next ? `${displayCity(snapshot.next.load) || "—"} → ${displayCity(snapshot.next.unload) || "—"} · ${formatDateForInput(snapshot.next.date)}` : "",
             distanceKm:Array.isArray(snapshot.coords) ? preferredMainRoadKm(snapshot.coords, target.coords) : 9999,
             compatibility
@@ -79274,10 +79292,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function mapVehicleStatusText(routeId) {
       const status = nextRouteStatusForRoute(routeId);
-      if (status.statusKey === "waiting") return "Oczekiwanie — nie minęły jeszcze 2 h od zakończenia relacji";
-      if (status.statusKey === "no-next") return "Brak następnego ładunku — ponad 2 h po zakończeniu relacji";
+      if (status.statusKey === "waiting") return `Oczekiwanie — nie minęły jeszcze ${NEXT_LOAD_GRACE_HOURS} h od zakończenia relacji`;
+      if (status.statusKey === "no-next") {
+        if (status.next && Number.isFinite(Number(status.gapHours))) {
+          return `Pojazd bez ładunku — odstęp do kolejnej relacji wynosi ok. ${formatGapHours(status.gapHours)} (limit ${NEXT_LOAD_MAX_GAP_HOURS} h)`;
+        }
+        return `Brak następnego ładunku — ponad ${NEXT_LOAD_GRACE_HOURS} h po zakończeniu relacji`;
+      }
       return Number.isFinite(Number(status.gapHours))
-        ? `Ma następny ładunek za ok. ${formatGapHours(status.gapHours)}`
+        ? `Ma następny ładunek za ok. ${formatGapHours(status.gapHours)} (maks. ${NEXT_LOAD_MAX_GAP_HOURS} h)`
         : "Ma następny zaplanowany ładunek";
     }
 
@@ -79379,9 +79402,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <div class="map-popup-mini map-popup-group">
           <b>${esc(group.city)} · ${vehicleCountLabel(group.points.length)}</b>
           <div class="map-popup-legend">
-            <span><span class="map-popup-dot has-next" style="vertical-align:-3px;margin-right:4px;"></span>ma kolejny zaplanowany ładunek</span>
-            <span><span class="map-popup-dot waiting-next" style="vertical-align:-3px;margin-right:4px;"></span>do 2 h od zakończenia relacji</span>
-            <span><span class="map-popup-dot no-next" style="vertical-align:-3px;margin-right:4px;"></span>ponad 2 h bez kolejnego ładunku</span>
+            <span><span class="map-popup-dot has-next" style="vertical-align:-3px;margin-right:4px;"></span>kolejna relacja maks. ${NEXT_LOAD_MAX_GAP_HOURS} h po poprzedniej</span>
+            <span><span class="map-popup-dot waiting-next" style="vertical-align:-3px;margin-right:4px;"></span>brak kolejnej relacji, trwa ${NEXT_LOAD_GRACE_HOURS} h czasu na przypisanie</span>
+            <span><span class="map-popup-dot no-next" style="vertical-align:-3px;margin-right:4px;"></span>brak ładunku / przerwa między relacjami ponad ${NEXT_LOAD_MAX_GAP_HOURS} h</span>
           </div>
           <div class="map-popup-vehicle-list">
             ${group.points.map(renderMapVehiclePopupRow).join("")}
@@ -84545,7 +84568,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Wyszukiwarka nie używa systemowej rozwijanej listy miast", !renderToStringForTest(false).includes('list="locations-list"'));
       assert("Wyszukiwarka ma własne podpowiedzi", typeof nearestSuggestionOptions === "function" && nearestSuggestionOptions("90").length > 0);
       assert("Wyniki najbliższego pojazdu można ukrywać", typeof toggleNearestResults === "function");
-      assert("Status mapy używa 2 h okresu oczekiwania po zakończeniu relacji", typeof nextRouteStatusForRoute === "function" && typeof hasNextLoadWithinWorkWindow === "function");
+      assert("Status mapy rozdziela 2 h czasu na przypisanie i maks. 4 h odstępu między relacjami", NEXT_LOAD_GRACE_HOURS === 2 && NEXT_LOAD_MAX_GAP_HOURS === 4 && typeof nextRouteStatusForRoute === "function" && typeof hasNextLoadWithinWorkWindow === "function");
       assert("Wyniki mają przejście do planu", renderNearestVehicleResults().includes("Przejdź do planu") || state.nearestResults.length === 0);
       assert("Mapa ma obsługę dwukliku do planu kierowcy", typeof goToDriverPlan === "function" && typeof nextRouteInfoForDriver === "function");
       assert("Mapa sprawdza następny ładunek po konkretnej trasie", typeof nextRouteAfterRoute === "function" && typeof nextRouteInfoForMapPoint === "function");
@@ -93008,7 +93031,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* 3L.54 — Planowane relacje ma tę samą szerokość co pozostałe główne szuflady. */
     .future-drawer { width:min(520px,100vw) !important; }
 
-    /* Status mapy: zielony = ma następny, szary = trwa 2 h okres oczekiwania, czerwony = brak po 2 h. */
+    /* Status mapy: zielony = kolejna relacja zaczyna się maks. 4 h po poprzedniej;
+       szary = brak kolejnej relacji, ale trwa 2 h czas na jej przypisanie;
+       czerwony = brak ładunku albo odstęp między relacjami przekracza 4 h. */
     .tms-marker.marker-has-next { background:#22c55e !important; border-color:#14532d !important; }
     .tms-marker.marker-waiting-next { background:#e2e8f0 !important; border-color:#64748b !important; }
     .tms-marker.marker-no-next { background:#ef4444 !important; border-color:#7f1d1d !important; }
