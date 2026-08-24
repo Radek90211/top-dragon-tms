@@ -9,6 +9,7 @@ let activeFleetMessage = null
 let activeRelationsMessage = null
 let activeClientsMessage = null
 let activeLoadQueueMessage = null
+let activeLoadQueueChatMessage = null
 let activeLoadRequestsMessage = null
 let activeAuditMessage = null
 let activeWeeklySettlementMessage = null
@@ -20,6 +21,8 @@ let clientsReloadTimer = null
 let loadQueueChannel = null
 let loadQueueReloadTimer = null
 let loadQueueHousekeepingTimer = null
+let loadQueueChatChannel = null
+let loadQueueChatReloadTimer = null
 let loadRequestsChannel = null
 let loadRequestsReloadTimer = null
 let auditChannel = null
@@ -86,6 +89,7 @@ function renderLogin(message = '') {
   activeRelationsMessage = null
   activeClientsMessage = null
   activeLoadQueueMessage = null
+  activeLoadQueueChatMessage = null
   activeLoadRequestsMessage = null
   activeAuditMessage = null
   activeWeeklySettlementMessage = null
@@ -118,6 +122,14 @@ function renderLogin(message = '') {
   if (loadQueueChannel) {
     supabase.removeChannel(loadQueueChannel)
     loadQueueChannel = null
+  }
+  if (loadQueueChatReloadTimer) {
+    clearTimeout(loadQueueChatReloadTimer)
+    loadQueueChatReloadTimer = null
+  }
+  if (loadQueueChatChannel) {
+    supabase.removeChannel(loadQueueChatChannel)
+    loadQueueChatChannel = null
   }
   if (loadRequestsReloadTimer) {
     clearTimeout(loadRequestsReloadTimer)
@@ -1313,6 +1325,169 @@ function subscribeCentralLoadQueue() {
     .subscribe()
 }
 
+
+function isLoadQueueChatSchemaMissing(error) {
+  const text = `${String(error?.code || '')} ${String(error?.message || '')} ${String(error?.details || '')}`
+  return /PGRST20[0245]|schema cache|tms_load_queue_chat_messages|tms_load_queue_chat_reads|create_tms_load_queue_chat_message|mark_tms_load_queue_chat_read/i.test(text)
+}
+
+async function loadCentralLoadQueueChat() {
+  if (!currentProfile || !currentUser) return { messages: [], reads: [], schemaAvailable: false }
+
+  const [messagesResult, readsResult] = await Promise.all([
+    supabase
+      .from('tms_load_queue_chat_messages')
+      .select('id,branch_id,load_ref,author_id,author_name,message,created_at')
+      .order('created_at', { ascending: false })
+      .limit(2000),
+    supabase
+      .from('tms_load_queue_chat_reads')
+      .select('branch_id,load_ref,last_read_at')
+      .eq('user_id', currentUser.id)
+      .limit(2000),
+  ])
+
+  if (messagesResult.error || readsResult.error) {
+    const error = messagesResult.error || readsResult.error
+    if (isLoadQueueChatSchemaMissing(error)) {
+      return { messages: [], reads: [], schemaAvailable: false }
+    }
+    throw error
+  }
+
+  return {
+    schemaAvailable: true,
+    messages: (messagesResult.data || []).slice().reverse().map((row) => ({
+      id: String(row.id || ''),
+      branchId: String(row.branch_id || ''),
+      loadRef: String(row.load_ref || ''),
+      authorId: String(row.author_id || ''),
+      authorName: String(row.author_name || 'Użytkownik'),
+      message: String(row.message || ''),
+      createdAt: String(row.created_at || ''),
+    })),
+    reads: (readsResult.data || []).map((row) => ({
+      branchId: String(row.branch_id || ''),
+      loadRef: String(row.load_ref || ''),
+      lastReadAt: String(row.last_read_at || ''),
+    })),
+  }
+}
+
+async function syncCentralLoadQueueChatToTms() {
+  const data = await loadCentralLoadQueueChat()
+  activeLoadQueueChatMessage = {
+    type: 'top-dragon-load-queue-chat-data',
+    schemaAvailable: Boolean(data.schemaAvailable),
+    messages: data.messages,
+    reads: data.reads,
+    currentUserId: String(currentUser?.id || ''),
+  }
+  activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueChatMessage, window.location.origin)
+}
+
+function scheduleCentralLoadQueueChatReload(delay = 100) {
+  if (loadQueueChatReloadTimer) clearTimeout(loadQueueChatReloadTimer)
+  loadQueueChatReloadTimer = setTimeout(() => {
+    loadQueueChatReloadTimer = null
+    syncCentralLoadQueueChatToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć czatu relacji:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeCentralLoadQueueChat() {
+  if (loadQueueChatChannel) {
+    supabase.removeChannel(loadQueueChatChannel)
+    loadQueueChatChannel = null
+  }
+  if (!currentProfile) return
+
+  const channelName = `tms-load-queue-chat-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  loadQueueChatChannel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'tms_load_queue_chat_messages' },
+      () => scheduleCentralLoadQueueChatReload(60)
+    )
+    .subscribe()
+}
+
+function sendLoadQueueChatOperationResult(requestId, ok, action, message) {
+  activeTmsFrame?.contentWindow?.postMessage({
+    type: 'top-dragon-load-queue-chat-operation-result',
+    requestId: String(requestId || ''),
+    ok: Boolean(ok),
+    action: String(action || ''),
+    message: String(message || ''),
+  }, window.location.origin)
+}
+
+async function createLoadQueueChatMessageFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const branchId = String(message?.branchId || '').trim()
+  const loadRef = String(message?.loadRef || '').trim()
+  const body = String(message?.message || '').trim()
+
+  if (!branchId || !loadRef || !body) {
+    sendLoadQueueChatOperationResult(requestId, false, 'send', 'Wpisz wiadomość i wskaż relację.')
+    return
+  }
+  if (body.length > 1500) {
+    sendLoadQueueChatOperationResult(requestId, false, 'send', 'Wiadomość może mieć maksymalnie 1500 znaków.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('create_tms_load_queue_chat_message', {
+      p_branch_id: branchId,
+      p_load_ref: loadRef,
+      p_message: body,
+    })
+    if (error) throw error
+    sendLoadQueueChatOperationResult(requestId, true, 'send', 'Wiadomość została wysłana.')
+    await syncCentralLoadQueueChatToTms()
+  } catch (error) {
+    sendLoadQueueChatOperationResult(
+      requestId,
+      false,
+      'send',
+      isLoadQueueChatSchemaMissing(error)
+        ? 'Najpierw uruchom migrację 030_load_queue_chat.sql w Supabase.'
+        : (error?.message || 'Nie udało się wysłać wiadomości.')
+    )
+  }
+}
+
+async function markLoadQueueChatReadFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const branchId = String(message?.branchId || '').trim()
+  const loadRef = String(message?.loadRef || '').trim()
+  if (!branchId || !loadRef) return
+
+  try {
+    const { error } = await supabase.rpc('mark_tms_load_queue_chat_read', {
+      p_branch_id: branchId,
+      p_load_ref: loadRef,
+    })
+    if (error) throw error
+    if (requestId) sendLoadQueueChatOperationResult(requestId, true, 'read', '')
+    await syncCentralLoadQueueChatToTms()
+  } catch (error) {
+    if (requestId) {
+      sendLoadQueueChatOperationResult(
+        requestId,
+        false,
+        'read',
+        isLoadQueueChatSchemaMissing(error)
+          ? 'Najpierw uruchom migrację 030_load_queue_chat.sql w Supabase.'
+          : (error?.message || 'Nie udało się oznaczyć czatu jako przeczytanego.')
+      )
+    }
+  }
+}
+
 function sendLoadQueueOperationResult(requestId, ok, action, queueType, loadId, branchId, message) {
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-load-queue-operation-result',
@@ -1366,6 +1541,7 @@ async function upsertCentralLoadQueueFromTms(message) {
     if (error) throw error
 
     await syncCentralLoadQueueToTms()
+    scheduleCentralLoadQueueChatReload(0)
     sendLoadQueueOperationResult(requestId, true, 'upsert', queueType, loadId, branchId, 'Ładunek został zapisany w Supabase.')
   } catch (error) {
     sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, error?.message || 'Nie udało się zapisać ładunku.')
@@ -1403,6 +1579,7 @@ async function archiveCentralLoadQueueFromTms(message) {
 
     sendLoadQueueOperationResult(requestId, true, 'archive', queueType, loadId, branchId, 'Wpis został usunięty z aktywnej kolejki.')
     await syncCentralLoadQueueToTms()
+    scheduleCentralLoadQueueChatReload(0)
   } catch (error) {
     sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, error?.message || 'Nie udało się usunąć wpisu z kolejki.')
   }
@@ -2590,7 +2767,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v71-finance-delete-confirm-expiry-grid"
+        src="/tms.html?embedded=1&build=request-workflow-v72-rozl-chat-color"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2643,6 +2820,12 @@ async function renderDashboard(user) {
     console.error('Nie udało się zsynchronizować kolejki ładunków z TMS:', error)
   })
   subscribeCentralLoadQueue()
+
+  syncCentralLoadQueueChatToTms().catch((error) => {
+    console.error('Nie udało się zsynchronizować czatu relacji z TMS:', error)
+  })
+  subscribeCentralLoadQueueChat()
+
   if (loadQueueHousekeepingTimer) clearInterval(loadQueueHousekeepingTimer)
   loadQueueHousekeepingTimer = setInterval(() => {
     syncCentralLoadQueueToTms().catch((error) => {
@@ -2709,6 +2892,9 @@ async function bootstrap() {
       }
       if (activeLoadQueueMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueMessage, window.location.origin)
+      }
+      if (activeLoadQueueChatMessage) {
+        activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueChatMessage, window.location.origin)
       }
       if (activeLoadRequestsMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeLoadRequestsMessage, window.location.origin)
@@ -2846,6 +3032,25 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-load-queue-archive') {
       await archiveCentralLoadQueueFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-chat-request') {
+      try {
+        await syncCentralLoadQueueChatToTms()
+      } catch (error) {
+        sendLoadQueueChatOperationResult(event.data?.requestId, false, 'load', error?.message || 'Nie udało się pobrać czatu relacji.')
+      }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-chat-send') {
+      await createLoadQueueChatMessageFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-load-queue-chat-read') {
+      await markLoadQueueChatReadFromTms(event.data)
       return
     }
 
