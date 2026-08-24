@@ -850,6 +850,39 @@ async function loadFleetData() {
   }
   const preferenceByDriver = new Map(preferenceRows.map((item) => [String(item.driver_id || ''), String(item.color || '')]))
 
+  // 3L.54: historia stawek przewoźników jest dołączana do floty.
+  // Brak tabeli przed wykonaniem migracji 032 nie może blokować całej aplikacji.
+  let carrierRateRows = []
+  try {
+    const { data: rates, error: ratesError } = await supabase
+      .from('tms_carrier_rate_history')
+      .select('id,carrier_id,branch_id,rate_per_km,effective_from,created_at,created_by')
+      .order('effective_from', { ascending: true })
+      .order('created_at', { ascending: true })
+    if (ratesError) {
+      const message = String(ratesError.message || '')
+      if (!/does not exist|schema cache|could not find/i.test(message)) throw ratesError
+    } else {
+      carrierRateRows = rates || []
+    }
+  } catch (error) {
+    console.warn('Nie udało się pobrać historii stawek przewoźników:', error)
+  }
+  const ratesByCarrier = new Map()
+  for (const row of carrierRateRows) {
+    const carrierId = String(row?.carrier_id || '')
+    if (!carrierId) continue
+    const bucket = ratesByCarrier.get(carrierId) || []
+    bucket.push({
+      id: String(row.id || ''),
+      ratePerKm: Number(row.rate_per_km || 0),
+      effectiveFrom: String(row.effective_from || '').slice(0, 10),
+      createdAt: String(row.created_at || ''),
+      createdBy: String(row.created_by || ''),
+    })
+    ratesByCarrier.set(carrierId, bucket)
+  }
+
   return (assignments || []).map((assignment) => {
     const carrier = firstRelated(assignment.carrier)
     const driver = firstRelated(assignment.driver)
@@ -872,7 +905,11 @@ async function loadFleetData() {
       relationLocked,
       hidden: Boolean(assignment.hidden),
       privateColor: driver?.id ? (preferenceByDriver.get(String(driver.id)) || '') : '',
-      carrier: carrier ? { id: carrier.id, name: carrier.name || '' } : null,
+      carrier: carrier ? {
+        id: carrier.id,
+        name: carrier.name || '',
+        rateHistory: ratesByCarrier.get(String(carrier.id || '')) || [],
+      } : null,
       driver: driver ? {
         id: driver.id,
         fullName: driver.full_name || '',
@@ -934,7 +971,7 @@ function subscribeFleetRealtime() {
 
   const channelName = `tms-fleet-${currentProfile.branch_id || 'all'}-${currentUser.id}`
   let channel = supabase.channel(channelName)
-  ;['fleet_assignments', 'carriers', 'drivers', 'vehicles', 'trailers', 'fleet_relation_usage', 'driver_row_preferences'].forEach((table) => {
+  ;['fleet_assignments', 'carriers', 'drivers', 'vehicles', 'trailers', 'fleet_relation_usage', 'driver_row_preferences', 'tms_carrier_rate_history'].forEach((table) => {
     channel = channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table },
@@ -984,6 +1021,58 @@ async function syncCentralRelationsToTms() {
     activeRelationsMessage,
     window.location.origin
   )
+}
+
+async function exportCentralRelationsArchiveToTms(message) {
+  const requestId = String(message?.requestId || '')
+  const send = (ok, rows = [], errorMessage = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-relations-archive-export-data',
+      requestId,
+      ok: Boolean(ok),
+      rows,
+      message: String(errorMessage || ''),
+    }, window.location.origin)
+  }
+
+  if (!currentProfile) {
+    send(false, [], 'Brak aktywnej sesji.')
+    return
+  }
+
+  try {
+    let query = supabase
+      .from('tms_relations')
+      .select('branch_id, relation_ref, payload, active, updated_at')
+      .order('updated_at', { ascending: true })
+
+    if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
+      if (!currentProfile.branch_id) {
+        send(true, [])
+        return
+      }
+      query = query.eq('branch_id', currentProfile.branch_id)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+    const cutoff = new Date()
+    cutoff.setUTCDate(cutoff.getUTCDate() - 730)
+    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    const rows = (data || []).filter((row) => {
+      const date = String(row?.payload?.date || '').slice(0, 10)
+      return row?.payload && row?.relation_ref && (!date || date >= cutoffIso)
+    }).map((row) => ({
+      id: String(row.relation_ref || ''),
+      branchId: String(row.branch_id || ''),
+      active: Boolean(row.active),
+      payload: row.payload,
+      updatedAt: String(row.updated_at || ''),
+    }))
+    send(true, rows)
+  } catch (error) {
+    send(false, [], error?.message || 'Nie udało się pobrać centralnego archiwum relacji.')
+  }
 }
 
 function scheduleCentralRelationsReload(delay = 120) {
@@ -2008,9 +2097,47 @@ async function updateFleetSetFromTms(message) {
   }
 }
 
+async function setCarrierRateFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const carrierId = String(message?.carrierId || '').trim()
+  const ratePerKm = Number(message?.ratePerKm)
+  const effectiveFrom = String(message?.effectiveFrom || '').slice(0, 10)
+
+  if (currentProfile?.role !== 'admin') {
+    sendFleetOperationResult(requestId, false, 'carrier-rate', 'Tylko administrator może zmieniać stawkę przewoźnika za kilometr.')
+    return
+  }
+  if (!carrierId) {
+    sendFleetOperationResult(requestId, false, 'carrier-rate', 'Brak identyfikatora przewoźnika.')
+    return
+  }
+  if (!Number.isFinite(ratePerKm) || ratePerKm <= 0) {
+    sendFleetOperationResult(requestId, false, 'carrier-rate', 'Stawka za kilometr musi być większa od zera.')
+    return
+  }
+
+  try {
+    const { error } = await supabase.rpc('set_tms_carrier_rate', {
+      p_carrier_id: carrierId,
+      p_rate_per_km: ratePerKm,
+      p_effective_from: effectiveFrom || null,
+    })
+    if (error) throw error
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'carrier-rate', `Stawka ${ratePerKm.toFixed(2)} PLN/km została zapisana${effectiveFrom ? ` od ${effectiveFrom}` : ''}.`)
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'carrier-rate', error?.message || 'Nie udało się zapisać stawki przewoźnika.')
+  }
+}
+
 async function deleteFleetSetFromTms(message) {
   const requestId = message?.requestId || ''
   const assignmentId = String(message?.assignmentId || '').trim()
+
+  if (currentProfile?.role !== 'admin') {
+    sendFleetOperationResult(requestId, false, 'delete', 'Tylko administrator może usuwać pojazdy z aktywnej floty.')
+    return
+  }
 
   if (!assignmentId) {
     sendFleetOperationResult(requestId, false, 'delete', 'Brak identyfikatora zestawu.')
@@ -2025,9 +2152,9 @@ async function deleteFleetSetFromTms(message) {
     if (error) throw error
 
     await syncFleetDataToTms()
-    sendFleetOperationResult(requestId, true, 'delete', 'Zestaw został usunięty z centralnej floty.')
+    sendFleetOperationResult(requestId, true, 'delete', 'Zestaw został zarchiwizowany i usunięty z aktywnej floty. Dane historyczne pozostały zachowane.')
   } catch (error) {
-    sendFleetOperationResult(requestId, false, 'delete', error?.message || 'Nie udało się usunąć zestawu.')
+    sendFleetOperationResult(requestId, false, 'delete', error?.message || 'Nie udało się zarchiwizować zestawu.')
   }
 }
 
@@ -2760,6 +2887,20 @@ async function handleAiAnalyzerRequestFromTms(message) {
           date: String(payload.date || ''),
         }),
       })
+    } else if (kind === 'admin-import') {
+      response = await fetch('/api/import-ai-data', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          kind: String(payload.kind || ''),
+          sourceText: String(payload.sourceText || ''),
+          sourceName: String(payload.sourceName || ''),
+          referenceDate: String(payload.referenceDate || ''),
+        }),
+      })
     } else {
       throw new Error('Nieobsługiwany typ analizy AI.')
     }
@@ -2858,7 +2999,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v73-deep-audit-stability"
+        src="/tms.html?embedded=1&build=request-workflow-v75-ai-admin-import"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3042,6 +3183,11 @@ async function bootstrap() {
       return
     }
 
+    if (event.data?.type === 'top-dragon-carrier-rate-set') {
+      await setCarrierRateFromTms(event.data)
+      return
+    }
+
     if (event.data?.type === 'top-dragon-fleet-visibility') {
       await setFleetVisibilityFromTms(event.data)
       return
@@ -3072,6 +3218,11 @@ async function bootstrap() {
       } catch (error) {
         sendRelationOperationResult(event.data?.requestId, false, 'load', '', '', error?.message || 'Nie udało się pobrać relacji.')
       }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relations-archive-export-request') {
+      await exportCentralRelationsArchiveToTms(event.data)
       return
     }
 
