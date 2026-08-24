@@ -1174,6 +1174,55 @@ async function archiveCentralClientFromTms(message) {
 }
 
 
+function warsawNowForLoadQueue() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Warsaw',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date())
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+    return {
+      date: `${values.year}-${values.month}-${values.day}`,
+      hour: Number(values.hour || 0) + Number(values.minute || 0) / 60 + Number(values.second || 0) / 3600,
+    }
+  } catch {
+    const now = new Date()
+    return {
+      date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+      hour: now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600,
+    }
+  }
+}
+
+function normalizeProposedLoadDate(value) {
+  const raw = String(value || '').trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const pl = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+  return pl ? `${pl[3]}-${pl[2]}-${pl[1]}` : ''
+}
+
+function proposedLoadHour(payload) {
+  const direct = String(payload?.startHour ?? '').trim()
+  if (/^\d+(?:\.\d+)?$/.test(direct)) return Math.max(0, Math.min(24, Number(direct)))
+  const clock = direct || String(payload?.loadTime || payload?.startTime || '').trim()
+  const match = clock.match(/^(\d{1,2}):(\d{2})/)
+  if (match) return Math.max(0, Math.min(24, Number(match[1]) + Number(match[2]) / 60))
+  return 8
+}
+
+function isExpiredProposedLoadPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false
+  if (String(payload.status || 'available').trim().toLowerCase() === 'taken') return false
+  const loadDate = normalizeProposedLoadDate(String(payload.loadDate || '').trim() || String(payload.date || '').trim())
+  if (!loadDate) return false
+  const now = warsawNowForLoadQueue()
+  if (loadDate < now.date) return true
+  if (loadDate > now.date) return false
+  return proposedLoadHour(payload) < now.hour
+}
+
 async function loadCentralLoadQueue() {
   if (!currentProfile) return { rows: [], expiredProposedStats: [] }
 
@@ -1203,6 +1252,10 @@ async function loadCentralLoadQueue() {
 
   const rows = (data || [])
     .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
+    // 3L.51: nawet jeśli housekeeping Supabase chwilowo się opóźni lub migracja
+    // nie odświeżyła jeszcze cache PostgREST, przeterminowany Wolny ładunek
+    // nie może wrócić do aktywnego panelu użytkownika.
+    .filter((row) => !(row?.queue_type === 'proposed' && isExpiredProposedLoadPayload(row?.payload)))
     .map((row) => ({
       id: String(row.load_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -1845,7 +1898,7 @@ function normalizeWeekStart(value) {
 
 function isWeeklyFinanceSchemaCacheError(error) {
   const text = `${String(error?.code || '')} ${String(error?.message || '')} ${String(error?.details || '')}`
-  return /PGRST20[024]|schema cache|driver_id|driver_name|recipient_approved|manager_approved|deleted_at|rejected_at|tms_driver_week_settlement_statuses/i.test(text)
+  return /PGRST20[024]|schema cache|driver_id|driver_name|recipient_approved|manager_approved|delete_requested|deleted_at|rejected_at|tms_driver_week_settlement_statuses/i.test(text)
 }
 
 async function queryWeeklyFinanceRows(normalizedWeek, extended = true) {
@@ -1853,7 +1906,7 @@ async function queryWeeklyFinanceRows(normalizedWeek, extended = true) {
     ? 'id,week_start,branch_id,carrier_id,carrier_name,driver_id,driver_name,amount,comment,created_by,created_at,active'
     : 'id,week_start,branch_id,carrier_id,carrier_name,amount,comment,created_by,created_at,active'
   const transferSelect = extended
-    ? 'id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at,recipient_approved_at,recipient_approved_by,from_manager_approved_at,from_manager_approved_by,to_manager_approved_at,to_manager_approved_by,deleted_at,deleted_by,rejected_at,rejected_by'
+    ? 'id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at,recipient_approved_at,recipient_approved_by,from_manager_approved_at,from_manager_approved_by,to_manager_approved_at,to_manager_approved_by,delete_requested_at,delete_requested_by,deleted_at,deleted_by,rejected_at,rejected_by'
     : 'id,week_start,from_dispatcher_id,to_dispatcher_id,from_branch_id,to_branch_id,amount,comment,status,created_at,responded_at'
 
   return Promise.all([
@@ -1953,6 +2006,8 @@ async function loadWeeklySettlementData(weekStart) {
       fromManagerApprovedBy: String(row.from_manager_approved_by || ''),
       toManagerApprovedAt: String(row.to_manager_approved_at || ''),
       toManagerApprovedBy: String(row.to_manager_approved_by || ''),
+      deleteRequestedAt: String(row.delete_requested_at || ''),
+      deleteRequestedBy: String(row.delete_requested_by || ''),
       deletedAt: String(row.deleted_at || ''),
       deletedBy: String(row.deleted_by || ''),
       rejectedAt: String(row.rejected_at || ''),
@@ -2107,7 +2162,7 @@ async function createDispatcherWeekTransferFromTms(message) {
       p_comment: String(message?.comment || '').trim(),
     })
     if (error) throw error
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-create', 'Transfer został zapisany i oczekuje na wymagane akceptacje.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-create', 'Transfer został zapisany i oczekuje wyłącznie na potwierdzenie odbiorcy.')
     void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', error?.message || 'Nie udało się utworzyć transferu.')
@@ -2123,7 +2178,7 @@ async function respondDispatcherWeekTransferFromTms(message) {
       p_status: status,
     })
     if (error) throw error
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Potwierdzenie odbiorcy zostało zapisane.' : 'Transfer został odrzucony.')
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Transfer został zaakceptowany przez odbiorcę i od razu uwzględniony w wyniku.' : 'Transfer został odrzucony przez odbiorcę.')
     void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', error?.message || 'Nie udało się rozpatrzyć transferu.')
@@ -2133,31 +2188,30 @@ async function respondDispatcherWeekTransferFromTms(message) {
 async function deleteDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   try {
-    const { error } = await rpcWithWeeklySchemaRetry('delete_tms_dispatcher_week_transfer', {
+    const { data, error } = await rpcWithWeeklySchemaRetry('request_or_confirm_tms_dispatcher_week_transfer_delete', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
     })
     if (error) throw error
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-delete', 'Transfer został usunięty. Godzina usunięcia została zachowana w historii.')
+    const result = String(data || '')
+    const feedback = result === 'deleted'
+      ? 'Drugi spedytor potwierdził usunięcie. Transfer został usunięty i pozostaje w historii.'
+      : result === 'waiting'
+        ? 'Wniosek o usunięcie już oczekuje na potwierdzenie drugiego spedytora.'
+        : result === 'already_deleted'
+          ? 'Transfer był już wcześniej usunięty.'
+          : 'Wniosek o usunięcie został zapisany. Transfer pozostaje aktywny do czasu potwierdzenia przez drugiego spedytora.'
+    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-delete', feedback)
     void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
   } catch (error) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', error?.message || 'Nie udało się usunąć transferu.')
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', error?.message || 'Nie udało się zgłosić lub potwierdzić usunięcia transferu.')
   }
 }
 
 async function approveDispatcherWeekTransferManagerFromTms(message) {
   const requestId = String(message?.requestId || '')
-  const status = String(message?.status || '').trim().toLowerCase()
-  try {
-    const { error } = await rpcWithWeeklySchemaRetry('approve_tms_dispatcher_week_transfer_manager', {
-      p_transfer_id: String(message?.transferId || '').trim() || null,
-      p_status: status,
-    })
-    if (error) throw error
-    sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-manager-response', status === 'accepted' ? 'Decyzja kierownika została zapisana.' : 'Transfer został odrzucony przez kierownika.')
-    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
-  } catch (error) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-manager-response', error?.message || 'Nie udało się zapisać decyzji kierownika.')
-  }
+  // 3L.51: zgodność ze starszym iframe. Kierownik oddziału nie jest już
+  // uczestnikiem zatwierdzania transferu; endpoint pozostaje no-op po stronie SQL.
+  sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-manager-response', 'Akceptacja kierownika oddziału nie jest już wymagana dla transferów spedytorów.')
 }
 
 
@@ -2536,7 +2590,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v70-week-settlement-real-column-status"
+        src="/tms.html?embedded=1&build=request-workflow-v71-finance-delete-confirm-expiry-grid"
         title="Top Dragon TMS"
       ></iframe>
     </main>
