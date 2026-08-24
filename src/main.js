@@ -14,6 +14,8 @@ let activeLoadRequestsMessage = null
 let activeAuditMessage = null
 let activeWeeklySettlementMessage = null
 let activeWorkflowMessage = null
+let fleetChannel = null
+let fleetReloadTimer = null
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
@@ -41,6 +43,49 @@ const ROLE_LABELS = {
   branch_manager: 'Kierownik oddziału',
   accounting: 'Rozliczenia',
   admin: 'Administrator',
+}
+
+function suspendTmsRuntimeForAdminPanel() {
+  activeTmsFrame = null
+
+  const timeoutSlots = [
+    ['fleetReloadTimer', () => fleetReloadTimer, (value) => { fleetReloadTimer = value }],
+    ['relationsReloadTimer', () => relationsReloadTimer, (value) => { relationsReloadTimer = value }],
+    ['clientsReloadTimer', () => clientsReloadTimer, (value) => { clientsReloadTimer = value }],
+    ['loadQueueReloadTimer', () => loadQueueReloadTimer, (value) => { loadQueueReloadTimer = value }],
+    ['loadQueueChatReloadTimer', () => loadQueueChatReloadTimer, (value) => { loadQueueChatReloadTimer = value }],
+    ['loadRequestsReloadTimer', () => loadRequestsReloadTimer, (value) => { loadRequestsReloadTimer = value }],
+    ['auditReloadTimer', () => auditReloadTimer, (value) => { auditReloadTimer = value }],
+    ['weeklySettlementReloadTimer', () => weeklySettlementReloadTimer, (value) => { weeklySettlementReloadTimer = value }],
+    ['workflowReloadTimer', () => workflowReloadTimer, (value) => { workflowReloadTimer = value }],
+  ]
+  timeoutSlots.forEach(([, getTimer, setTimer]) => {
+    const timer = getTimer()
+    if (timer) clearTimeout(timer)
+    setTimer(null)
+  })
+
+  if (loadQueueHousekeepingTimer) {
+    clearInterval(loadQueueHousekeepingTimer)
+    loadQueueHousekeepingTimer = null
+  }
+
+  const channelSlots = [
+    [() => fleetChannel, (value) => { fleetChannel = value }],
+    [() => relationsChannel, (value) => { relationsChannel = value }],
+    [() => clientsChannel, (value) => { clientsChannel = value }],
+    [() => loadQueueChannel, (value) => { loadQueueChannel = value }],
+    [() => loadQueueChatChannel, (value) => { loadQueueChatChannel = value }],
+    [() => loadRequestsChannel, (value) => { loadRequestsChannel = value }],
+    [() => auditChannel, (value) => { auditChannel = value }],
+    [() => weeklySettlementChannel, (value) => { weeklySettlementChannel = value }],
+    [() => workflowChannel, (value) => { workflowChannel = value }],
+  ]
+  channelSlots.forEach(([getChannel, setChannel]) => {
+    const channel = getChannel()
+    if (channel) supabase.removeChannel(channel)
+    setChannel(null)
+  })
 }
 
 function escapeHtml(value) {
@@ -95,6 +140,14 @@ function renderLogin(message = '') {
   activeWeeklySettlementMessage = null
   activeWorkflowMessage = null
   workflowSchemaAvailable = null
+  if (fleetReloadTimer) {
+    clearTimeout(fleetReloadTimer)
+    fleetReloadTimer = null
+  }
+  if (fleetChannel) {
+    supabase.removeChannel(fleetChannel)
+    fleetChannel = null
+  }
   if (relationsReloadTimer) {
     clearTimeout(relationsReloadTimer)
     relationsReloadTimer = null
@@ -654,6 +707,11 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
     return
   }
 
+  // Panel administracyjny usuwa iframe TMS z DOM. Wstrzymujemy więc kanały i timery
+  // operacyjne zamiast odświeżać dane do nieistniejącego widoku. renderDashboard()
+  // przy powrocie utworzy je ponownie i pobierze świeży snapshot.
+  suspendTmsRuntimeForAdminPanel()
+
   if (adminCache && !forceReload) {
     renderAdminPanelFromCache(message, messageType)
     return
@@ -855,6 +913,36 @@ async function syncFleetDataToTms() {
   )
 }
 
+
+
+function scheduleFleetReload(delay = 100) {
+  if (fleetReloadTimer) clearTimeout(fleetReloadTimer)
+  fleetReloadTimer = setTimeout(() => {
+    fleetReloadTimer = null
+    syncFleetDataToTms().catch((error) => {
+      console.error('Nie udało się odświeżyć floty po zmianie Realtime:', error)
+    })
+  }, Math.max(0, Number(delay) || 0))
+}
+
+function subscribeFleetRealtime() {
+  if (fleetChannel) {
+    supabase.removeChannel(fleetChannel)
+    fleetChannel = null
+  }
+  if (!currentProfile || !currentUser) return
+
+  const channelName = `tms-fleet-${currentProfile.branch_id || 'all'}-${currentUser.id}`
+  let channel = supabase.channel(channelName)
+  ;['fleet_assignments', 'carriers', 'drivers', 'vehicles', 'trailers', 'fleet_relation_usage', 'driver_row_preferences'].forEach((table) => {
+    channel = channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table },
+      () => scheduleFleetReload(80),
+    )
+  })
+  fleetChannel = channel.subscribe()
+}
 
 async function loadCentralRelations() {
   if (!currentProfile) return []
@@ -2316,13 +2404,14 @@ async function createCarrierWeekAdjustmentFromTms(message) {
 
 async function deleteCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
   try {
     const { error } = await supabase.rpc('archive_tms_carrier_week_adjustment', {
       p_adjustment_id: String(message?.adjustmentId || '').trim() || null,
     })
     if (error) throw error
     sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-delete', 'Wyrównanie zostało usunięte z aktywnego podsumowania.')
-    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
+    void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-delete', error?.message || 'Nie udało się usunąć wyrównania.')
   }
@@ -2348,6 +2437,7 @@ async function createDispatcherWeekTransferFromTms(message) {
 
 async function respondDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
   const status = String(message?.status || '').trim().toLowerCase()
   try {
     const { error } = await rpcWithWeeklySchemaRetry('respond_tms_dispatcher_week_transfer', {
@@ -2356,7 +2446,7 @@ async function respondDispatcherWeekTransferFromTms(message) {
     })
     if (error) throw error
     sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-response', status === 'accepted' ? 'Transfer został zaakceptowany przez odbiorcę i od razu uwzględniony w wyniku.' : 'Transfer został odrzucony przez odbiorcę.')
-    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
+    void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', error?.message || 'Nie udało się rozpatrzyć transferu.')
   }
@@ -2364,6 +2454,7 @@ async function respondDispatcherWeekTransferFromTms(message) {
 
 async function deleteDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
+  const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
   try {
     const { data, error } = await rpcWithWeeklySchemaRetry('request_or_confirm_tms_dispatcher_week_transfer_delete', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
@@ -2378,7 +2469,7 @@ async function deleteDispatcherWeekTransferFromTms(message) {
           ? 'Transfer był już wcześniej usunięty.'
           : 'Wniosek o usunięcie został zapisany. Transfer pozostaje aktywny do czasu potwierdzenia przez drugiego spedytora.'
     sendWeeklySettlementOperationResult(requestId, true, 'dispatcher-transfer-delete', feedback)
-    void refreshWeeklySettlementAfterMutation(weeklySettlementWeekStart)
+    void refreshWeeklySettlementAfterMutation(weekStart)
   } catch (error) {
     sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', error?.message || 'Nie udało się zgłosić lub potwierdzić usunięcia transferu.')
   }
@@ -2767,7 +2858,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v72-rozl-chat-color"
+        src="/tms.html?embedded=1&build=request-workflow-v73-deep-audit-stability"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -2805,6 +2896,7 @@ async function renderDashboard(user) {
   syncFleetDataToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować floty z TMS:', error)
   })
+  subscribeFleetRealtime()
 
   syncCentralRelationsToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować relacji z TMS:', error)
@@ -2875,6 +2967,7 @@ async function bootstrap() {
 
   window.addEventListener('message', async (event) => {
     if (event.origin !== window.location.origin) return
+    if (!activeTmsFrame?.contentWindow || event.source !== activeTmsFrame.contentWindow) return
 
     if (event.data?.type === 'top-dragon-ready') {
       activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
