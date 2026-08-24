@@ -23,6 +23,10 @@ function numberField() {
   return { type: 'number' }
 }
 
+function confidenceField() {
+  return { type: 'number', minimum: 0, maximum: 1 }
+}
+
 function booleanField() {
   return { type: 'boolean' }
 }
@@ -47,7 +51,7 @@ function clientItemSchema() {
       paymentDays: numberField(),
       cooperationNotes: stringField(),
       lastContactAt: stringField(),
-      confidence: numberField(),
+      confidence: confidenceField(),
     },
     required: [
       'sourceRow', 'name', 'address', 'postalCode', 'city', 'nip', 'cargoTypes',
@@ -74,7 +78,7 @@ function vehicleItemSchema() {
       trailerHeightM: numberField(),
       dispatcher: stringField(),
       hidden: booleanField(),
-      confidence: numberField(),
+      confidence: confidenceField(),
     },
     required: [
       'sourceRow', 'carrierName', 'driverName', 'phone', 'nationality',
@@ -108,7 +112,7 @@ function relationItemSchema() {
       approachKm: numberField(),
       baseKm: numberField(),
       notes: stringField(),
-      confidence: numberField(),
+      confidence: confidenceField(),
     },
     required: [
       'sourceRow', 'date', 'loadDate', 'loadTime', 'load', 'loadAddress',
@@ -199,6 +203,7 @@ export default async function handler(request, response) {
     const commonInstructions = [
       `Jesteś modułem importu danych systemu transportowego Top Dragon TMS. Analizujesz ${config.noun}.`,
       'Źródło może mieć błędne nagłówki, przesunięte kolumny, skróty, literówki i puste komórki.',
+      'Wartości arkuszowych błędów #REF!, #N/A, #VALUE!, #NAME?, #DIV/0!, #NUM! i #NULL! traktuj zawsze jako brak danych, nigdy jako rzeczywistą wartość.',
       'Zwróć tylko informacje wynikające ze źródła. Nie twórz fikcyjnych rekordów ani danych.',
       'sourceRow to 1-based numer wiersza danych, a dla tekstu bez tabeli kolejny numer rekordu.',
       'confidence ma być liczbą od 0 do 1.',
@@ -215,8 +220,21 @@ export default async function handler(request, response) {
       timeoutMs: 55000,
     })
 
-    const items = Array.isArray(data?.items) ? data.items.slice(0, MAX_ITEMS) : []
-    const warnings = Array.isArray(data?.warnings) ? data.warnings : []
+    const rawItems = Array.isArray(data?.items) ? data.items.slice(0, MAX_ITEMS) : []
+    const errorTokens = new Set(['#REF!', '#N/A', '#VALUE!', '#NAME?', '#DIV/0!', '#NUM!', '#NULL!'])
+    const scrub = (value) => {
+      const text = clean(value)
+      return errorTokens.has(text.toUpperCase()) ? '' : text
+    }
+    const items = rawItems.map((item) => {
+      const copy = { ...(item || {}) }
+      Object.keys(copy).forEach((key) => {
+        if (typeof copy[key] === 'string') copy[key] = scrub(copy[key])
+      })
+      copy.confidence = Math.max(0, Math.min(1, Number(copy.confidence || 0)))
+      return copy
+    })
+    const warnings = Array.isArray(data?.warnings) ? data.warnings.map(scrub).filter(Boolean) : []
     await auditAiAnalysis(auth, `admin_import_${kind}`, {
       model,
       fileName: sourceName,
