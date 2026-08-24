@@ -75106,9 +75106,35 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return execute();
     }
 
+    function proposedLoadExpiredForPanel3L51(route) {
+      const rawDate=String(route?.loadDate || route?.date || '').trim();
+      let iso=rawDate;
+      const pl=rawDate.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if(pl) iso=`${pl[3]}-${pl[2]}-${pl[1]}`;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+      let nowDate=currentAppDate();
+      let nowHour=new Date().getHours()+new Date().getMinutes()/60;
+      try {
+        const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+        const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+        nowDate=`${map.year}-${map.month}-${map.day}`;
+        nowHour=Number(map.hour||0)+Number(map.minute||0)/60;
+      } catch {}
+      if(iso<nowDate) return true;
+      if(iso>nowDate) return false;
+      const rawHour=String(route?.startHour ?? '').trim();
+      let hour=Number(rawHour);
+      if(!Number.isFinite(hour)) {
+        const clock=rawHour || String(route?.loadTime || route?.startTime || '').trim();
+        const m=clock.match(/^(\d{1,2}):(\d{2})/);
+        hour=m ? Number(m[1])+Number(m[2])/60 : 8;
+      }
+      return Math.max(0,Math.min(24,hour)) < nowHour;
+    }
+
     function reportedLoadRoutesForDate(date = state.reportDate) {
       return (state.proposedLoads || [])
-        .filter(route => queueRouteVisible(route) && route.date === date && route.load && routePointFromRoute(route, "load") && route.status !== "taken" && !proposedLoadIsClaimed(route))
+        .filter(route => !proposedLoadExpiredForPanel3L51(route) && queueRouteVisible(route) && route.date === date && route.load && routePointFromRoute(route, "load") && route.status !== "taken" && !proposedLoadIsClaimed(route))
         .sort((a, b) => Number(a.startHour ?? 8) - Number(b.startHour ?? 8));
     }
 
@@ -75119,7 +75145,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function visibleProposedLoadsForPanel() {
       return (state.proposedLoads || [])
-        .filter(route => queueRouteVisible(route) && queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
+        .filter(route => !proposedLoadExpiredForPanel3L51(route) && queueRouteVisible(route) && queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.startHour ?? 8) - Number(b.startHour ?? 8));
     }
 
@@ -78295,7 +78321,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           <div class="left-cell sticky-b driver-row-cell carrier-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:2;grid-row:${row};">${esc(driver.carrier)}</div>
           <div class="left-cell driver-cell sticky-c driver-row-cell driver-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:3;grid-row:${row};">
-            ${canSetDriverPrivateColor(driver) ? `<button type="button" class="driver-color-btn ${driverPrivateColorClass(driver)}" title="Oznacz cały wiersz kolorem — widoczne tylko dla Ciebie" aria-label="Oznacz kierowcę kolorem" onclick="openDriverColorPicker(event,'${attr(driver.id)}')">${driverColorIconSvg()}</button>` : ""}
             <div class="driver-main-info">
               <div class="driver-name-row"><span class="driver-name">${esc(driver.driver)}</span></div>
               <span class="driver-week">Tydz.: ${week.km} km · ${money(week.profit)}</span>
@@ -87622,18 +87647,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function weeklyTransferStatusLabel(status, item = null) {
-        if (status === "accepted") return "Zaakceptowany";
-        if (status === "rejected") return "Odrzucony";
         if (status === "deleted") {
           const when = item?.deletedAt ? new Date(item.deletedAt) : null;
           const time = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString("pl-PL", { hour:"2-digit", minute:"2-digit" }) : "";
           return time ? `Usunięty ${time}` : "Usunięty";
         }
-        const missing = [];
-        if (!item?.recipientApprovedAt) missing.push("odbiorca");
-        if (!item?.fromManagerApprovedAt) missing.push("kierownik nadawcy");
-        if (!item?.toManagerApprovedAt) missing.push("kierownik odbiorcy");
-        return missing.length ? `Oczekuje: ${missing.join(", ")}` : "Oczekuje na finalizację";
+        if (item?.deleteRequestedAt) return "Oczekuje na potwierdzenie usunięcia";
+        if (status === "accepted") return "Zaakceptowany";
+        if (status === "rejected") return "Odrzucony";
+        return item?.recipientApprovedAt ? "Zaakceptowany" : "Oczekuje na odbiorcę";
       }
 
       window.createWeeklyCarrierAdjustment = function() {
@@ -87745,33 +87767,34 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
 
           <div class="weekly-settlement-subsection">
-            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b><span class="weekly-settlement-note">To wewnętrzna korekta wyniku TMS, nie przelew bankowy. Operację potwierdza odbiorca, a następnie zatwierdzają kierownicy oddziału nadawcy i odbiorcy.</span></div>
-            ${state.user?.role === "spedytor" ? `<div class="weekly-transfer-howto"><b>Jak przelać wynik?</b><span>Wybierz odbiorcę, wpisz kwotę i komentarz. Wynik zmieni się dopiero po potwierdzeniu odbiorcy oraz zatwierdzeniu przez kierowników obu oddziałów.</span></div><div class="weekly-settlement-form">
+            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b><span class="weekly-settlement-note">To wewnętrzna korekta wyniku TMS, nie przelew bankowy. Transfer potwierdza wyłącznie odbiorca — akceptacja kierownika oddziału nie jest wymagana.</span></div>
+            ${state.user?.role === "spedytor" ? `<div class="weekly-transfer-howto"><b>Jak przelać wynik?</b><span>Wybierz odbiorcę, wpisz kwotę i komentarz. Wynik zmieni się po potwierdzeniu przez odbiorcę. Kierownicy oddziałów nie zatwierdzają tej operacji.</span></div><div class="weekly-settlement-form">
               <input id="weekly-transfer-week" type="hidden" value="${attr(weekStart)}" />
               <label><span>Do spedytora</span><select id="weekly-transfer-to" class="select"><option value="">Wybierz odbiorcę</option>${transferTargets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.name || user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select></label>
               <label><span>Kwota PLN</span><input id="weekly-transfer-amount" class="input" inputmode="decimal" placeholder="np. 500" /></label>
               <label class="wide-mobile"><span>Komentarz</span><input id="weekly-transfer-comment" class="input" maxlength="1200" placeholder="Za co przekazywana jest kwota" /></label>
-              <button type="button" class="btn btn-dark" onclick="createWeeklyDispatcherTransfer()">Przelej do akceptacji</button>
+              <button type="button" class="btn btn-dark" onclick="createWeeklyDispatcherTransfer()">Wyślij do odbiorcy</button>
             </div>` : ""}
             <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Od</th><th>Do</th><th>Kwota</th><th>Komentarz</th><th>Status</th><th>Akcja</th></tr></thead><tbody>
               ${transferRows.length ? transferRows.map(item => {
                 const currentId = String(state.user?.supabaseId || "");
                 const isRecipient = currentId && currentId === String(item.toDispatcherId || "");
                 const isSender = currentId && currentId === String(item.fromDispatcherId || "");
-                const userBranchId = String(state.user?.branchId || "");
-                const isManager = state.user?.supabaseRole === "branch_manager" || state.user?.supabaseRole === "admin";
-                const managerCanApprove = item.status === "pending" && isManager && (state.user?.supabaseRole === "admin" || userBranchId === String(item.fromBranchId || "") || userBranchId === String(item.toBranchId || ""));
                 const actionParts = [];
-                if (item.status === "pending" && isRecipient && !item.recipientApprovedAt) {
+                const deleteRequesterId = String(item.deleteRequestedBy || "");
+                const hasDeleteRequest = Boolean(item.deleteRequestedAt && deleteRequesterId);
+                if (!hasDeleteRequest && item.status === "pending" && isRecipient && !item.recipientApprovedAt) {
                   actionParts.push(`<button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','accepted')">Potwierdź</button>`);
                   actionParts.push(`<button type="button" class="btn-mini" onclick="respondWeeklyDispatcherTransfer('${attr(item.id)}','rejected')">Odrzuć</button>`);
                 }
-                if (managerCanApprove) {
-                  actionParts.push(`<button type="button" class="btn-mini" onclick="approveWeeklyDispatcherTransferManager('${attr(item.id)}','accepted')">Zatwierdź jako kierownik</button>`);
-                  actionParts.push(`<button type="button" class="btn-mini" onclick="approveWeeklyDispatcherTransferManager('${attr(item.id)}','rejected')">Odrzuć</button>`);
-                }
-                if (isRecipient && item.status !== "deleted") {
-                  actionParts.push(`<button type="button" class="btn-mini" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}')">Usuń</button>`);
+                if ((isRecipient || isSender) && item.status !== "deleted") {
+                  if (!hasDeleteRequest) {
+                    actionParts.push(`<button type="button" class="btn-mini" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}')">Usuń — poproś drugiego spedytora</button>`);
+                  } else if (deleteRequesterId !== currentId) {
+                    actionParts.push(`<button type="button" class="btn-mini" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}')">Potwierdź usunięcie</button>`);
+                  } else {
+                    actionParts.push(`<span class="weekly-transfer-delete-wait-3l51">Oczekuje na potwierdzenie drugiego spedytora</span>`);
+                  }
                 }
                 const actions = actionParts.length ? `<div class="weekly-transfer-actions">${actionParts.join("")}</div>` : "—";
                 return `<tr class="${isRecipient || isSender ? "weekly-current-user-row" : ""}"><td>${esc(weeklyUserLabel(item.fromDispatcherId))}</td><td>${esc(weeklyUserLabel(item.toDispatcherId))}</td><td><b>${statsMoney(item.amount)}</b></td><td>${esc(item.comment || "—")}</td><td><span class="weekly-transfer-status ${attr(item.status)}">${esc(weeklyTransferStatusLabel(item.status,item))}</span></td><td>${actions}</td></tr>`;
@@ -88809,12 +88832,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return visibleDriversForCurrentUser().find(d => String(d.carrierEntityId || '') === String(carrierId || '')) || null;
       }
       function transferPendingSuffix3L36(item) {
+        if (item?.deleteRequestedAt) return ' · usunięcie do potwierdzenia';
         if (item.status !== 'pending') return '';
-        const missing=[];
-        if (!item.recipientApprovedAt) missing.push('odb.');
-        if (!item.fromManagerApprovedAt) missing.push('kier. A');
-        if (!item.toManagerApprovedAt) missing.push('kier. B');
-        return missing.length ? ` · ${missing.join('/')}` : ' · finalizacja';
+        return item.recipientApprovedAt ? '' : ' · odb.';
       }
       function transferDeletedTime3L36(item) {
         if (!item?.deletedAt) return '';
@@ -88904,14 +88924,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       function transferStatusText3L36(item) {
+        if (item.status==='deleted') return `usunięty${transferDeletedTime3L36(item)?` ${transferDeletedTime3L36(item)}`:''}`;
+        if (item.deleteRequestedAt) return 'oczekuje na potwierdzenie usunięcia';
         if (item.status==='accepted') return 'zaakceptowany';
         if (item.status==='rejected') return 'odrzucony';
-        if (item.status==='deleted') return `usunięty${transferDeletedTime3L36(item)?` ${transferDeletedTime3L36(item)}`:''}`;
-        const missing=[];
-        if (!item.recipientApprovedAt) missing.push('odbiorca');
-        if (!item.fromManagerApprovedAt) missing.push('kierownik nadawcy');
-        if (!item.toManagerApprovedAt) missing.push('kierownik odbiorcy');
-        return `oczekuje: ${missing.join(', ')}`;
+        return item.recipientApprovedAt ? 'zaakceptowany' : 'oczekuje: odbiorca';
       }
       async function ensureBoardWeeklyForExport3L36(dates) {
         await requestBoardWeeklySettlements3L36(dates,false);
@@ -89107,12 +89124,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
       }
       function transferPending3L38(item) {
+        if (item?.deleteRequestedAt) return ' · usunięcie do potwierdzenia';
         if (String(item?.status||'')!=='pending') return '';
-        const missing=[];
-        if (!item.recipientApprovedAt) missing.push('odb.');
-        if (!item.fromManagerApprovedAt) missing.push('kier. A');
-        if (!item.toManagerApprovedAt) missing.push('kier. B');
-        return missing.length ? ` · ${missing.join('/')}` : '';
+        return item.recipientApprovedAt ? '' : ' · odb.';
       }
       function financeForDriverWeek3L38(driver,weekStart) {
         const data=state.boardWeeklySettlements?.[weekStart] || (state.weeklySettlement?.weekStart===weekStart ? state.weeklySettlement : null);
@@ -90019,14 +90033,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return String(user?.name || user?.login || 'Spedytor');
       }
       function transferStatus3L43(item) {
+        if (item?.status==='deleted') return item?.deletedAt ? `Usunięty ${new Date(item.deletedAt).toLocaleString('pl-PL',{hour:'2-digit',minute:'2-digit'})}` : 'Usunięty';
+        if (item?.deleteRequestedAt) return 'Oczekuje na potwierdzenie usunięcia';
         if (item?.status==='accepted') return 'Zaakceptowany';
         if (item?.status==='rejected') return 'Odrzucony';
-        if (item?.status==='deleted') return item?.deletedAt ? `Usunięty ${new Date(item.deletedAt).toLocaleString('pl-PL',{hour:'2-digit',minute:'2-digit'})}` : 'Usunięty';
-        const parts=[];
-        if (!item?.recipientApprovedAt) parts.push('odbiorca');
-        if (!item?.fromManagerApprovedAt) parts.push('kier. nadawcy');
-        if (!item?.toManagerApprovedAt) parts.push('kier. odbiorcy');
-        return parts.length ? `Oczekuje: ${parts.join(', ')}` : 'Oczekuje';
+        return item?.recipientApprovedAt ? 'Zaakceptowany' : 'Oczekuje na odbiorcę';
       }
       function renderFinanceAnalysis3L43(stats) {
         const ws=financeWeekStart3L43(stats?.date || statsSelectedDate());
@@ -90875,13 +90886,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function transferStatus3L47(item) {
         const status=String(item?.status||'pending');
         if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dateTime3L47(item.deletedAt)}`:''}`;
+        if(item?.deleteRequestedAt) return 'Oczekuje na potwierdzenie usunięcia';
         if(status==='accepted') return 'Zaakceptowany';
         if(status==='rejected') return 'Odrzucony';
-        const missing=[];
-        if(!item?.recipientApprovedAt) missing.push('odbiorca');
-        if(!item?.fromManagerApprovedAt) missing.push('kierownik A');
-        if(!item?.toManagerApprovedAt) missing.push('kierownik B');
-        return missing.length ? `Oczekuje: ${missing.join(', ')}` : 'Oczekuje';
+        return item?.recipientApprovedAt ? 'Zaakceptowany' : 'Oczekuje na odbiorcę';
       }
 
       window.openWeekFinanceBoundary3L47=function(driverId,weekStart) {
@@ -91008,6 +91016,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .week-settlement-dollar-3l48.transfer-only:hover { background:#1d4ed8; }
     .week-settlement-dollar-3l48.negative-only { background:#d97706; border-color:#b45309; box-shadow:0 2px 7px rgba(217,119,6,.24); }
     .week-settlement-dollar-3l48.negative-only:hover { background:#b45309; }
+    /* 3L51: brak aktywnych wartości = neutralny, biały znacznik $. */
+    .week-settlement-dollar-3l48.empty {
+      background:#fff !important;
+      color:#64748b !important;
+      border-color:#cbd5e1 !important;
+      box-shadow:none !important;
+    }
+    .week-settlement-dollar-3l48.empty:hover {
+      background:#f8fafc !important;
+      color:#334155 !important;
+      border-color:#94a3b8 !important;
+      box-shadow:0 1px 3px rgba(15,23,42,.08) !important;
+    }
+    .app.dark-mode .week-settlement-dollar-3l48.empty {
+      background:#fff !important;
+      color:#475569 !important;
+      border-color:#cbd5e1 !important;
+    }
     .week-finance-amount-3l47.inactive { color:#64748b; text-decoration:line-through; }
     .app.dark-mode .week-finance-amount-3l47.inactive { color:#94a3b8; }
     .app.dark-mode .week-settlement-dollar-3l48 { border-color:#4ade80; background:#15803d; }
@@ -91161,14 +91187,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function transferStatus3L48(item) {
         const status=String(item?.status||'pending');
+        if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dt3L48(item.deletedAt)}`:''}`;
+        if(item?.deleteRequestedAt) return 'Oczekuje na potwierdzenie usunięcia';
         if(status==='accepted') return 'Zaakceptowany';
         if(status==='rejected') return 'Odrzucony';
-        if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dt3L48(item.deletedAt)}`:''}`;
-        const missing=[];
-        if(!item?.recipientApprovedAt) missing.push('odbiorca');
-        if(!item?.fromManagerApprovedAt) missing.push('kierownik nadawcy');
-        if(!item?.toManagerApprovedAt) missing.push('kierownik odbiorcy');
-        return missing.length?`Oczekuje: ${missing.join(', ')}`:'Oczekuje na finalizację';
+        return item?.recipientApprovedAt ? 'Zaakceptowany' : 'Oczekuje na odbiorcę';
       }
       window.openWeekFinanceBoundary3L48=function(driverId,ws){
         const driver=driverById(driverId); if(!driver) return;
@@ -91230,7 +91253,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const transferTargets=targets3L48();
         const fields=type==='carrier'
           ? `<div class="weekly-finance-tool-fields-3l48"><label><span>Przewoźnik</span><select id="weekly-finance-carrier-3l48" class="select" ${carrierOptions.length?'':'disabled'}><option value="">${carrierOptions.length?'Wybierz przewoźnika':'Brak dostępnych przewoźników'}</option>${carrierOptions.map(c=>`<option value="${attr(c.id)}">${esc(c.name)}</option>`).join('')}</select></label><label><span>Kwota PLN</span><input id="weekly-finance-amount-3l48" class="input" inputmode="decimal" placeholder="np. 300 lub -100"></label><label class="wide"><span>Komentarz</span><input id="weekly-finance-comment-3l48" class="input" maxlength="1200" placeholder="Powód wyrównania / ustalenie z przewoźnikiem"></label>${carrierOptions.length?'':`<div class="small wide">Nie znaleziono aktywnego przewoźnika, którego możesz rozliczyć w swoim zakresie uprawnień.</div>`}<button class="btn btn-dark wide" data-weekly-finance-submit-3l48 type="button" ${carrierOptions.length?'':'disabled'} onclick="submitWeeklyFinanceTool3L48('carrier')">Zapisz wyrównanie</button></div>`
-          : `<div class="weekly-finance-tool-fields-3l48"><label><span>Do spedytora</span><select id="weekly-finance-target-3l48" class="select" ${transferTargets.length?'':'disabled'}><option value="">${transferTargets.length?'Wybierz odbiorcę':'Brak dostępnych spedytorów'}</option>${transferTargets.map(u=>`<option value="${attr(u.supabaseId)}">${esc(u.name||u.login)}${u.branch?` · ${esc(u.branch)}`:''}</option>`).join('')}</select></label><label><span>Kwota PLN</span><input id="weekly-finance-amount-3l48" class="input" inputmode="decimal" placeholder="np. 500"></label><label class="wide"><span>Komentarz</span><input id="weekly-finance-comment-3l48" class="input" maxlength="1200" placeholder="Za co przekazywana jest kwota"></label><div class="small wide">Transfer wpływa na wynik dopiero po potwierdzeniu odbiorcy i zatwierdzeniu przez kierowników obu oddziałów.</div>${transferTargets.length?'':`<div class="small wide">Nie ma innego aktywnego spedytora, do którego można utworzyć transfer.</div>`}<button class="btn btn-dark wide" data-weekly-finance-submit-3l48 type="button" ${transferTargets.length?'':'disabled'} onclick="submitWeeklyFinanceTool3L48('dispatcher')">Wyślij do akceptacji</button></div>`;
+          : `<div class="weekly-finance-tool-fields-3l48"><label><span>Do spedytora</span><select id="weekly-finance-target-3l48" class="select" ${transferTargets.length?'':'disabled'}><option value="">${transferTargets.length?'Wybierz odbiorcę':'Brak dostępnych spedytorów'}</option>${transferTargets.map(u=>`<option value="${attr(u.supabaseId)}">${esc(u.name||u.login)}${u.branch?` · ${esc(u.branch)}`:''}</option>`).join('')}</select></label><label><span>Kwota PLN</span><input id="weekly-finance-amount-3l48" class="input" inputmode="decimal" placeholder="np. 500"></label><label class="wide"><span>Komentarz</span><input id="weekly-finance-comment-3l48" class="input" maxlength="1200" placeholder="Za co przekazywana jest kwota"></label><div class="small wide">Transfer wpływa na wynik po potwierdzeniu przez odbiorcę. Akceptacja kierowników oddziałów nie jest wymagana.</div>${transferTargets.length?'':`<div class="small wide">Nie ma innego aktywnego spedytora, do którego można utworzyć transfer.</div>`}<button class="btn btn-dark wide" data-weekly-finance-submit-3l48 type="button" ${transferTargets.length?'':'disabled'} onclick="submitWeeklyFinanceTool3L48('dispatcher')">Wyślij do odbiorcy</button></div>`;
         document.body.insertAdjacentHTML('beforeend',`<div class="weekly-finance-tool-backdrop-3l48" onclick="if(event.target===this)closeWeeklyFinanceTool3L48()"><div class="weekly-finance-tool-card-3l48" onclick="event.stopPropagation()"><div class="weekly-finance-tool-head-3l48"><div><h3>${esc(title)}</h3><small>Tydzień ${esc(formatDateForInput(weekStart))} – ${esc(formatDateForInput(addDaysToIso(weekStart,6)))}</small></div><button class="btn" type="button" onclick="closeWeeklyFinanceTool3L48()">Zamknij</button></div><div class="weekly-finance-tool-body-3l48">${fields}<div id="weekly-finance-tool-status-3l48" class="weekly-finance-tool-status-3l48"></div></div></div></div>`);
         if(state.weeklySettlementBusy){ setToolBusy3L48(true); toolStatus3L48('Trwa już zapis innej operacji.','error'); }
       }
@@ -91372,7 +91395,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       border-left:1px solid #94a3b8;
       border-bottom:1px solid #cbd5e1;
       background:#f8fafc;
-      z-index:52;
+      /* 3L51: kolumna Rozl. jest zwykłym torem siatki. Nie może przykrywać
+         lewych sticky-kolumn, a kafelki relacji (timeline z-index 8/9) mają
+         przechodzić NAD nią. */
+      z-index:2;
       box-sizing:border-box;
       overflow:visible;
     }
@@ -91423,6 +91449,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .week-settlement-status-meta-3l50 { color:var(--muted,#64748b); font-size:9px; line-height:1.35; }
     .week-settlement-status-saving-3l50 { opacity:.65; pointer-events:none; }
     .week-finance-empty-3l50 { margin-top:2px; padding:10px; border:1px dashed var(--border,#cbd5e1); border-radius:10px; color:var(--muted,#64748b); font-size:10px; line-height:1.4; }
+    .weekly-transfer-delete-wait-3l51 {
+      display:inline-flex; align-items:center; min-height:32px; padding:0 8px;
+      border:1px dashed #f59e0b; border-radius:8px; color:#92400e;
+      background:#fffbeb; font-size:9px; font-weight:850;
+    }
+    .app.dark-mode .weekly-transfer-delete-wait-3l51 { color:#fde68a; background:#451a03; border-color:#b45309; }
     .app.dark-mode .week-finance-empty-3l50 { border-color:#475569; }
 
     .app.dark-mode .week-settlement-status-box-3l50 { background:#111827; border-color:#475569; }
@@ -91513,14 +91545,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function transferStatus3L50(item){
         const status=String(item?.status||'pending');
+        if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dt3L50(item.deletedAt)}`:''}`;
+        if(item?.deleteRequestedAt) return 'Oczekuje na potwierdzenie usunięcia';
         if(status==='accepted') return 'Zaakceptowany';
         if(status==='rejected') return 'Odrzucony';
-        if(status==='deleted') return `Usunięty${item?.deletedAt?` · ${dt3L50(item.deletedAt)}`:''}`;
-        const missing=[];
-        if(!item?.recipientApprovedAt) missing.push('odbiorca');
-        if(!item?.fromManagerApprovedAt) missing.push('kierownik nadawcy');
-        if(!item?.toManagerApprovedAt) missing.push('kierownik odbiorcy');
-        return missing.length?`Oczekuje: ${missing.join(', ')}`:'Oczekuje na finalizację';
+        return item?.recipientApprovedAt ? 'Zaakceptowany' : 'Oczekuje na odbiorcę';
       }
 
       window.renderWeekSettlementGridCells3L50=function(driver,row,dates=dateList()){
@@ -91529,9 +91558,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const active=finance.carrier.length||activeTransfers3L50(finance).length;
           const status=statusForDriver3L50(driver,boundary.weekStart);
           const canOpenStatus=canEditWeekStatus3L50();
-          const marker=active
-            ? `<button type="button" class="week-settlement-dollar-3l48 ${markerClass3L50(finance)}" title="Rozliczenia tygodnia · status: ${attr(status.status||'Nowe')}" aria-label="Pokaż rozliczenia tygodnia" onclick="event.preventDefault();event.stopPropagation();openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')">$</button>`
-            : '';
+          const markerClass=active ? markerClass3L50(finance) : 'empty';
+          const marker=`<button type="button" class="week-settlement-dollar-3l48 ${markerClass}" title="Rozliczenia tygodnia · status: ${attr(status.status||'Nowe')}" aria-label="Pokaż rozliczenia tygodnia" onclick="event.preventDefault();event.stopPropagation();openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')">$</button>`;
           const dot=(active||canOpenStatus)
             ? `<button type="button" class="week-settlement-status-dot-3l50 ${statusClass3L50(status.status)} ${canOpenStatus?'is-editable':''}" title="Status: ${attr(status.status||'Nowe')}${canOpenStatus?' · kliknij, aby zmienić':''}" aria-label="Status rozliczenia tygodnia: ${attr(status.status||'Nowe')}" ${canOpenStatus?`onclick="event.preventDefault();event.stopPropagation();openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')"`: 'tabindex="-1"'}></button>`
             : '';
@@ -91557,7 +91585,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const driver=driverById(driverId); if(!driver) return;
         const finance=financeForDriver3L50(driver,ws);
         document.querySelectorAll('.week-finance-backdrop-3l47').forEach(el=>el.remove());
-        if(!finance.carrier.length&&!finance.transfers.length&&!canEditWeekStatus3L50()) return;
         const carrierHtml=finance.carrier.length?`<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Wyrównania przewoźnika</div>${finance.carrier.map(item=>{const amount=Number(item.amount||0);return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amount>=0?'plus':'minus'}">${amount>=0?'+':''}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(item.carrierName||driver.carrier||'Przewoźnik')}${item.createdAt?` · ${esc(dt3L50(item.createdAt))}`:''}</small></div></div>`;}).join('')}</div>`:'';
         const u=userForDispatcher3L50(driver.dispatcher); const uid=String(u?.supabaseId||''); const login=norm3L50(driver.dispatcher);
         const transferHtml=finance.transfers.length?`<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Transfery spedytora</div>${finance.transfers.map(item=>{const outgoing=(uid&&String(item.fromDispatcherId||'')===uid)||norm3L50(item.fromDispatcherLogin||item.fromDispatcherName||'')===login;const other=userLabel3L50(outgoing?item.toDispatcherId:item.fromDispatcherId,outgoing?(item.toDispatcherName||item.toDispatcherLogin):(item.fromDispatcherName||item.fromDispatcherLogin));const amount=Math.abs(Number(item.amount||0));const text=`${outgoing?'-':'+'}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN ${outgoing?'dla':'od'} ${other}`;const status=String(item.status||'pending');const amountClass=status==='pending'?'pending':['rejected','deleted'].includes(status)?'inactive':outgoing?'minus':'plus';return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amountClass}">${esc(text)}</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(transferStatus3L50(item))}${item.createdAt?` · ${esc(dt3L50(item.createdAt))}`:''}</small></div></div>`;}).join('')}</div>`:'';
