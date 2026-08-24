@@ -151,6 +151,8 @@ export default async function handler(request, response) {
         return response.status(404).json({ ok: false, message: 'Nie znaleziono oddziału.' })
       }
 
+      // Lista obejmuje wszystkie tabele z bezpośrednim FK branch_id.
+      // Dzięki temu używany oddział kończy się czytelnym 409 zamiast błędem FK przy DELETE.
       const referenceTables = [
         ['profiles', 'użytkownicy'],
         ['carriers', 'przewoźnicy'],
@@ -158,7 +160,16 @@ export default async function handler(request, response) {
         ['vehicles', 'pojazdy'],
         ['trailers', 'naczepy'],
         ['fleet_assignments', 'zestawy'],
-        ['fleet_relation_usage', 'historia relacji'],
+        ['fleet_relation_usage', 'historia relacji floty'],
+        ['tms_relations', 'relacje'],
+        ['tms_clients_central', 'klienci'],
+        ['tms_load_queue', 'wolne / planowane relacje'],
+        ['operation_audit', 'historia operacji'],
+        ['tms_carrier_week_adjustments', 'wyrównania przewoźników'],
+        ['tms_client_assignment_requests', 'wnioski o klientów'],
+        ['tms_relation_transfer_requests', 'transfery relacji'],
+        ['tms_load_queue_chat_messages', 'wiadomości czatu relacji'],
+        ['tms_load_queue_chat_reads', 'statusy odczytu czatu'],
       ]
 
       const referenceChecks = await Promise.all(
@@ -168,7 +179,13 @@ export default async function handler(request, response) {
             .select('*', { count: 'exact', head: true })
             .eq('branch_id', id)
 
-          if (error) throw error
+          if (error) {
+            const code = String(error.code || '')
+            const message = String(error.message || '')
+            const missingTable = code === 'PGRST205' || code === '42P01' || /schema cache|does not exist/i.test(message)
+            if (missingTable) return { table, label, count: 0 }
+            throw error
+          }
           return { table, label, count: count || 0 }
         })
       )
