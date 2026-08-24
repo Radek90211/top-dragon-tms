@@ -86740,7 +86740,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <button type="button" class="btn" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="document.getElementById('admin-ai-import-file')?.click()">Wybierz plik</button>
                     ${ADMIN_AI_IMPORT_STATE.sourceName ? `<span class="small"><b>${esc(ADMIN_AI_IMPORT_STATE.sourceName)}</b></span>` : `<span class="small">Excel / CSV / TXT albo tekst wklejony poniżej</span>`}
                   </div>
-                  <textarea id="admin-ai-import-text" class="textarea" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} placeholder="Możesz też wkleić dowolną tabelę, listę lub dane z innego systemu…" oninput="ADMIN_AI_IMPORT_STATE.sourceText=this.value">${esc(ADMIN_AI_IMPORT_STATE.sourceText)}</textarea>
+                  <textarea id="admin-ai-import-text" class="textarea" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} placeholder="Możesz też wkleić dowolną tabelę, listę lub dane z innego systemu…" oninput="adminAiSetSourceText(this.value)">${esc(ADMIN_AI_IMPORT_STATE.sourceText)}</textarea>
                 </section>
                 <div class="admin-ai-import-actions">
                   <button type="button" class="btn btn-dark" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="adminAnalyzeAiImport()">${ADMIN_AI_IMPORT_STATE.busy ? "AI analizuje…" : "Analizuj przez AI"}</button>
@@ -86807,6 +86807,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.adminAiSetDispatcher = function(value) {
         ADMIN_AI_IMPORT_STATE.defaultDispatcher = String(value || "");
+      };
+
+      // 3L.57: inline event handlers do not reliably resolve top-level lexical `const` bindings.
+      // Keep the internal state private to this script and expose only a narrow setter to HTML.
+      window.adminAiSetSourceText = function(value) {
+        ADMIN_AI_IMPORT_STATE.sourceText = String(value || "");
       };
 
       window.adminAiToggleItem = function(index, checked) {
