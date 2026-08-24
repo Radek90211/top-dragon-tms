@@ -91238,7 +91238,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function setToolBusy3L48(busy){
         document.querySelectorAll('[data-weekly-finance-submit-3l48]').forEach(btn=>{ btn.disabled=Boolean(busy); });
-        document.querySelectorAll('.weekly-finance-tool-fields-3l48 input,.weekly-finance-tool-fields-3l48 select').forEach(el=>{
+        document.querySelectorAll('.weekly-finance-tool-fields-3l48 input,.weekly-finance-tool-fields-3l48 select,.week-finance-create-fields-3l52 input,.week-finance-create-fields-3l52 select').forEach(el=>{
           if(busy) { el.dataset.weeklyFinanceWasDisabled3l48=el.disabled?'1':'0'; el.disabled=true; }
           else if(el.dataset.weeklyFinanceWasDisabled3l48==='0') { el.disabled=false; delete el.dataset.weeklyFinanceWasDisabled3l48; }
         });
@@ -91276,12 +91276,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         },12000);
         state.weeklyFinancePending3L48[requestId]={type,weekStart,timer};
       }
-      function sendCarrier3L48(carrierId,amount,comment,weekStart){
+      function sendCarrier3L48(carrierId,amount,comment,weekStart,driverId='',driverName=''){
         if(state.weeklySettlementBusy){ toolStatus3L48('Trwa już zapis innej operacji.','error'); return; }
         if(!carrierId||!Number.isFinite(amount)||amount===0){showAppMessage('Uzupełnij wyrównanie','Wybierz przewoźnika i wpisz kwotę różną od zera.','error');return;}
         const requestId=`carrier-adjust-3l48-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
         state.weeklySettlementBusy=true; setToolBusy3L48(true); registerPending3L48(requestId,'carrier',weekStart); toolStatus3L48('Zapisywanie wyrównania…');
-        window.parent?.postMessage({type:'top-dragon-carrier-week-adjustment-create',requestId,weekStart,carrierId,driverId:'',driverName:'',amount,comment},window.location.origin);
+        window.parent?.postMessage({type:'top-dragon-carrier-week-adjustment-create',requestId,weekStart,carrierId,driverId:String(driverId||''),driverName:String(driverName||''),amount,comment},window.location.origin);
       }
       function sendTransfer3L48(toDispatcherId,amount,comment,weekStart){
         if(state.weeklySettlementBusy){ toolStatus3L48('Trwa już zapis innej operacji.','error'); return; }
@@ -91641,6 +91641,548 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       /* Po załadowaniu końcowego skryptu wykonujemy jeden render, aby pierwsza
          widoczna tablica od razu korzystała z fizycznych torów grid. */
       requestAnimationFrame(()=>{ if(state.appView==='plan') syncBoardOnly(); });
+    })();
+  </script>
+
+
+  <style id="targeted-3l52-color-rozl-chat">
+    /* 3L.52 — przywrócona prywatna zmiana koloru samochodu/wiersza. */
+    .driver-cell { position:relative; }
+    .driver-color-btn.color-restored-3l52 {
+      display:grid !important;
+      top:4px !important;
+      left:4px !important;
+      z-index:22 !important;
+    }
+    /* 3L.52 — stary $ przy danych kierowcy ma zniknąć całkowicie.
+       Rozliczenia są dostępne wyłącznie w dedykowanej kolumnie Rozl. */
+    .driver-finance-btn { display:none !important; }
+
+    .week-finance-create-3l52 {
+      margin-top:12px;
+      padding-top:12px;
+      border-top:1px solid var(--border,#cbd5e1);
+      display:grid;
+      gap:10px;
+    }
+    .week-finance-create-title-3l52 {
+      display:flex; justify-content:space-between; gap:8px; align-items:center;
+      font-size:11px; font-weight:950;
+    }
+    .week-finance-create-grid-3l52 {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:9px;
+    }
+    .week-finance-create-panel-3l52 {
+      border:1px solid var(--border,#cbd5e1);
+      border-radius:11px;
+      padding:10px;
+      background:var(--soft,#f8fafc);
+      display:grid;
+      gap:7px;
+    }
+    .week-finance-create-panel-3l52 > b { font-size:11px; }
+    .week-finance-create-panel-3l52 .small { line-height:1.35; }
+    .week-finance-create-fields-3l52 { display:grid; gap:7px; }
+    .week-finance-create-fields-3l52 .input,
+    .week-finance-create-fields-3l52 .select { width:100%; min-width:0; box-sizing:border-box; }
+    .app.dark-mode .week-finance-create-panel-3l52 { background:#111827; border-color:#475569; }
+    @media(max-width:720px){ .week-finance-create-grid-3l52 { grid-template-columns:1fr; } }
+
+    /* Czat relacji */
+    .queue-chat-btn-3l52 {
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:5px;
+      min-height:28px;
+      padding:4px 8px;
+      border:1px solid #cbd5e1;
+      border-radius:9px;
+      background:#fff;
+      color:#334155;
+      font-size:10px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .queue-chat-btn-3l52:hover { background:#f8fafc; border-color:#94a3b8; }
+    .queue-chat-btn-3l52 svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.9; }
+    .queue-chat-count-3l52 {
+      min-width:17px; height:17px; padding:0 4px;
+      display:inline-flex; align-items:center; justify-content:center;
+      border-radius:999px; background:#dc2626; color:#fff;
+      font-size:9px; line-height:1; font-weight:950;
+    }
+    .queue-chat-btn-3l52.has-messages:not(.has-unread) .queue-chat-count-3l52 {
+      background:#e2e8f0; color:#475569;
+    }
+    .app.dark-mode .queue-chat-btn-3l52 { background:#111827; color:#e2e8f0; border-color:#475569; }
+    .app.dark-mode .queue-chat-btn-3l52:hover { background:#1e293b; }
+
+    .queue-chat-backdrop-3l52 {
+      position:fixed; inset:0; z-index:2147483640;
+      display:flex; justify-content:center; align-items:center;
+      padding:16px; background:rgba(15,23,42,.46);
+    }
+    .queue-chat-modal-3l52 {
+      width:min(720px,calc(100vw - 24px));
+      max-height:min(760px,calc(100vh - 24px));
+      background:var(--panel,#fff); color:var(--text,#0f172a);
+      border:1px solid var(--border,#cbd5e1); border-radius:16px;
+      box-shadow:0 26px 80px rgba(15,23,42,.32);
+      display:grid; grid-template-rows:auto minmax(180px,1fr) auto;
+      overflow:hidden;
+    }
+    .queue-chat-head-3l52 {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+      padding:13px 14px; border-bottom:1px solid var(--border,#cbd5e1);
+      background:var(--panel,#fff);
+    }
+    .queue-chat-head-3l52 h3 { margin:0; font-size:15px; }
+    .queue-chat-head-3l52 small { display:block; margin-top:3px; color:var(--muted,#64748b); font-size:10px; }
+    .queue-chat-list-3l52 {
+      overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px;
+      background:var(--soft,#f8fafc);
+    }
+    .queue-chat-empty-3l52 { margin:auto; color:var(--muted,#64748b); font-size:11px; text-align:center; padding:20px; }
+    .queue-chat-message-3l52 {
+      max-width:82%; align-self:flex-start;
+      border:1px solid var(--border,#cbd5e1); background:var(--panel,#fff);
+      border-radius:12px 12px 12px 4px; padding:8px 10px;
+      box-shadow:0 1px 2px rgba(15,23,42,.05);
+    }
+    .queue-chat-message-3l52.mine {
+      align-self:flex-end;
+      border-radius:12px 12px 4px 12px;
+      background:#eff6ff; border-color:#bfdbfe;
+    }
+    .queue-chat-message-meta-3l52 { display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:3px; font-size:9px; color:var(--muted,#64748b); }
+    .queue-chat-message-meta-3l52 b { color:var(--text,#0f172a); font-size:10px; }
+    .queue-chat-message-text-3l52 { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.45; }
+    .queue-chat-compose-3l52 {
+      padding:10px 12px 12px; border-top:1px solid var(--border,#cbd5e1);
+      display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end;
+      background:var(--panel,#fff);
+    }
+    .queue-chat-compose-3l52 textarea {
+      width:100%; min-height:62px; max-height:150px; resize:vertical; box-sizing:border-box;
+    }
+    .queue-chat-compose-status-3l52 { grid-column:1/-1; min-height:14px; font-size:9px; color:var(--muted,#64748b); }
+    .queue-chat-compose-status-3l52.error { color:#b91c1c; }
+    .queue-chat-schema-warning-3l52 {
+      margin:8px 12px 0; padding:8px 9px; border-radius:9px;
+      border:1px solid #f59e0b; background:#fffbeb; color:#92400e;
+      font-size:10px; font-weight:800;
+    }
+    .app.dark-mode .queue-chat-modal-3l52,
+    .app.dark-mode .queue-chat-head-3l52,
+    .app.dark-mode .queue-chat-compose-3l52,
+    .app.dark-mode .queue-chat-message-3l52 { background:#111827; border-color:#475569; }
+    .app.dark-mode .queue-chat-list-3l52 { background:#0f172a; }
+    .app.dark-mode .queue-chat-message-3l52.mine { background:#172554; border-color:#1d4ed8; }
+    .app.dark-mode .queue-chat-schema-warning-3l52 { background:#451a03; color:#fde68a; border-color:#b45309; }
+    @media(max-width:600px){
+      .queue-chat-backdrop-3l52 { padding:6px; }
+      .queue-chat-modal-3l52 { width:calc(100vw - 12px); max-height:calc(100vh - 12px); }
+      .queue-chat-message-3l52 { max-width:92%; }
+      .queue-chat-compose-3l52 { grid-template-columns:1fr; }
+    }
+  </style>
+
+  <script id="targeted-3l52-color-rozl-chat-script">
+    (() => {
+      /* ------------------------------------------------------------------
+         1. Przywrócenie koloru samochodu/wiersza i usunięcie starego $
+         ------------------------------------------------------------------ */
+      const renderDriverSensitiveBlockBefore3L52 = renderDriverSensitiveBlock;
+      renderDriverSensitiveBlock = function(driver) {
+        let base = String(renderDriverSensitiveBlockBefore3L52.apply(this, arguments) || '');
+        base = base.replace(/<button[^>]*class="driver-finance-btn"[\s\S]*?<\/button>/g, '');
+        const colorButton = canSetDriverPrivateColor(driver)
+          ? `<button type="button" class="driver-color-btn color-restored-3l52" title="Zmień kolor samochodu / wiersza" aria-label="Zmień kolor samochodu" onclick="openDriverColorPicker(event,'${attr(driver.id)}')">${driverColorIconSvg()}</button>`
+          : '';
+        return `${colorButton}${base}`;
+      };
+
+      /* ------------------------------------------------------------------
+         2. Operacje finansowe bezpośrednio w kolumnie Rozl.
+         ------------------------------------------------------------------ */
+      function canCreateCarrierAdjustment3L52(driver) {
+        const role = String(state.user?.supabaseRole || '');
+        if (!['dispatcher','branch_manager','accounting','admin'].includes(role)) return false;
+        if (role === 'dispatcher') return String(driver?.dispatcher || '') === String(state.user?.login || '');
+        return true;
+      }
+
+      function transferTargets3L52() {
+        const self = String(state.user?.supabaseId || '');
+        return USERS.filter(user =>
+          String(user?.supabaseRole || '') === 'dispatcher'
+          && user?.supabaseId
+          && String(user.supabaseId) !== self
+        );
+      }
+
+      function canCreateDispatcherTransfer3L52(driver) {
+        return String(state.user?.supabaseRole || '') === 'dispatcher'
+          && String(driver?.dispatcher || '') === String(state.user?.login || '');
+      }
+
+      function financeCreateBox3L52(driver, weekStart) {
+        const canCarrier = canCreateCarrierAdjustment3L52(driver) && Boolean(driver?.carrierEntityId);
+        const canTransfer = canCreateDispatcherTransfer3L52(driver);
+        if (!canCarrier && !canTransfer) return '';
+
+        const carrierPanel = canCarrier ? `
+          <div class="week-finance-create-panel-3l52">
+            <b>Wyrównanie dla przewoźnika</b>
+            <div class="small">${esc(driver.carrier || 'Przewoźnik')} · ${esc(driver.driver || 'Kierowca')}</div>
+            <div class="week-finance-create-fields-3l52">
+              <input id="rozl-carrier-amount-3l52" class="input" type="number" step="0.01" placeholder="kwota PLN (+ / −)">
+              <input id="rozl-carrier-comment-3l52" class="input" maxlength="500" placeholder="komentarz">
+              <button type="button" class="btn btn-dark" data-weekly-finance-submit-3l48 onclick="submitRozlCarrier3L52('${attr(driver.id)}','${attr(weekStart)}')">Zapisz wyrównanie</button>
+            </div>
+          </div>` : '';
+
+        const targets = canTransfer ? transferTargets3L52() : [];
+        const transferPanel = canTransfer ? `
+          <div class="week-finance-create-panel-3l52">
+            <b>Przelej wynik do innego spedytora</b>
+            <div class="small">Odbiorca potwierdza transfer. Kierownicy oddziałów nie zatwierdzają operacji.</div>
+            <div class="week-finance-create-fields-3l52">
+              <select id="rozl-transfer-target-3l52" class="select">
+                <option value="">— wybierz spedytora —</option>
+                ${targets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login || user.name)}${user.branch ? ` · ${esc(user.branch)}` : ''}</option>`).join('')}
+              </select>
+              <input id="rozl-transfer-amount-3l52" class="input" type="number" min="0.01" step="0.01" placeholder="kwota PLN">
+              <input id="rozl-transfer-comment-3l52" class="input" maxlength="500" placeholder="komentarz">
+              <button type="button" class="btn btn-dark" ${targets.length ? '' : 'disabled'} data-weekly-finance-submit-3l48 onclick="submitRozlTransfer3L52('${attr(weekStart)}')">Wyślij transfer</button>
+            </div>
+          </div>` : '';
+
+        return `<section class="week-finance-create-3l52">
+          <div class="week-finance-create-title-3l52"><span>Dodaj operację</span><span class="small">kolumna Rozl.</span></div>
+          <div class="week-finance-create-grid-3l52">${carrierPanel}${transferPanel}</div>
+          <div id="weekly-finance-tool-status-3l48" class="weekly-finance-tool-status-3l48"></div>
+        </section>`;
+      }
+
+      window.submitRozlCarrier3L52 = function(driverId, weekStart) {
+        const driver = driverById(driverId);
+        if (!driver?.carrierEntityId) { showAppMessage('Brak przewoźnika','Nie udało się ustalić przewoźnika dla tego wiersza.','error'); return; }
+        const amount = Number(String(document.getElementById('rozl-carrier-amount-3l52')?.value || '').replace(',','.'));
+        const comment = String(document.getElementById('rozl-carrier-comment-3l52')?.value || '').trim();
+        sendCarrier3L48(String(driver.carrierEntityId), amount, comment, weekStart, String(driver.driverEntityId || ''), String(driver.driver || ''));
+      };
+
+      window.submitRozlTransfer3L52 = function(weekStart) {
+        const target = String(document.getElementById('rozl-transfer-target-3l52')?.value || '').trim();
+        const amount = Number(String(document.getElementById('rozl-transfer-amount-3l52')?.value || '').replace(',','.'));
+        const comment = String(document.getElementById('rozl-transfer-comment-3l52')?.value || '').trim();
+        sendTransfer3L48(target, amount, comment, weekStart);
+      };
+
+      const openWeekFinanceBefore3L52 = window.openWeekFinanceBoundary3L48;
+      window.openWeekFinanceBoundary3L48 = function(driverId, weekStart) {
+        openWeekFinanceBefore3L52?.apply(this, arguments);
+        const driver = driverById(driverId);
+        const card = document.querySelector('.week-finance-backdrop-3l47 .week-finance-card-3l47');
+        if (!driver || !card) return;
+        const box = financeCreateBox3L52(driver, weekStart);
+        if (box && !card.querySelector('.week-finance-create-3l52')) {
+          card.insertAdjacentHTML('beforeend', box);
+        }
+      };
+
+      /* ------------------------------------------------------------------
+         3. Czat przy Wolnych ładunkach i Planowanych relacjach
+         ------------------------------------------------------------------ */
+      state.loadQueueChat3L52 = state.loadQueueChat3L52 || {
+        schemaAvailable: true,
+        initialized: false,
+        messages: [],
+        reads: [],
+        open: null,
+        sendingRequestId: ''
+      };
+
+      const chatKey3L52 = (branchId, loadRef) => `${String(branchId || '').trim()}::${String(loadRef || '').trim()}`;
+      const chatRouteBranch3L52 = route => String(centralLoadQueueBranchId(route) || '').trim();
+      const chatRouteMessages3L52 = route => {
+        const key = chatKey3L52(chatRouteBranch3L52(route), route?.id);
+        return (state.loadQueueChat3L52.messages || []).filter(item => chatKey3L52(item.branchId, item.loadRef) === key);
+      };
+      const chatReadAt3L52 = route => {
+        const key = chatKey3L52(chatRouteBranch3L52(route), route?.id);
+        return String((state.loadQueueChat3L52.reads || []).find(item => chatKey3L52(item.branchId, item.loadRef) === key)?.lastReadAt || '');
+      };
+      const chatUnreadCount3L52 = route => {
+        const readAt = chatReadAt3L52(route);
+        const me = String(state.user?.supabaseId || '');
+        return chatRouteMessages3L52(route).filter(item =>
+          String(item.authorId || '') !== me
+          && (!readAt || String(item.createdAt || '') > readAt)
+        ).length;
+      };
+      const chatSvg3L52 = () => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14z"></path><path d="M8 10h8M8 13h5"></path></svg>`;
+
+      function chatButton3L52(route, queueType) {
+        if (!route?.id) return '';
+        const messages = chatRouteMessages3L52(route);
+        const unread = chatUnreadCount3L52(route);
+        const count = unread || messages.length;
+        return `<button type="button"
+          class="queue-chat-btn-3l52 ${messages.length ? 'has-messages' : ''} ${unread ? 'has-unread' : ''}"
+          title="${unread ? `${unread} nowych wiadomości` : 'Czat dotyczący tej relacji'}"
+          onclick="openQueueRelationChat3L52(event,'${attr(queueType)}','${attr(route.id)}')"
+          onmousedown="event.stopPropagation()"
+          draggable="false">${chatSvg3L52()}<span>Czat</span>${count ? `<span class="queue-chat-count-3l52">${unread ? unread : messages.length}</span>` : ''}</button>`;
+      }
+
+      const renderProposedBefore3L52 = renderProposedLoadCard;
+      renderProposedLoadCard = function(route) {
+        let html = renderProposedBefore3L52.apply(this, arguments);
+        const button = chatButton3L52(route, 'proposed');
+        return button
+          ? html.replace('<div class="proposed-load-owner-actions">', `<div class="proposed-load-owner-actions">${button}`)
+          : html;
+      };
+
+      const renderFutureBefore3L52 = renderFutureRouteCard;
+      renderFutureRouteCard = function(route) {
+        let html = renderFutureBefore3L52.apply(this, arguments);
+        const button = chatButton3L52(route, 'future');
+        return button
+          ? html.replace('<div class="future-card-actions">', `<div class="future-card-actions">${button}`)
+          : html;
+      };
+
+      function routeForChat3L52(queueType, loadRef) {
+        return queueType === 'proposed'
+          ? (state.proposedLoads || []).find(item => String(item?.id || '') === String(loadRef || ''))
+          : (state.futureRoutes || []).find(item => String(item?.id || '') === String(loadRef || ''));
+      }
+
+      function routeForChatKey3L52(branchId, loadRef) {
+        const all = [...(state.proposedLoads || []), ...(state.futureRoutes || [])];
+        return all.find(route =>
+          String(route?.id || '') === String(loadRef || '')
+          && chatRouteBranch3L52(route) === String(branchId || '')
+        ) || all.find(route => String(route?.id || '') === String(loadRef || '')) || null;
+      }
+
+      function queueChatDate3L52(value) {
+        if (!value) return '';
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pl-PL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      }
+
+      function optimisticMarkChatRead3L52(route) {
+        const branchId = chatRouteBranch3L52(route);
+        const loadRef = String(route?.id || '');
+        if (!branchId || !loadRef) return;
+        const existing = (state.loadQueueChat3L52.reads || []).find(item => chatKey3L52(item.branchId,item.loadRef) === chatKey3L52(branchId,loadRef));
+        const now = new Date().toISOString();
+        if (existing) existing.lastReadAt = now;
+        else state.loadQueueChat3L52.reads.push({ branchId, loadRef, lastReadAt: now });
+      }
+
+      function markChatRead3L52(route) {
+        const branchId = chatRouteBranch3L52(route);
+        const loadRef = String(route?.id || '');
+        if (!branchId || !loadRef || !EMBEDDED_MODE) return;
+        optimisticMarkChatRead3L52(route);
+        window.parent?.postMessage({
+          type:'top-dragon-load-queue-chat-read',
+          requestId:`queue-chat-read-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+          branchId,
+          loadRef
+        }, window.location.origin);
+      }
+
+      function renderQueueChatModal3L52() {
+        document.querySelector('.queue-chat-backdrop-3l52')?.remove();
+        const opened = state.loadQueueChat3L52.open;
+        if (!opened) return;
+        const route = routeForChat3L52(opened.queueType, opened.loadRef);
+        if (!route) return;
+        const rows = chatRouteMessages3L52(route);
+        const me = String(state.user?.supabaseId || '');
+        const title = `${displayLocationWithPostal(route.load) || route.load || '—'} → ${displayLocationWithPostal(route.unload) || route.unload || '—'}`;
+        const messagesHtml = rows.length
+          ? rows.map(item => `<div class="queue-chat-message-3l52 ${String(item.authorId||'')===me?'mine':''}">
+              <div class="queue-chat-message-meta-3l52"><b>${esc(item.authorName || 'Użytkownik')}</b><span>${esc(queueChatDate3L52(item.createdAt))}</span></div>
+              <div class="queue-chat-message-text-3l52">${esc(item.message || '')}</div>
+            </div>`).join('')
+          : `<div class="queue-chat-empty-3l52">Brak wiadomości. Napisz pierwsze pytanie dotyczące tej relacji.</div>`;
+        const schemaWarning = state.loadQueueChat3L52.schemaAvailable === false
+          ? `<div class="queue-chat-schema-warning-3l52">Czat wymaga uruchomienia migracji 030_load_queue_chat.sql w Supabase.</div>`
+          : '';
+        document.body.insertAdjacentHTML('beforeend', `<div class="queue-chat-backdrop-3l52" onclick="if(event.target===this)closeQueueRelationChat3L52()">
+          <div class="queue-chat-modal-3l52" onclick="event.stopPropagation()">
+            <div class="queue-chat-head-3l52">
+              <div><h3>Czat relacji</h3><small>${esc(title)} · ${esc(formatDateForInput(route.date || state.reportDate || START_DATE))}</small></div>
+              <button type="button" class="btn" onclick="closeQueueRelationChat3L52()">Zamknij</button>
+            </div>
+            <div class="queue-chat-list-3l52" id="queue-chat-list-3l52">${messagesHtml}</div>
+            <div>
+              ${schemaWarning}
+              <form class="queue-chat-compose-3l52" onsubmit="sendQueueRelationChat3L52(event)">
+                <textarea id="queue-chat-input-3l52" class="input" maxlength="1500" placeholder="Napisz pytanie lub informację dotyczącą tego ładunku…" ${state.loadQueueChat3L52.schemaAvailable===false?'disabled':''}></textarea>
+                <button id="queue-chat-send-3l52" class="btn btn-dark" type="submit" ${state.loadQueueChat3L52.schemaAvailable===false?'disabled':''}>Wyślij</button>
+                <div id="queue-chat-status-3l52" class="queue-chat-compose-status-3l52"></div>
+              </form>
+            </div>
+          </div>
+        </div>`);
+        requestAnimationFrame(() => {
+          const list = document.getElementById('queue-chat-list-3l52');
+          if (list) list.scrollTop = list.scrollHeight;
+          document.getElementById('queue-chat-input-3l52')?.focus();
+        });
+      }
+
+      window.openQueueRelationChat3L52 = function(event, queueType, loadRef) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const route = routeForChat3L52(queueType, loadRef);
+        if (!route) return;
+        state.loadQueueChat3L52.open = { queueType, loadRef:String(loadRef), branchId:chatRouteBranch3L52(route) };
+        markChatRead3L52(route);
+        renderQueueChatModal3L52();
+      };
+
+      window.closeQueueRelationChat3L52 = function() {
+        state.loadQueueChat3L52.open = null;
+        document.querySelector('.queue-chat-backdrop-3l52')?.remove();
+        if (state.proposedPanelOpen) syncProposedPanel();
+        if (state.futurePanelOpen) syncFuturePanel();
+      };
+
+      window.sendQueueRelationChat3L52 = function(event) {
+        event?.preventDefault?.();
+        const opened = state.loadQueueChat3L52.open;
+        if (!opened || state.loadQueueChat3L52.sendingRequestId) return;
+        if (state.loadQueueChat3L52.schemaAvailable === false) {
+          showAppMessage('Czat nie jest jeszcze aktywny','Uruchom migrację 030_load_queue_chat.sql w Supabase.','error');
+          return;
+        }
+        const body = String(document.getElementById('queue-chat-input-3l52')?.value || '').trim();
+        if (!body) return;
+        if (body.length > 1500) {
+          showAppMessage('Wiadomość jest za długa','Maksymalnie 1500 znaków.','error');
+          return;
+        }
+        const requestId = `queue-chat-send-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+        state.loadQueueChat3L52.sendingRequestId = requestId;
+        const button = document.getElementById('queue-chat-send-3l52');
+        if (button) { button.disabled = true; button.textContent = 'Wysyłanie…'; }
+        const status = document.getElementById('queue-chat-status-3l52');
+        if (status) { status.className='queue-chat-compose-status-3l52'; status.textContent='Wysyłanie wiadomości…'; }
+        window.parent?.postMessage({
+          type:'top-dragon-load-queue-chat-send',
+          requestId,
+          branchId:opened.branchId,
+          loadRef:opened.loadRef,
+          message:body
+        }, window.location.origin);
+      };
+
+      function requestQueueChat3L52() {
+        if (!EMBEDDED_MODE || !state.user) return;
+        window.parent?.postMessage({
+          type:'top-dragon-load-queue-chat-request',
+          requestId:`queue-chat-load-${Date.now()}-${Math.random().toString(36).slice(2,7)}`
+        }, window.location.origin);
+      }
+
+      function applyQueueChatData3L52(message) {
+        const previousIds = new Set((state.loadQueueChat3L52.messages || []).map(item => String(item.id || '')));
+        const wasInitialized = Boolean(state.loadQueueChat3L52.initialized);
+        state.loadQueueChat3L52.schemaAvailable = message?.schemaAvailable !== false;
+        state.loadQueueChat3L52.messages = Array.isArray(message?.messages) ? message.messages.map(item => ({
+          id:String(item?.id||''), branchId:String(item?.branchId||''), loadRef:String(item?.loadRef||''),
+          authorId:String(item?.authorId||''), authorName:String(item?.authorName||'Użytkownik'),
+          message:String(item?.message||''), createdAt:String(item?.createdAt||'')
+        })) : [];
+        state.loadQueueChat3L52.reads = Array.isArray(message?.reads) ? message.reads.map(item => ({
+          branchId:String(item?.branchId||''), loadRef:String(item?.loadRef||''), lastReadAt:String(item?.lastReadAt||'')
+        })) : [];
+        state.loadQueueChat3L52.initialized = true;
+
+        const me = String(state.user?.supabaseId || '');
+        const newlyArrived = wasInitialized
+          ? state.loadQueueChat3L52.messages.filter(item => !previousIds.has(String(item.id||'')) && String(item.authorId||'') !== me)
+          : [];
+
+        const opened = state.loadQueueChat3L52.open;
+        if (opened) {
+          const route = routeForChat3L52(opened.queueType, opened.loadRef);
+          if (route) {
+            const hasIncomingHere = newlyArrived.some(item => chatKey3L52(item.branchId,item.loadRef) === chatKey3L52(opened.branchId,opened.loadRef));
+            if (hasIncomingHere) markChatRead3L52(route);
+          }
+          renderQueueChatModal3L52();
+        }
+
+        if (state.proposedPanelOpen) syncProposedPanel();
+        if (state.futurePanelOpen) syncFuturePanel();
+
+        const notifyRows = newlyArrived.filter(item => !opened || chatKey3L52(item.branchId,item.loadRef) !== chatKey3L52(opened.branchId,opened.loadRef));
+        if (notifyRows.length) {
+          const first = notifyRows[0];
+          const route = routeForChatKey3L52(first.branchId, first.loadRef);
+          const routeLabel = route
+            ? `${displayLocationWithPostal(route.load) || route.load || '—'} → ${displayLocationWithPostal(route.unload) || route.unload || '—'}`
+            : 'relacja';
+          playAttentionSound();
+          showAttentionToast(`Nowa wiadomość w czacie: ${first.authorName || 'Użytkownik'} · ${routeLabel}${notifyRows.length>1?` (+${notifyRows.length-1})`:''}`);
+          showAppMessage('Nowa wiadomość dotycząca relacji', `${first.authorName || 'Użytkownik'}: ${String(first.message||'').slice(0,140)}`, 'info');
+        }
+      }
+
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin) return;
+        const message = event.data || {};
+        if (message.type === 'top-dragon-load-queue-chat-data') {
+          applyQueueChatData3L52(message);
+          return;
+        }
+        if (message.type === 'top-dragon-load-queue-chat-operation-result') {
+          const requestId = String(message.requestId || '');
+          if (message.action === 'send' && requestId === String(state.loadQueueChat3L52.sendingRequestId || '')) {
+            state.loadQueueChat3L52.sendingRequestId = '';
+            const button = document.getElementById('queue-chat-send-3l52');
+            const status = document.getElementById('queue-chat-status-3l52');
+            if (button) { button.disabled = false; button.textContent = 'Wyślij'; }
+            if (message.ok) {
+              const input = document.getElementById('queue-chat-input-3l52');
+              if (input) input.value = '';
+              if (status) { status.className='queue-chat-compose-status-3l52'; status.textContent='Wysłano.'; }
+            } else {
+              if (status) { status.className='queue-chat-compose-status-3l52 error'; status.textContent=String(message.message||'Nie udało się wysłać wiadomości.'); }
+              showAppMessage('Nie udało się wysłać wiadomości', String(message.message || ''), 'error');
+            }
+          }
+        }
+      });
+
+      const applyAuthenticatedUserBefore3L52 = applyAuthenticatedUser;
+      applyAuthenticatedUser = function(user) {
+        const result = applyAuthenticatedUserBefore3L52.apply(this, arguments);
+        setTimeout(requestQueueChat3L52, 90);
+        return result;
+      };
+
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && state.loadQueueChat3L52.open) closeQueueRelationChat3L52();
+      }, true);
+
+      setTimeout(requestQueueChat3L52, 650);
+      requestAnimationFrame(() => { if (state.appView === 'plan') syncBoardOnly(); });
     })();
   </script>
 
