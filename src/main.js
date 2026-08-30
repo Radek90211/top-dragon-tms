@@ -37,6 +37,9 @@ let workflowReloadTimer = null
 let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
+// Administrator może przełączyć wyłącznie kontekst podglądu interfejsu. Konto,
+// token Supabase i uprawnienia do operacji administracyjnych pozostają bez zmian.
+let adminPreview = null
 
 const ROLE_LABELS = {
   dispatcher: 'Spedytor',
@@ -49,6 +52,72 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 function isValidUuid(value) {
   return UUID_PATTERN.test(String(value || '').trim())
+}
+
+function currentRole() {
+  return String(adminPreview?.role || currentProfile?.role || '')
+}
+
+function actualRole() {
+  return String(currentProfile?.role || '')
+}
+
+function isActualAdmin() {
+  return actualRole() === 'admin'
+}
+
+function currentActorId() {
+  return String(adminPreview?.actorId || currentUser?.id || '').trim()
+}
+
+function currentActorLogin() {
+  return String(adminPreview?.login || normalizedTmsLogin(currentProfile) || '').trim()
+}
+
+function currentActorDisplayName() {
+  return String(adminPreview?.displayName || currentProfile?.display_name || currentUser?.email || '').trim()
+}
+
+function currentActorBranchName() {
+  return String(adminPreview?.branchName || firstRelated(currentProfile?.branch)?.name || currentProfile?.branch_name || '').trim()
+}
+
+function hasRole(...roles) {
+  return roles.includes(currentRole())
+}
+
+function currentBranchId() {
+  return String(adminPreview?.branchId || currentProfile?.branch_id || '').trim()
+}
+
+function isBranchScopedRole() {
+  return hasRole('dispatcher', 'branch_manager')
+}
+
+function isOperationalEditor() {
+  return hasRole('dispatcher', 'branch_manager', 'admin')
+}
+
+function sameName(left, right) {
+  return String(left || '').trim().toLocaleLowerCase('pl') === String(right || '').trim().toLocaleLowerCase('pl')
+}
+
+async function loadFleetAssignmentScope(assignmentId) {
+  const { data, error } = await supabase
+    .from('fleet_assignments')
+    .select('id,branch_id,assigned_dispatcher_id,active')
+    .eq('id', assignmentId)
+    .maybeSingle()
+  if (error) throw error
+  return data || null
+}
+
+function canModifyFleetAssignment(assignment) {
+  if (!assignment) return false
+  if (hasRole('admin')) return true
+  if (hasRole('branch_manager')) return Boolean(currentBranchId() && String(assignment.branch_id || '') === currentBranchId())
+  if (hasRole('dispatcher')) return Boolean(currentActorId() && String(assignment.assigned_dispatcher_id || '') === currentActorId())
+  return false
 }
 
 function suspendTmsRuntimeForAdminPanel() {
@@ -133,6 +202,7 @@ function renderFatalError(error) {
 function renderLogin(message = '') {
   currentUser = null
   currentProfile = null
+  adminPreview = null
   activeTmsFrame = null
   activeAuthMessage = null
   activeUserDirectoryMessage = null
@@ -810,7 +880,7 @@ function firstRelated(value) {
 }
 
 async function loadFleetData() {
-  const { data: assignments, error: assignmentsError } = await supabase
+  let assignmentsQuery = supabase
     .from('fleet_assignments')
     .select(`
       id,
@@ -828,6 +898,17 @@ async function loadFleetData() {
     .eq('active', true)
     .order('created_at', { ascending: true })
 
+  if (isBranchScopedRole()) {
+    if (!currentBranchId()) return []
+    assignmentsQuery = assignmentsQuery.eq('branch_id', currentBranchId())
+    if (hasRole('dispatcher')) {
+      if (!currentActorId()) return []
+      assignmentsQuery = assignmentsQuery.eq('assigned_dispatcher_id', currentActorId())
+    }
+  }
+
+  const { data: assignments, error: assignmentsError } = await assignmentsQuery
+
   if (assignmentsError) {
     throw new Error(`Nie udało się pobrać floty: ${assignmentsError.message}`)
   }
@@ -843,11 +924,11 @@ async function loadFleetData() {
   const usageRows = usage || []
 
   let preferenceRows = []
-  if (currentProfile?.role === 'dispatcher' && currentUser?.id) {
+  if (currentRole() === 'dispatcher' && currentActorId()) {
     const { data: preferences, error: preferencesError } = await supabase
       .from('driver_row_preferences')
       .select('driver_id, color')
-      .eq('user_id', currentUser.id)
+      .eq('user_id', currentActorId())
 
     if (preferencesError) {
       throw new Error(`Nie udało się pobrać prywatnych kolorów kierowców: ${preferencesError.message}`)
@@ -975,7 +1056,7 @@ function subscribeFleetRealtime() {
   }
   if (!currentProfile || !currentUser) return
 
-  const channelName = `tms-fleet-${currentProfile.branch_id || 'all'}-${currentUser.id}`
+  const channelName = `tms-fleet-${currentBranchId() || 'all'}-${currentActorId() || 'user'}`
   let channel = supabase.channel(channelName)
   ;['fleet_assignments', 'carriers', 'drivers', 'vehicles', 'trailers', 'fleet_relation_usage', 'driver_row_preferences', 'tms_carrier_rate_history'].forEach((table) => {
     channel = channel.on(
@@ -996,9 +1077,9 @@ async function loadCentralRelations() {
     .eq('active', true)
     .order('updated_at', { ascending: true })
 
-  if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
-    if (!currentProfile.branch_id) return []
-    query = query.eq('branch_id', currentProfile.branch_id)
+  if (!['admin', 'accounting'].includes(currentRole())) {
+    if (!currentBranchId()) return []
+    query = query.eq('branch_id', currentBranchId())
   }
 
   const { data, error } = await query
@@ -1008,6 +1089,7 @@ async function loadCentralRelations() {
 
   return (data || [])
     .filter((row) => row?.payload && row?.relation_ref)
+    .filter((row) => !hasRole('dispatcher') || sameName(row?.payload?.ownerDispatcher || row?.payload?.createdBy, currentActorLogin()))
     .map((row) => ({
       id: String(row.relation_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -1052,12 +1134,12 @@ async function exportCentralRelationsArchiveToTms(message) {
       .select('branch_id, relation_ref, payload, active, updated_at')
       .order('updated_at', { ascending: true })
 
-    if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
-      if (!currentProfile.branch_id) {
+    if (!['admin', 'accounting'].includes(currentRole())) {
+      if (!currentBranchId()) {
         send(true, [])
         return
       }
-      query = query.eq('branch_id', currentProfile.branch_id)
+      query = query.eq('branch_id', currentBranchId())
     }
 
     const { data, error } = await query
@@ -1067,7 +1149,8 @@ async function exportCentralRelationsArchiveToTms(message) {
     const cutoffIso = cutoff.toISOString().slice(0, 10)
     const rows = (data || []).filter((row) => {
       const date = String(row?.payload?.date || '').slice(0, 10)
-      return row?.payload && row?.relation_ref && (!date || date >= cutoffIso)
+      const roleVisible = !hasRole('dispatcher') || sameName(row?.payload?.ownerDispatcher || row?.payload?.createdBy, currentActorLogin())
+      return row?.payload && row?.relation_ref && roleVisible && (!date || date >= cutoffIso)
     }).map((row) => ({
       id: String(row.relation_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -1099,7 +1182,7 @@ function subscribeCentralRelations() {
 
   if (!currentProfile) return
 
-  const channelName = `tms-relations-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  const channelName = `tms-relations-${currentBranchId() || 'all'}-${currentActorId() || 'user'}`
   relationsChannel = supabase
     .channel(channelName)
     .on(
@@ -1127,7 +1210,7 @@ async function upsertCentralRelationFromTms(message) {
   const relation = message?.relation
   const relationId = String(relation?.id || '').trim()
   const branchId = String(
-    currentProfile?.role === 'admin'
+    currentRole() === 'admin'
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -1136,13 +1219,17 @@ async function upsertCentralRelationFromTms(message) {
     sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Brak identyfikatora relacji lub oddziału.')
     return
   }
+  if (!isOperationalEditor()) {
+    sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Twoja rola ma dostęp tylko do odczytu relacji operacyjnych.')
+    return
+  }
   if (!isValidUuid(branchId)) {
     sendRelationOperationResult(requestId, false, 'upsert', relationId, '', `Nieprawidłowy identyfikator oddziału. Import/zapis został zatrzymany (${branchId || 'brak'}).`)
     return
   }
 
-  if (currentProfile?.role === 'dispatcher') {
-    const actor = String(currentProfile?.display_name || '').trim()
+  if (currentRole() === 'dispatcher') {
+    const actor = currentActorLogin()
     const owner = String(relation?.ownerDispatcher || relation?.createdBy || '').trim()
     if (!actor || !owner || actor.toLocaleLowerCase('pl') !== owner.toLocaleLowerCase('pl')) {
       sendRelationOperationResult(requestId, false, 'upsert', relationId, branchId, 'Nie możesz zapisać zmian relacji należącej do innego spedytora.')
@@ -1172,7 +1259,7 @@ async function updateCentralRelationAccountingFromTms(message) {
   const relationId = String(message?.relationId || '').trim()
   const patch = message?.patch && typeof message.patch === 'object' ? message.patch : null
   const branchId = String(
-    ['admin', 'accounting'].includes(String(currentProfile?.role || ''))
+    ['admin', 'accounting'].includes(currentRole())
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -1182,7 +1269,7 @@ async function updateCentralRelationAccountingFromTms(message) {
     return
   }
 
-  if (!['accounting', 'admin'].includes(String(currentProfile?.role || ''))) {
+  if (!['accounting', 'admin'].includes(currentRole())) {
     sendRelationOperationResult(requestId, false, 'accounting', relationId, branchId, 'Status rozliczeń może zmieniać tylko grupa Rozliczenia.')
     return
   }
@@ -1206,7 +1293,7 @@ async function archiveCentralRelationFromTms(message) {
   const requestId = String(message?.requestId || '')
   const relationId = String(message?.relationId || '').trim()
   const branchId = String(
-    currentProfile?.role === 'admin'
+    currentRole() === 'admin'
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -1215,8 +1302,26 @@ async function archiveCentralRelationFromTms(message) {
     sendRelationOperationResult(requestId, false, 'archive', relationId, branchId, 'Brak identyfikatora relacji lub oddziału.')
     return
   }
+  if (!isOperationalEditor()) {
+    sendRelationOperationResult(requestId, false, 'archive', relationId, branchId, 'Twoja rola nie może usuwać relacji z aktywnego planu.')
+    return
+  }
 
   try {
+    if (hasRole('dispatcher')) {
+      const { data: existing, error: ownershipError } = await supabase
+        .from('tms_relations')
+        .select('payload')
+        .eq('branch_id', branchId)
+        .eq('relation_ref', relationId)
+        .maybeSingle()
+      if (ownershipError) throw ownershipError
+      const owner = existing?.payload?.ownerDispatcher || existing?.payload?.createdBy || ''
+      if (!sameName(owner, currentActorLogin())) {
+        sendRelationOperationResult(requestId, false, 'archive', relationId, branchId, 'Możesz usuwać wyłącznie relacje, które prowadzisz.')
+        return
+      }
+    }
     const { error } = await supabase.rpc('archive_tms_relation', {
       p_branch_id: branchId,
       p_relation_ref: relationId,
@@ -1296,7 +1401,7 @@ function subscribeCentralClients() {
 
   if (!currentProfile) return
 
-  const channelName = `tms-clients-global-${currentUser?.id || 'user'}`
+  const channelName = `tms-clients-global-${currentActorId() || 'user'}`
   clientsChannel = supabase
     .channel(channelName)
     .on(
@@ -1328,8 +1433,41 @@ async function upsertCentralClientFromTms(message) {
     sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Brak identyfikatora lub danych klienta.')
     return
   }
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Rozliczenia mają dostęp do bazy klientów wyłącznie do odczytu.')
+    return
+  }
 
   try {
+    if (hasRole('dispatcher', 'branch_manager')) {
+      const { data: existing, error: existingError } = await supabase
+        .from('tms_clients_central')
+        .select('payload')
+        .eq('client_ref', clientId)
+        .eq('active', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (existingError) throw existingError
+      const oldOwner = String(existing?.payload?.dispatcher || '').trim()
+      const newOwner = String(client?.dispatcher || '').trim()
+      if (hasRole('dispatcher') && oldOwner !== newOwner) {
+        sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Zmiana opiekuna klienta wymaga wniosku i akceptacji kierownika oddziału.')
+        return
+      }
+      if (hasRole('branch_manager')) {
+        const profiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
+        const ownerInBranch = (owner) => !owner || profiles.some((profile) => (
+          profile?.role === 'dispatcher'
+          && String(profile?.branchId || '') === currentBranchId()
+          && sameName(profile?.login, owner)
+        ))
+        if (!ownerInBranch(oldOwner) || !ownerInBranch(newOwner)) {
+          sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Kierownik może zmieniać kartę klienta tylko wtedy, gdy opiekun należy do jego oddziału lub klient nie ma opiekuna.')
+          return
+        }
+      }
+    }
     const { error } = await supabase.rpc('upsert_tms_client', {
       p_branch_id: null,
       p_client: client,
@@ -1343,12 +1481,80 @@ async function upsertCentralClientFromTms(message) {
   }
 }
 
+// Import klientów musi czekać na potwierdzenie każdego zapisu RPC. Wcześniej
+// iframe pokazywał sukces po zmianie localStorage, a asynchroniczny diff mógł
+// dopiero później zakończyć się błędem RLS, schematu lub sieci.
+async function bulkUpsertCentralClientsFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const clients = Array.isArray(message?.clients) ? message.clients : []
+  const send = (ok, imported = 0, failed = 0, errors = [], messageText = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-client-bulk-operation-result',
+      requestId,
+      ok: Boolean(ok),
+      imported: Number(imported || 0),
+      failed: Number(failed || 0),
+      errors: Array.isArray(errors) ? errors.slice(0, 50) : [],
+      message: String(messageText || ''),
+    }, window.location.origin)
+  }
+
+  if (!isActualAdmin()) {
+    send(false, 0, clients.length, [], 'Masowy import klientów jest dostępny wyłącznie dla rzeczywistego administratora.')
+    return
+  }
+  if (!clients.length) {
+    send(false, 0, 0, [], 'Nie przekazano żadnych klientów do importu.')
+    return
+  }
+  if (clients.length > 5000) {
+    send(false, 0, clients.length, [], 'Jednorazowy import może zawierać maksymalnie 5000 klientów.')
+    return
+  }
+
+  let imported = 0
+  const errors = []
+  const saveOne = async (client) => {
+    const clientId = String(client?.id || '').trim()
+    if (!clientId || typeof client !== 'object' || !String(client?.name || '').trim() || !String(client?.address || '').trim()) {
+      return { ok: false, clientId, message: 'Brak identyfikatora, nazwy lub adresu klienta.' }
+    }
+    try {
+      const { error } = await supabase.rpc('upsert_tms_client', { p_branch_id: null, p_client: client })
+      if (error) throw error
+      return { ok: true, clientId }
+    } catch (error) {
+      return { ok: false, clientId, message: String(error?.message || 'Nie udało się zapisać klienta.') }
+    }
+  }
+  // Osiem równoległych RPC przyspiesza duży arkusz, a każdy rekord nadal ma
+  // osobne potwierdzenie i trafia do raportu błędów.
+  for (let offset = 0; offset < clients.length; offset += 8) {
+    const results = await Promise.all(clients.slice(offset, offset + 8).map(saveOne))
+    results.forEach((result) => { if (result.ok) imported += 1; else errors.push({ clientId: result.clientId, message: result.message }) })
+  }
+
+  let refreshError = ''
+  try {
+    await syncCentralClientsToTms()
+  } catch (error) {
+    refreshError = `Zapis zakończony, ale odświeżenie listy klientów nie powiodło się: ${String(error?.message || error)}`
+    errors.push({ clientId: '', message: refreshError })
+  }
+  const failed = errors.filter((item) => String(item?.clientId || '').trim()).length
+  send(imported > 0 && failed === 0 && !refreshError, imported, failed, errors, refreshError || (failed ? 'Import zakończył się częściowo. Sprawdź szczegóły.' : 'Wszyscy klienci zostali zapisani w Supabase.'))
+}
+
 async function archiveCentralClientFromTms(message) {
   const requestId = String(message?.requestId || '')
   const clientId = String(message?.clientId || '').trim()
 
   if (!clientId) {
     sendClientOperationResult(requestId, false, 'archive', clientId, '', 'Brak identyfikatora klienta.')
+    return
+  }
+  if (!hasRole('admin')) {
+    sendClientOperationResult(requestId, false, 'archive', clientId, '', 'Globalną kartę klienta może usunąć wyłącznie administrator.')
     return
   }
 
@@ -1429,13 +1635,19 @@ async function loadCentralLoadQueue() {
     }
   }
 
+  let queueQuery = supabase
+    .from('tms_load_queue')
+    .select('branch_id, queue_type, load_ref, payload, updated_at')
+    .eq('active', true)
+    .order('updated_at', { ascending: true })
+  if (isBranchScopedRole()) {
+    if (!currentBranchId()) return { rows: [], expiredProposedStats: [] }
+    queueQuery = queueQuery.eq('branch_id', currentBranchId())
+  }
+
   const [{ data, error }, statsResult] = await Promise.all([
-    supabase
-      .from('tms_load_queue')
-      .select('branch_id, queue_type, load_ref, payload, updated_at')
-      .eq('active', true)
-      .order('updated_at', { ascending: true }),
-    supabase.rpc('tms_expired_proposed_load_stats'),
+    queueQuery,
+    hasRole('admin') ? supabase.rpc('tms_expired_proposed_load_stats') : Promise.resolve({ data: [], error: null }),
   ])
 
   if (error) {
@@ -1493,7 +1705,7 @@ function subscribeCentralLoadQueue() {
   }
   if (!currentProfile) return
 
-  const channelName = `tms-load-queue-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  const channelName = `tms-load-queue-${currentBranchId() || 'all'}-${currentActorId() || 'user'}`
   loadQueueChannel = supabase
     .channel(channelName)
     .on(
@@ -1513,18 +1725,23 @@ function isLoadQueueChatSchemaMissing(error) {
 async function loadCentralLoadQueueChat() {
   if (!currentProfile || !currentUser) return { messages: [], reads: [], schemaAvailable: false }
 
-  const [messagesResult, readsResult] = await Promise.all([
-    supabase
-      .from('tms_load_queue_chat_messages')
-      .select('id,branch_id,load_ref,author_id,author_name,message,created_at')
-      .order('created_at', { ascending: false })
-      .limit(2000),
-    supabase
-      .from('tms_load_queue_chat_reads')
-      .select('branch_id,load_ref,last_read_at')
-      .eq('user_id', currentUser.id)
-      .limit(2000),
-  ])
+  let messagesQuery = supabase
+    .from('tms_load_queue_chat_messages')
+    .select('id,branch_id,load_ref,author_id,author_name,message,created_at')
+    .order('created_at', { ascending: false })
+    .limit(2000)
+  let readsQuery = supabase
+    .from('tms_load_queue_chat_reads')
+    .select('branch_id,load_ref,last_read_at')
+    .eq('user_id', currentActorId())
+    .limit(2000)
+  if (isBranchScopedRole()) {
+    if (!currentBranchId()) return { messages: [], reads: [], schemaAvailable: true }
+    messagesQuery = messagesQuery.eq('branch_id', currentBranchId())
+    readsQuery = readsQuery.eq('branch_id', currentBranchId())
+  }
+
+  const [messagesResult, readsResult] = await Promise.all([messagesQuery, readsQuery])
 
   if (messagesResult.error || readsResult.error) {
     const error = messagesResult.error || readsResult.error
@@ -1560,7 +1777,7 @@ async function syncCentralLoadQueueChatToTms() {
     schemaAvailable: Boolean(data.schemaAvailable),
     messages: data.messages,
     reads: data.reads,
-    currentUserId: String(currentUser?.id || ''),
+    currentUserId: currentActorId(),
   }
   activeTmsFrame?.contentWindow?.postMessage(activeLoadQueueChatMessage, window.location.origin)
 }
@@ -1582,7 +1799,7 @@ function subscribeCentralLoadQueueChat() {
   }
   if (!currentProfile) return
 
-  const channelName = `tms-load-queue-chat-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  const channelName = `tms-load-queue-chat-${currentBranchId() || 'all'}-${currentActorId() || 'user'}`
   loadQueueChatChannel = supabase
     .channel(channelName)
     .on(
@@ -1611,6 +1828,10 @@ async function createLoadQueueChatMessageFromTms(message) {
 
   if (!branchId || !loadRef || !body) {
     sendLoadQueueChatOperationResult(requestId, false, 'send', 'Wpisz wiadomość i wskaż relację.')
+    return
+  }
+  if (isBranchScopedRole() && branchId !== currentBranchId()) {
+    sendLoadQueueChatOperationResult(requestId, false, 'send', 'Nie możesz pisać w czacie relacji z innego oddziału.')
     return
   }
   if (body.length > 1500) {
@@ -1644,6 +1865,7 @@ async function markLoadQueueChatReadFromTms(message) {
   const branchId = String(message?.branchId || '').trim()
   const loadRef = String(message?.loadRef || '').trim()
   if (!branchId || !loadRef) return
+  if (isBranchScopedRole() && branchId !== currentBranchId()) return
 
   try {
     const { error } = await supabase.rpc('mark_tms_load_queue_chat_read', {
@@ -1686,7 +1908,7 @@ async function upsertCentralLoadQueueFromTms(message) {
   const load = message?.load
   const loadId = String(load?.id || message?.loadId || '').trim()
   const branchId = String(
-    currentProfile?.role === 'admin'
+    currentRole() === 'admin'
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -1695,15 +1917,19 @@ async function upsertCentralLoadQueueFromTms(message) {
     sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Brak identyfikatora ładunku, oddziału lub typu kolejki.')
     return
   }
+  if (!isOperationalEditor()) {
+    sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Twoja rola ma dostęp do kolejek wyłącznie do odczytu.')
+    return
+  }
 
   const requestedBranchId = String(message?.branchId || '').trim()
-  if (currentProfile?.role !== 'admin' && requestedBranchId && requestedBranchId !== String(currentProfile?.branch_id || '').trim()) {
+  if (currentRole() !== 'admin' && requestedBranchId && requestedBranchId !== currentBranchId()) {
     sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Nie możesz zmieniać wpisu należącego do innego oddziału.')
     return
   }
 
-  if (currentProfile?.role === 'dispatcher') {
-    const actor = String(currentProfile?.display_name || '').trim().toLocaleLowerCase('pl')
+  if (currentRole() === 'dispatcher') {
+    const actor = currentActorLogin().toLocaleLowerCase('pl')
     const owner = String(load?.createdBy || load?.ownerDispatcher || '').trim().toLocaleLowerCase('pl')
     if (!actor || !owner || actor !== owner) {
       sendLoadQueueOperationResult(requestId, false, 'upsert', queueType, loadId, branchId, 'Nie możesz zmieniać ładunku należącego do innego spedytora.')
@@ -1732,7 +1958,7 @@ async function archiveCentralLoadQueueFromTms(message) {
   const queueType = String(message?.queueType || '').trim()
   const loadId = String(message?.loadId || '').trim()
   const branchId = String(
-    currentProfile?.role === 'admin'
+    currentRole() === 'admin'
       ? (message?.branchId || currentProfile?.branch_id || '')
       : (currentProfile?.branch_id || '')
   ).trim()
@@ -1741,14 +1967,33 @@ async function archiveCentralLoadQueueFromTms(message) {
     sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Brak identyfikatora ładunku, oddziału lub typu kolejki.')
     return
   }
+  if (!isOperationalEditor()) {
+    sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Twoja rola nie może usuwać wpisów z kolejki.')
+    return
+  }
 
   const requestedBranchId = String(message?.branchId || '').trim()
-  if (currentProfile?.role !== 'admin' && requestedBranchId && requestedBranchId !== String(currentProfile?.branch_id || '').trim()) {
+  if (currentRole() !== 'admin' && requestedBranchId && requestedBranchId !== currentBranchId()) {
     sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Nie możesz usuwać wpisu należącego do innego oddziału.')
     return
   }
 
   try {
+    if (hasRole('dispatcher')) {
+      const { data: existing, error: ownershipError } = await supabase
+        .from('tms_load_queue')
+        .select('payload')
+        .eq('branch_id', branchId)
+        .eq('queue_type', queueType)
+        .eq('load_ref', loadId)
+        .maybeSingle()
+      if (ownershipError) throw ownershipError
+      const owner = existing?.payload?.createdBy || existing?.payload?.ownerDispatcher || ''
+      if (!sameName(owner, currentActorLogin())) {
+        sendLoadQueueOperationResult(requestId, false, 'archive', queueType, loadId, branchId, 'Możesz usuwać wyłącznie wpisy, które utworzyłeś.')
+        return
+      }
+    }
     const { error } = await supabase.rpc('archive_tms_load_queue', {
       p_branch_id: branchId,
       p_queue_type: queueType,
@@ -1791,6 +2036,26 @@ async function loadCentralLoadRequests() {
 
   return (data || [])
     .filter((row) => row?.payload && row?.request_ref)
+    .filter((row) => {
+      if (hasRole('admin', 'accounting')) return true
+      const payload = row.payload || {}
+      const owner = String(payload.ownerDispatcher || '').trim()
+      if (hasRole('dispatcher')) {
+        const login = currentActorLogin()
+        const participants = Array.isArray(payload.participants) ? payload.participants : []
+        return sameName(owner, login)
+          || sameName(payload.requesterDispatcher, login)
+          || participants.some((item) => sameName(item?.dispatcher, login))
+      }
+      if (hasRole('branch_manager')) {
+        const directBranch = String(payload.branchId || payload.branch_id || '').trim()
+        if (directBranch) return directBranch === currentBranchId()
+        const profiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
+        const ownerProfile = profiles.find((profile) => sameName(profile?.login, owner))
+        return String(ownerProfile?.branchId || '') === currentBranchId()
+      }
+      return false
+    })
     .map((row) => ({
       id: String(row.request_ref || ''),
       mergeKey: String(row.merge_key || ''),
@@ -1827,7 +2092,7 @@ function subscribeCentralLoadRequests() {
   }
   if (!currentProfile) return
 
-  const channelName = `tms-load-requests-${currentUser?.id || 'user'}`
+  const channelName = `tms-load-requests-${currentActorId() || 'user'}`
   loadRequestsChannel = supabase
     .channel(channelName)
     .on(
@@ -1857,6 +2122,10 @@ async function upsertCentralLoadRequestFromTms(message) {
 
   if (!request || typeof request !== 'object' || !localRequestId || !mergeKey) {
     sendLoadRequestOperationResult(requestId, false, localRequestId, localRequestId, 'Zapytanie nie ma identyfikatora lub klucza łączenia.')
+    return
+  }
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendLoadRequestOperationResult(requestId, false, localRequestId, localRequestId, 'Rozliczenia nie mogą tworzyć ani zmieniać zapytań operacyjnych.')
     return
   }
 
@@ -2005,8 +2274,14 @@ async function registerRelationUsageFromTms(message) {
     )
     return
   }
+  if (!isOperationalEditor()) {
+    sendRelationUsageResult(requestId, false, 'Ta rola nie może rejestrować użycia floty.', assignmentId, relationRef)
+    return
+  }
 
   try {
+    const assignment = await loadFleetAssignmentScope(assignmentId)
+    if (!canModifyFleetAssignment(assignment)) throw new Error('Zestaw znajduje się poza Twoim zakresem floty.')
     const { error } = await supabase.rpc('register_fleet_relation_usage', {
       p_relation_ref: relationRef,
       p_assignment_id: assignmentId,
@@ -2042,12 +2317,38 @@ async function createFleetSetFromTms(message) {
   const payload = message?.payload || {}
   const requestId = message?.requestId || ''
 
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendFleetOperationResult(requestId, false, 'create', 'Twoja rola nie może dodawać floty.')
+    return
+  }
+
   try {
+    let assignedDispatcherId = String(payload.assignedDispatcherId || '').trim()
+    let branchId = String(payload.branchId || '').trim()
+    if (hasRole('dispatcher')) {
+      assignedDispatcherId = currentActorId()
+      branchId = currentBranchId()
+    } else if (hasRole('branch_manager')) {
+      branchId = currentBranchId()
+      const { data: target, error: targetError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', assignedDispatcherId)
+        .eq('branch_id', branchId)
+        .eq('role', 'dispatcher')
+        .eq('active', true)
+        .maybeSingle()
+      if (targetError) throw targetError
+      if (!target) throw new Error('Kierownik może przypisać flotę wyłącznie aktywnemu spedytorowi ze swojego oddziału.')
+    }
+    if (!isValidUuid(assignedDispatcherId) || !isValidUuid(branchId)) {
+      throw new Error('Nieprawidłowy spedytor lub oddział dla nowego zestawu.')
+    }
     const { error } = await supabase.rpc('create_fleet_set', {
       p_carrier_name: String(payload.carrierName || '').trim(),
       p_driver_name: String(payload.driverName || '').trim(),
-      p_assigned_dispatcher_id: payload.assignedDispatcherId || null,
-      p_branch_id: payload.branchId || null,
+      p_assigned_dispatcher_id: assignedDispatcherId,
+      p_branch_id: branchId,
       p_phone: String(payload.phone || '').trim() || null,
       p_identity_document_number: String(payload.identityDocumentNumber || '').trim() || null,
       p_vehicle_registration_no: String(payload.vehicleRegistrationNo || '').trim() || null,
@@ -2076,8 +2377,14 @@ async function updateFleetSetFromTms(message) {
     sendFleetOperationResult(requestId, false, 'update', 'Brak identyfikatora zestawu.')
     return
   }
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendFleetOperationResult(requestId, false, 'update', 'Twoja rola nie może edytować floty.')
+    return
+  }
 
   try {
+    const assignment = await loadFleetAssignmentScope(assignmentId)
+    if (!canModifyFleetAssignment(assignment)) throw new Error('Możesz edytować wyłącznie flotę przypisaną do Twojego zakresu.')
     const { error } = await supabase.rpc('update_fleet_set_details', {
       p_assignment_id: assignmentId,
       p_driver_name: String(payload.driverName || '').trim(),
@@ -2169,8 +2476,14 @@ async function setFleetVisibilityFromTms(message) {
     sendFleetOperationResult(requestId, false, 'visibility', 'Brak identyfikatora zestawu.')
     return
   }
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendFleetOperationResult(requestId, false, 'visibility', 'Twoja rola nie może zmieniać widoczności floty.')
+    return
+  }
 
   try {
+    const assignment = await loadFleetAssignmentScope(assignmentId)
+    if (!canModifyFleetAssignment(assignment)) throw new Error('Możesz zmieniać widoczność wyłącznie floty przypisanej do Twojego zakresu.')
     const { error } = await supabase.rpc('set_fleet_assignment_hidden', {
       p_assignment_id: assignmentId,
       p_hidden: hidden,
@@ -2197,7 +2510,7 @@ async function setDriverRowColorFromTms(message) {
   const color = String(message?.color || '').trim().toLowerCase()
   const allowedColors = new Set(['', 'yellow', 'green', 'blue', 'pink', 'purple', 'orange', 'gray'])
 
-  if (currentProfile?.role !== 'dispatcher' || !currentUser?.id) {
+  if (currentRole() !== 'dispatcher' || !currentActorId()) {
     sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić wyłącznie prowadzący spedytor.')
     return
   }
@@ -2211,7 +2524,7 @@ async function setDriverRowColorFromTms(message) {
       .from('fleet_assignments')
       .select('id')
       .eq('driver_id', driverId)
-      .eq('assigned_dispatcher_id', currentUser.id)
+      .eq('assigned_dispatcher_id', currentActorId())
       .eq('active', true)
       .limit(1)
     if (ownershipError) throw ownershipError
@@ -2221,14 +2534,14 @@ async function setDriverRowColorFromTms(message) {
       const { error } = await supabase
         .from('driver_row_preferences')
         .delete()
-        .eq('user_id', currentUser.id)
+        .eq('user_id', currentActorId())
         .eq('driver_id', driverId)
       if (error) throw error
     } else {
       const { error } = await supabase
         .from('driver_row_preferences')
         .upsert({
-          user_id: currentUser.id,
+          user_id: currentActorId(),
           driver_id: driverId,
           color,
           updated_at: new Date().toISOString(),
@@ -2245,19 +2558,43 @@ async function setDriverRowColorFromTms(message) {
 
 async function importFleetExcelFromTms(message) {
   const requestId = String(message?.requestId || '')
-  const rows = Array.isArray(message?.rows) ? message.rows : []
+  const sourceRows = Array.isArray(message?.rows) ? message.rows : []
 
-  if (!currentProfile || !['admin', 'branch_manager', 'dispatcher'].includes(currentProfile.role)) {
+  if (!currentProfile || !['admin', 'branch_manager', 'dispatcher'].includes(currentRole())) {
     sendFleetOperationResult(requestId, false, 'import', 'Brak uprawnień do importu floty.')
     return
   }
-  if (!rows.length) {
+  if (!sourceRows.length) {
     sendFleetOperationResult(requestId, false, 'import', 'Arkusz nie zawiera żadnych danych floty.')
     return
   }
-  if (rows.length > 2000) {
+  if (sourceRows.length > 2000) {
     sendFleetOperationResult(requestId, false, 'import', 'Jednorazowo można zaimportować maksymalnie 2000 wierszy floty.')
     return
+  }
+
+  let rows = sourceRows.map((row) => ({ ...row }))
+  if (hasRole('dispatcher')) {
+    rows = rows.map((row) => ({ ...row, branchId: currentBranchId(), assignedDispatcherId: currentActorId() }))
+  } else if (hasRole('branch_manager')) {
+    rows = rows.map((row) => ({ ...row, branchId: currentBranchId() }))
+    const dispatcherIds = [...new Set(rows.map((row) => String(row?.assignedDispatcherId || '').trim()).filter(Boolean))]
+    const { data: branchDispatchers, error: branchDispatchersError } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('id', dispatcherIds)
+      .eq('branch_id', currentBranchId())
+      .eq('role', 'dispatcher')
+      .eq('active', true)
+    if (branchDispatchersError) {
+      sendFleetOperationResult(requestId, false, 'import', branchDispatchersError.message || 'Nie udało się sprawdzić spedytorów z oddziału.')
+      return
+    }
+    const allowedIds = new Set((branchDispatchers || []).map((profile) => String(profile.id || '')))
+    if (dispatcherIds.some((id) => !allowedIds.has(id))) {
+      sendFleetOperationResult(requestId, false, 'import', 'Arkusz zawiera spedytora spoza oddziału kierownika. Import zatrzymano przed zapisem.')
+      return
+    }
   }
 
   const invalidRowIndex = rows.findIndex((row) => {
@@ -2366,12 +2703,40 @@ async function loadWeeklySettlementData(weekStart) {
   const { data: settlementStatuses, error: settlementStatusesError } = await queryWeeklySettlementStatusRows(normalizedWeek)
   if (settlementStatusesError) throw new Error(`Nie udało się pobrać statusów rozliczeń tygodnia: ${settlementStatusesError.message}`)
 
+  let visibleAdjustments = adjustments || []
+  let visibleTransfers = transfers || []
+  let visibleSettlementStatuses = settlementStatuses || []
+  if (hasRole('branch_manager')) {
+    const { data: branchAssignments, error: branchAssignmentsError } = await supabase
+      .from('fleet_assignments')
+      .select('driver_id')
+      .eq('branch_id', currentBranchId())
+      .eq('active', true)
+    if (branchAssignmentsError) throw branchAssignmentsError
+    const branchDriverIds = new Set((branchAssignments || []).map((row) => String(row.driver_id || '')))
+    visibleAdjustments = visibleAdjustments.filter((row) => String(row?.branch_id || '') === currentBranchId())
+    visibleTransfers = visibleTransfers.filter((row) => [row?.from_branch_id, row?.to_branch_id].some((id) => String(id || '') === currentBranchId()))
+    visibleSettlementStatuses = visibleSettlementStatuses.filter((row) => branchDriverIds.has(String(row?.driver_id || '')))
+  } else if (hasRole('dispatcher')) {
+    const { data: ownedAssignments, error: ownedAssignmentsError } = await supabase
+      .from('fleet_assignments')
+      .select('driver_id,carrier_id')
+      .eq('assigned_dispatcher_id', currentActorId())
+      .eq('active', true)
+    if (ownedAssignmentsError) throw ownedAssignmentsError
+    const ownedDriverIds = new Set((ownedAssignments || []).map((row) => String(row.driver_id || '')))
+    const ownedCarrierIds = new Set((ownedAssignments || []).map((row) => String(row.carrier_id || '')))
+    visibleAdjustments = visibleAdjustments.filter((row) => ownedDriverIds.has(String(row?.driver_id || '')) || ownedCarrierIds.has(String(row?.carrier_id || '')))
+    visibleTransfers = visibleTransfers.filter((row) => [row?.from_dispatcher_id, row?.to_dispatcher_id].some((id) => String(id || '') === currentActorId()))
+    visibleSettlementStatuses = visibleSettlementStatuses.filter((row) => ownedDriverIds.has(String(row?.driver_id || '')))
+  }
+
   const directoryProfiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
   const directoryById = new Map(directoryProfiles.map((profile) => [String(profile.id || ''), profile]))
 
   return {
     weekStart: normalizedWeek,
-    carrierAdjustments: (adjustments || []).map((row) => ({
+    carrierAdjustments: visibleAdjustments.map((row) => ({
       id: String(row.id || ''),
       weekStart: String(row.week_start || normalizedWeek),
       branchId: String(row.branch_id || ''),
@@ -2384,7 +2749,7 @@ async function loadWeeklySettlementData(weekStart) {
       createdBy: String(row.created_by || ''),
       createdAt: String(row.created_at || ''),
     })),
-    settlementStatuses: (settlementStatuses || []).map((row) => ({
+    settlementStatuses: visibleSettlementStatuses.map((row) => ({
       id: String(row.id || ''),
       weekStart: String(row.week_start || normalizedWeek),
       driverId: String(row.driver_id || ''),
@@ -2393,7 +2758,7 @@ async function loadWeeklySettlementData(weekStart) {
       updatedBy: String(row.updated_by || ''),
       updatedAt: String(row.updated_at || ''),
     })),
-    transfers: (transfers || []).map((row) => ({
+    transfers: visibleTransfers.map((row) => ({
       id: String(row.id || ''),
       weekStart: String(row.week_start || normalizedWeek),
       fromDispatcherId: String(row.from_dispatcher_id || ''),
@@ -2471,7 +2836,7 @@ function subscribeWeeklySettlement() {
   if (!currentProfile) return
 
   weeklySettlementChannel = supabase
-    .channel(`tms-weekly-settlement-${currentUser?.id || 'user'}`)
+    .channel(`tms-weekly-settlement-${currentActorId() || 'user'}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_carrier_week_adjustments' }, () => {
       scheduleWeeklySettlementReload(70)
       activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-weekly-settlement-invalidated' }, window.location.origin)
@@ -2524,11 +2889,31 @@ async function refreshWeeklySettlementAfterMutation(weekStart) {
 async function createCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart)
+  if (!hasRole('dispatcher', 'branch_manager', 'accounting', 'admin')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-create', 'Brak uprawnień do korekt przewoźnika.')
+    return
+  }
   try {
+    const carrierId = String(message?.carrierId || '').trim()
+    const driverId = String(message?.driverId || '').trim()
+    if (hasRole('dispatcher', 'branch_manager')) {
+      let scopeQuery = supabase
+        .from('fleet_assignments')
+        .select('id')
+        .eq('active', true)
+        .limit(1)
+      if (driverId) scopeQuery = scopeQuery.eq('driver_id', driverId)
+      else if (carrierId) scopeQuery = scopeQuery.eq('carrier_id', carrierId)
+      if (hasRole('dispatcher')) scopeQuery = scopeQuery.eq('assigned_dispatcher_id', currentActorId())
+      if (hasRole('branch_manager')) scopeQuery = scopeQuery.eq('branch_id', currentBranchId())
+      const { data: scopedAssignment, error: scopedAssignmentError } = await scopeQuery
+      if (scopedAssignmentError) throw scopedAssignmentError
+      if (!scopedAssignment?.length) throw new Error('Korekta dotyczy przewoźnika lub kierowcy spoza Twojego zakresu.')
+    }
     const { error } = await rpcWithWeeklySchemaRetry('create_tms_carrier_week_adjustment_v2', {
       p_week_start: weekStart,
-      p_carrier_id: String(message?.carrierId || '').trim() || null,
-      p_driver_id: String(message?.driverId || '').trim() || null,
+      p_carrier_id: carrierId || null,
+      p_driver_id: driverId || null,
       p_amount: Number(message?.amount || 0),
       p_comment: String(message?.comment || '').trim(),
     })
@@ -2545,9 +2930,26 @@ async function createCarrierWeekAdjustmentFromTms(message) {
 async function deleteCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
+  if (!hasRole('dispatcher', 'branch_manager', 'accounting', 'admin')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-delete', 'Brak uprawnień do usuwania korekt przewoźnika.')
+    return
+  }
   try {
+    const adjustmentId = String(message?.adjustmentId || '').trim()
+    if (hasRole('dispatcher', 'branch_manager')) {
+      const { data: adjustment, error: adjustmentError } = await supabase
+        .from('tms_carrier_week_adjustments')
+        .select('branch_id,created_by')
+        .eq('id', adjustmentId)
+        .maybeSingle()
+      if (adjustmentError) throw adjustmentError
+      const allowed = hasRole('branch_manager')
+        ? String(adjustment?.branch_id || '') === currentBranchId()
+        : String(adjustment?.created_by || '') === currentActorId()
+      if (!allowed) throw new Error('Możesz usunąć wyłącznie korektę utworzoną w swoim zakresie.')
+    }
     const { error } = await supabase.rpc('archive_tms_carrier_week_adjustment', {
-      p_adjustment_id: String(message?.adjustmentId || '').trim() || null,
+      p_adjustment_id: adjustmentId || null,
     })
     if (error) throw error
     sendWeeklySettlementOperationResult(requestId, true, 'carrier-adjustment-delete', 'Wyrównanie zostało usunięte z aktywnego podsumowania.')
@@ -2560,6 +2962,10 @@ async function deleteCarrierWeekAdjustmentFromTms(message) {
 async function createDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart)
+  if (!hasRole('dispatcher')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', 'Transfer wyniku może utworzyć wyłącznie spedytor.')
+    return
+  }
   try {
     const { error } = await rpcWithWeeklySchemaRetry('create_tms_dispatcher_week_transfer', {
       p_week_start: weekStart,
@@ -2579,6 +2985,10 @@ async function respondDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
   const status = String(message?.status || '').trim().toLowerCase()
+  if (!hasRole('dispatcher')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', 'Transfer może potwierdzić wyłącznie spedytor będący jego odbiorcą.')
+    return
+  }
   try {
     const { error } = await rpcWithWeeklySchemaRetry('respond_tms_dispatcher_week_transfer', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
@@ -2595,6 +3005,10 @@ async function respondDispatcherWeekTransferFromTms(message) {
 async function deleteDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
+  if (!hasRole('dispatcher')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', 'Usunięcie transferu uzgadniają wyłącznie uczestniczący spedytorzy.')
+    return
+  }
   try {
     const { data, error } = await rpcWithWeeklySchemaRetry('request_or_confirm_tms_dispatcher_week_transfer_delete', {
       p_transfer_id: String(message?.transferId || '').trim() || null,
@@ -2628,6 +3042,10 @@ async function setDriverWeekSettlementStatusFromTms(message) {
   const weekStart = normalizeWeekStart(message?.weekStart)
   const driverId = String(message?.driverId || '').trim()
   const status = String(message?.status || '').trim()
+  if (!hasRole('accounting', 'admin')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'week-settlement-status-update', 'Status rozliczenia tygodnia mogą zmieniać tylko Rozliczenia lub Administrator.')
+    return
+  }
   try {
     const { error } = await rpcWithWeeklySchemaRetry('set_tms_driver_week_settlement_status', {
       p_week_start: weekStart,
@@ -2690,8 +3108,16 @@ async function loadWorkflowData() {
   if (relationResult.error) throw new Error(`Nie udało się pobrać transferów relacji: ${relationResult.error.message}`)
 
   workflowSchemaAvailable = true
-  const clientAssignments = clientResult.data || []
-  const relationTransfers = relationResult.data || []
+  let clientAssignments = clientResult.data || []
+  let relationTransfers = relationResult.data || []
+  if (hasRole('branch_manager')) {
+    clientAssignments = clientAssignments.filter((row) => String(row?.branch_id || '') === currentBranchId())
+    relationTransfers = relationTransfers.filter((row) => String(row?.branch_id || '') === currentBranchId())
+  } else if (hasRole('dispatcher')) {
+    const userId = currentActorId()
+    clientAssignments = clientAssignments.filter((row) => [row?.requested_by, row?.requested_dispatcher_id].some((id) => String(id || '') === userId))
+    relationTransfers = relationTransfers.filter((row) => [row?.from_dispatcher_id, row?.to_dispatcher_id].some((id) => String(id || '') === userId))
+  }
 
   return {
     clientAssignments: clientAssignments.map((row) => ({
@@ -2726,7 +3152,7 @@ function subscribeWorkflow() {
   if (workflowChannel) { supabase.removeChannel(workflowChannel); workflowChannel = null }
   if (!currentProfile || workflowSchemaAvailable === false) return
   workflowChannel = supabase
-    .channel(`tms-workflow-${currentUser?.id || 'user'}`)
+    .channel(`tms-workflow-${currentActorId() || 'user'}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_client_assignment_requests' }, () => scheduleWorkflowReload(70))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_relation_transfer_requests' }, () => scheduleWorkflowReload(70))
     .subscribe()
@@ -2740,6 +3166,10 @@ function sendWorkflowResult(requestId, ok, action, message) {
 
 async function createClientAssignmentRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
+  if (!hasRole('dispatcher')) {
+    sendWorkflowResult(requestId, false, 'client-assignment-create', 'Wniosek o opiekuna klienta może utworzyć wyłącznie spedytor.')
+    return
+  }
   try {
     const args = {
       p_client_ref: String(message?.clientRef || '').trim(),
@@ -2763,9 +3193,25 @@ async function createClientAssignmentRequestFromTms(message) {
 async function respondClientAssignmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   const status = String(message?.status || '').trim().toLowerCase()
+  if (!hasRole('branch_manager', 'admin')) {
+    sendWorkflowResult(requestId, false, 'client-assignment-response', 'Przypisanie klienta może zatwierdzić kierownik oddziału lub administrator.')
+    return
+  }
   try {
+    const assignmentRequestId = String(message?.assignmentRequestId || '').trim()
+    if (hasRole('branch_manager')) {
+      const { data: requestRow, error: requestError } = await supabase
+        .from('tms_client_assignment_requests')
+        .select('branch_id')
+        .eq('id', assignmentRequestId)
+        .maybeSingle()
+      if (requestError) throw requestError
+      if (String(requestRow?.branch_id || '') !== currentBranchId()) {
+        throw new Error('Kierownik może rozpatrywać wyłącznie wnioski swojego oddziału.')
+      }
+    }
     const { error } = await supabase.rpc('respond_tms_client_assignment', {
-      p_request_id: String(message?.assignmentRequestId || '').trim() || null,
+      p_request_id: assignmentRequestId || null,
       p_status: status,
       p_comment: String(message?.comment || '').trim(),
     })
@@ -2779,6 +3225,10 @@ async function respondClientAssignmentFromTms(message) {
 
 async function createRelationTransferRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
+  if (!hasRole('dispatcher')) {
+    sendWorkflowResult(requestId, false, 'relation-transfer-create', 'Transfer relacji może rozpocząć wyłącznie spedytor prowadzący relację.')
+    return
+  }
   try {
     const { error } = await supabase.rpc('request_tms_relation_transfer', {
       p_relation_ref: String(message?.relationRef || '').trim(),
@@ -2796,6 +3246,10 @@ async function createRelationTransferRequestFromTms(message) {
 async function respondRelationTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const status = String(message?.status || '').trim().toLowerCase()
+  if (!hasRole('dispatcher')) {
+    sendWorkflowResult(requestId, false, 'relation-transfer-response', 'Transfer relacji może potwierdzić wyłącznie spedytor będący odbiorcą.')
+    return
+  }
   try {
     const { error } = await supabase.rpc('respond_tms_relation_transfer', {
       p_request_id: String(message?.transferRequestId || '').trim() || null,
@@ -2824,6 +3278,9 @@ async function handleTruckRoutingRequestFromTms(message) {
   }
 
   try {
+    if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+      throw new Error('Wyznaczanie tras operacyjnych nie jest dostępne dla tej roli.')
+    }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
     if (sessionError) throw sessionError
     const token = sessionData?.session?.access_token
@@ -2866,6 +3323,12 @@ async function handleAiAnalyzerRequestFromTms(message) {
   }
 
   try {
+    if (kind === 'admin-import' && !isActualAdmin()) {
+      throw new Error('Import administracyjny AI jest dostępny wyłącznie dla administratora.')
+    }
+    if (['pdf', 'text'].includes(kind) && !hasRole('dispatcher')) {
+      throw new Error('Analiza zleceń AI jest dostępna wyłącznie dla spedytora.')
+    }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
     if (sessionError) throw sessionError
     const token = sessionData?.session?.access_token
@@ -2956,7 +3419,18 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
       p_to: to,
     })
     if (error) throw error
-    send(true, (data || []).map((row) => ({
+    let scopedRows = data || []
+    if (hasRole('dispatcher')) {
+      scopedRows = scopedRows.filter((row) => String(row?.dispatcher_id || '') === currentActorId())
+    } else if (hasRole('branch_manager')) {
+      const branchName = currentActorBranchName()
+      scopedRows = scopedRows.filter((row) => {
+        const rowBranchId = String(row?.branch_id || '').trim()
+        if (rowBranchId) return rowBranchId === currentBranchId()
+        return branchName && String(row?.branch_name || '').trim() === branchName
+      })
+    }
+    send(true, scopedRows.map((row) => ({
       dispatcherId: String(row.dispatcher_id || ''),
       dispatcherName: String(row.dispatcher_name || ''),
       branchName: String(row.branch_name || ''),
@@ -2980,6 +3454,121 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
   }
 }
 
+function adminPreviewBranchOptions(profiles = []) {
+  const branches = new Map()
+  profiles.forEach((profile) => {
+    const id = String(profile?.branchId || '').trim()
+    if (!id) return
+    const name = String(profile?.branch || '').trim() || `Oddział ${id.slice(0, 8)}`
+    if (!branches.has(id)) branches.set(id, name)
+  })
+  return [...branches.entries()]
+    .sort((left, right) => left[1].localeCompare(right[1], 'pl'))
+    .map(([id, name]) => `<option value="branch:${escapeHtml(id)}">${escapeHtml(name)}</option>`)
+    .join('')
+}
+
+function adminPreviewDispatcherOptions(profiles = []) {
+  return profiles
+    .filter((profile) => profile?.role === 'dispatcher' && profile?.id)
+    .sort((left, right) => String(left.displayName || left.login).localeCompare(String(right.displayName || right.login), 'pl'))
+    .map((profile) => `<option value="dispatcher:${escapeHtml(profile.id)}">${escapeHtml(profile.displayName || profile.login)}${profile.branch ? ` · ${escapeHtml(profile.branch)}` : ''}</option>`)
+    .join('')
+}
+
+function renderAdminPreviewBar(profiles = []) {
+  if (!isActualAdmin()) return ''
+  const activeLabel = adminPreview
+    ? `Aktywny podgląd: ${roleLabel(adminPreview.role)}${adminPreview.branchName ? ` · ${adminPreview.branchName}` : ''}${adminPreview.displayName && adminPreview.role === 'dispatcher' ? ` · ${adminPreview.displayName}` : ''}`
+    : 'Aktywny kontekst: Administrator'
+  return `
+    <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 1px 3px rgba(15,23,42,.08);">
+      <div style="flex:1 1 240px;min-width:220px;"><strong>Podgląd uprawnień</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Konto administratora i token pozostają bez zmian.</div></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;">Kategoria
+        <select id="admin-preview-role" style="min-width:150px;">
+          <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
+          <option value="accounting" ${adminPreview?.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
+          <option value="dispatcher" ${adminPreview?.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
+          <option value="branch_manager" ${adminPreview?.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
+        </select>
+      </label>
+      <label id="admin-preview-scope-wrap" style="display:flex;align-items:center;gap:6px;font-size:12px;">Zakres
+        <select id="admin-preview-scope" style="min-width:190px;">
+          <option value="none">Wszystkie dane roli</option>
+          ${adminPreviewDispatcherOptions(profiles)}
+          ${adminPreviewBranchOptions(profiles)}
+        </select>
+      </label>
+      <button id="admin-preview-apply" type="button" class="primary compact-primary">Przełącz</button>
+      ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary">Wróć do Administratora</button>' : ''}
+    </section>
+  `
+}
+
+function wireAdminPreviewControls(profiles = []) {
+  if (!isActualAdmin()) return
+  const roleSelect = document.querySelector('#admin-preview-role')
+  const scopeSelect = document.querySelector('#admin-preview-scope')
+  const scopeWrap = document.querySelector('#admin-preview-scope-wrap')
+  const syncScope = () => {
+    const role = String(roleSelect?.value || 'admin')
+    if (scopeWrap) scopeWrap.style.display = ['dispatcher', 'branch_manager'].includes(role) ? 'flex' : 'none'
+    if (!scopeSelect) return
+    const prefix = role === 'dispatcher' ? 'dispatcher:' : role === 'branch_manager' ? 'branch:' : 'none'
+    const options = [...scopeSelect.options]
+    options.forEach((option) => { option.hidden = option.value !== 'none' && !option.value.startsWith(prefix) })
+    const firstVisible = options.find((option) => !option.hidden)
+    if (firstVisible && (scopeSelect.selectedOptions[0]?.hidden || !scopeSelect.value.startsWith(prefix))) scopeSelect.value = firstVisible.value
+  }
+  roleSelect?.addEventListener('change', syncScope)
+  syncScope()
+  document.querySelector('#admin-preview-apply')?.addEventListener('click', async () => {
+    const role = String(roleSelect?.value || 'admin')
+    const scope = String(scopeSelect?.value || 'none')
+    let nextPreview = null
+    if (role === 'accounting') nextPreview = { role }
+    if (role === 'dispatcher') {
+      const profile = profiles.find((item) => `dispatcher:${item.id}` === scope && item.role === 'dispatcher')
+      if (!profile) {
+        showDashboardInlineMessage('Wybierz aktywnego spedytora do podglądu.', 'error')
+        return
+      }
+      nextPreview = { role, actorId: profile.id, login: profile.login, displayName: profile.displayName, branchId: profile.branchId, branchName: profile.branch }
+    }
+    if (role === 'branch_manager') {
+      const branchId = scope.startsWith('branch:') ? scope.slice('branch:'.length) : ''
+      const branchProfile = profiles.find((item) => item.role === 'branch_manager' && String(item.branchId || '') === branchId)
+      const branch = profiles.find((item) => String(item.branchId || '') === branchId)
+      if (!branchId) {
+        showDashboardInlineMessage('Wybierz oddział do podglądu kierownika.', 'error')
+        return
+      }
+      nextPreview = { role, actorId: branchProfile?.id || currentUser?.id, login: branchProfile?.login || 'KIEROWNIK', displayName: branchProfile?.displayName || 'Kierownik oddziału', branchId, branchName: branch?.branch || '' }
+    }
+    adminPreview = nextPreview
+    suspendTmsRuntimeForAdminPanel()
+    await renderDashboard(currentUser)
+  })
+  document.querySelector('#admin-preview-clear')?.addEventListener('click', async () => {
+    adminPreview = null
+    suspendTmsRuntimeForAdminPanel()
+    await renderDashboard(currentUser)
+  })
+}
+
+function showDashboardInlineMessage(message, type = 'info') {
+  const box = document.querySelector('#admin-role-preview')
+  if (!box) return
+  let feedback = box.querySelector('.admin-preview-feedback')
+  if (!feedback) {
+    feedback = document.createElement('span')
+    feedback.className = 'admin-preview-feedback'
+    box.appendChild(feedback)
+  }
+  feedback.textContent = message
+  feedback.style.color = type === 'error' ? '#b91c1c' : '#475569'
+}
+
 async function renderDashboard(user) {
   const { data: profile, error } = await supabase
     .from('profiles')
@@ -3000,11 +3589,25 @@ async function renderDashboard(user) {
   currentUser = user
   currentProfile = profile
 
+  let previewProfiles = []
+  if (isActualAdmin()) {
+    try { previewProfiles = await loadVisibleUserDirectory() } catch (error) { console.warn('Nie udało się pobrać listy do podglądu ról:', error) }
+  }
+
   const userName = profile.display_name || user.email
   const branchName = profile.branch?.name || 'Brak oddziału'
+  const effective = adminPreview || {}
+  const effectiveRoleValue = String(effective.role || profile.role || '')
+  const effectiveProfile = {
+    displayName: effective.displayName || userName,
+    login: effective.login || normalizedTmsLogin(profile),
+    branchId: effective.branchId || profile.branch_id || '',
+    branchName: effective.branchName || branchName,
+  }
 
   app.innerHTML = `
     <main class="workspace">
+      ${renderAdminPreviewBar(previewProfiles)}
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <img src="/top-dragon-logo.jpg" alt="Top Dragon" />
         <span>Uruchamianie panelu…</span>
@@ -3012,7 +3615,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v82-ui-copy-cleanup"
+        src="/tms.html?embedded=1&build=request-workflow-v84-imports-role-preview"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3023,16 +3626,20 @@ async function renderDashboard(user) {
   activeAuthMessage = {
     type: 'top-dragon-auth',
     user: {
-      id: user.id,
+      id: effective.actorId || user.id,
       email: user.email || '',
-      displayName: userName,
-      role: profile.role,
-      supabaseRole: profile.role,
-      branchId: profile.branch_id || '',
+      displayName: effectiveProfile.displayName,
+      login: effectiveProfile.login,
+      role: effectiveRoleValue,
+      supabaseRole: effectiveRoleValue,
+      actualSupabaseRole: profile.role,
+      permissionPreview: Boolean(adminPreview),
+      actualUserId: user.id,
+      branchId: effectiveProfile.branchId,
       uiColor: profile.ui_color || '#E2E8F0',
-      branch: profile.role === 'accounting'
+      branch: effectiveRoleValue === 'accounting'
         ? 'Wszystkie oddziały'
-        : (branchName === 'Brak oddziału' ? '' : branchName),
+        : (effectiveProfile.branchName === 'Brak oddziału' ? '' : effectiveProfile.branchName),
     },
   }
 
@@ -3042,6 +3649,7 @@ async function renderDashboard(user) {
 
   frame?.addEventListener('load', sendIdentityToTms)
   sendIdentityToTms()
+  wireAdminPreviewControls(previewProfiles)
 
   syncUserDirectoryToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
@@ -3265,6 +3873,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-client-upsert') {
       await upsertCentralClientFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-client-bulk-upsert') {
+      await bulkUpsertCentralClientsFromTms(event.data)
       return
     }
 
