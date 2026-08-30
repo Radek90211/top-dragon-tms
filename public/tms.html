@@ -92372,12 +92372,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function statusBox3L50(driver,ws){
         const current=statusForDriver3L50(driver,ws);
         const currentStatus=statusValues3L50.includes(String(current.status||''))?String(current.status):'Nowe';
-        const meta=current.updatedAt ? `Ostatnia zmiana: ${dt3L50(current.updatedAt)}${current.updatedBy?` · ${userLabel3L50(current.updatedBy,'')}`:''}` : 'Status nie był jeszcze zmieniany dla tego tygodnia.';
-        if(!canEditWeekStatus3L50()){
-          return `<div class="week-settlement-status-box-3l50"><div class="week-settlement-status-line-3l50"><b>Status rozliczenia tygodnia</b><span class="weekly-transfer-status ${attr(currentStatus==='Wprowadzone'?'accepted':currentStatus==='Krytyczne'?'rejected':'pending')}">${esc(currentStatus)}</span></div><div class="week-settlement-status-meta-3l50">${esc(meta)}</div></div>`;
-        }
+        const meta=current.updatedAt ? `Ostatnia zmiana: ${dt3L50(current.updatedAt)}${current.updatedBy?` · ${userLabel3L50(current.updatedBy,'')}`:''}` : '';
+        if(!canEditWeekStatus3L50()) return '';
         const driverDbId=String(driver?.driverEntityId||'');
-        return `<div class="week-settlement-status-box-3l50" id="week-settlement-status-box-3l50"><div class="week-settlement-status-line-3l50"><b>Status rozliczenia tygodnia</b><div class="week-settlement-status-controls-3l50"><select id="week-settlement-status-select-3l50" class="select">${statusValues3L50.map(value=>`<option value="${attr(value)}" ${value===currentStatus?'selected':''}>${esc(value)}</option>`).join('')}</select><button type="button" class="btn btn-dark" ${driverDbId?'':'disabled'} onclick="saveWeekSettlementStatus3L50('${attr(driver.id)}','${attr(ws)}')">Zapisz status</button></div></div><div class="week-settlement-status-meta-3l50">${driverDbId?esc(meta):'Brak centralnego identyfikatora kierowcy — statusu nie można zapisać.'}</div></div>`;
+        const statusMeta=driverDbId?meta:'Brak centralnego identyfikatora kierowcy — statusu nie można zapisać.';
+        return `<div class="week-settlement-status-box-3l50" id="week-settlement-status-box-3l50"><div class="week-settlement-status-line-3l50"><div class="week-settlement-status-controls-3l50"><select id="week-settlement-status-select-3l50" class="select" aria-label="Zmień status tygodnia">${statusValues3L50.map(value=>`<option value="${attr(value)}" ${value===currentStatus?'selected':''}>${esc(value)}</option>`).join('')}</select><button type="button" class="btn btn-dark" ${driverDbId?'':'disabled'} onclick="saveWeekSettlementStatus3L50('${attr(driver.id)}','${attr(ws)}')">Zapisz status</button></div></div>${statusMeta?`<div class="week-settlement-status-meta-3l50">${esc(statusMeta)}</div>`:''}</div>`;
       }
 
       window.openWeekFinanceBoundary3L48=function(driverId,ws){
@@ -92651,7 +92650,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const transferPanel = canTransfer ? `
           <div class="week-finance-create-panel-3l52">
             <b>Przelej wynik do innego spedytora</b>
-            <div class="small">Odbiorca potwierdza transfer. Kierownicy oddziałów nie zatwierdzają operacji.</div>
             <div class="week-finance-create-fields-3l52">
               <select id="rozl-transfer-target-3l52" class="select">
                 <option value="">— wybierz spedytora —</option>
