@@ -1235,24 +1235,28 @@ async function archiveCentralRelationFromTms(message) {
 async function loadCentralClients() {
   if (!currentProfile) return []
 
-  let query = supabase
+  const { data, error } = await supabase
     .from('tms_clients_central')
     .select('branch_id, client_ref, payload, updated_at')
     .eq('active', true)
-    .order('updated_at', { ascending: true })
+    .order('updated_at', { ascending: false })
 
-  if (!['admin', 'accounting'].includes(String(currentProfile.role || ''))) {
-    if (!currentProfile.branch_id) return []
-    query = query.eq('branch_id', currentProfile.branch_id)
-  }
-
-  const { data, error } = await query
   if (error) {
     throw new Error(`Nie udało się pobrać klientów: ${error.message}`)
   }
 
+  // 3L.59: baza klientów jest globalna. Jeżeli po starszych wersjach istnieje
+  // kilka rekordów tego samego client_ref w różnych oddziałach, do aplikacji
+  // trafia tylko najnowsza wersja.
+  const seen = new Set()
   return (data || [])
     .filter((row) => row?.payload && row?.client_ref)
+    .filter((row) => {
+      const key = String(row.client_ref || '').trim()
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     .map((row) => ({
       id: String(row.client_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -1292,7 +1296,7 @@ function subscribeCentralClients() {
 
   if (!currentProfile) return
 
-  const channelName = `tms-clients-${currentProfile.branch_id || 'all'}-${currentUser?.id || 'user'}`
+  const channelName = `tms-clients-global-${currentUser?.id || 'user'}`
   clientsChannel = supabase
     .channel(channelName)
     .on(
@@ -1310,7 +1314,7 @@ function sendClientOperationResult(requestId, ok, action, clientId, branchId, me
     ok: Boolean(ok),
     action: String(action || ''),
     clientId: String(clientId || ''),
-    branchId: String(branchId || ''),
+    branchId: '',
     message: String(message || ''),
   }, window.location.origin)
 }
@@ -1319,64 +1323,46 @@ async function upsertCentralClientFromTms(message) {
   const requestId = String(message?.requestId || '')
   const client = message?.client
   const clientId = String(client?.id || '').trim()
-  const branchId = String(
-    currentProfile?.role === 'admin'
-      ? (message?.branchId || currentProfile?.branch_id || '')
-      : (currentProfile?.branch_id || '')
-  ).trim()
 
-  if (!clientId || !branchId || !client || typeof client !== 'object') {
-    sendClientOperationResult(requestId, false, 'upsert', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
-    return
-  }
-  if (!isValidUuid(branchId)) {
-    sendClientOperationResult(requestId, false, 'upsert', clientId, '', `Nieprawidłowy identyfikator oddziału. Import został zatrzymany przed zapisem do Supabase (${branchId || 'brak'}).`)
+  if (!clientId || !client || typeof client !== 'object') {
+    sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Brak identyfikatora lub danych klienta.')
     return
   }
 
   try {
     const { error } = await supabase.rpc('upsert_tms_client', {
-      p_branch_id: branchId,
+      p_branch_id: null,
       p_client: client,
     })
     if (error) throw error
 
-    sendClientOperationResult(requestId, true, 'upsert', clientId, branchId, 'Klient został zapisany w Supabase.')
+    sendClientOperationResult(requestId, true, 'upsert', clientId, '', 'Klient został zapisany w globalnej bazie Supabase.')
     await syncCentralClientsToTms()
   } catch (error) {
-    sendClientOperationResult(requestId, false, 'upsert', clientId, branchId, error?.message || 'Nie udało się zapisać klienta.')
+    sendClientOperationResult(requestId, false, 'upsert', clientId, '', error?.message || 'Nie udało się zapisać klienta.')
   }
 }
 
 async function archiveCentralClientFromTms(message) {
   const requestId = String(message?.requestId || '')
   const clientId = String(message?.clientId || '').trim()
-  const branchId = String(
-    currentProfile?.role === 'admin'
-      ? (message?.branchId || currentProfile?.branch_id || '')
-      : (currentProfile?.branch_id || '')
-  ).trim()
 
-  if (!clientId || !branchId) {
-    sendClientOperationResult(requestId, false, 'archive', clientId, branchId, 'Brak identyfikatora klienta lub oddziału.')
-    return
-  }
-  if (!isValidUuid(branchId)) {
-    sendClientOperationResult(requestId, false, 'archive', clientId, '', 'Nieprawidłowy identyfikator oddziału.')
+  if (!clientId) {
+    sendClientOperationResult(requestId, false, 'archive', clientId, '', 'Brak identyfikatora klienta.')
     return
   }
 
   try {
     const { error } = await supabase.rpc('archive_tms_client', {
-      p_branch_id: branchId,
+      p_branch_id: null,
       p_client_ref: clientId,
     })
     if (error) throw error
 
-    sendClientOperationResult(requestId, true, 'archive', clientId, branchId, 'Klient został usunięty z aktywnej bazy.')
+    sendClientOperationResult(requestId, true, 'archive', clientId, '', 'Klient został usunięty z aktywnej globalnej bazy.')
     await syncCentralClientsToTms()
   } catch (error) {
-    sendClientOperationResult(requestId, false, 'archive', clientId, branchId, error?.message || 'Nie udało się usunąć klienta z aktywnej bazy.')
+    sendClientOperationResult(requestId, false, 'archive', clientId, '', error?.message || 'Nie udało się usunąć klienta z aktywnej bazy.')
   }
 }
 
@@ -1424,17 +1410,16 @@ function isExpiredProposedLoadPayload(payload) {
   if (String(payload.status || 'available').trim().toLowerCase() === 'taken') return false
   const loadDate = normalizeProposedLoadDate(String(payload.loadDate || '').trim() || String(payload.date || '').trim())
   if (!loadDate) return false
-  const now = warsawNowForLoadQueue()
-  if (loadDate < now.date) return true
-  if (loadDate > now.date) return false
-  return proposedLoadHour(payload) < now.hour
+  // 3L.60: Wolne ładunki są aktywne przez cały dzień załadunku.
+  // Dopiero wpis z datą wcześniejszą niż dzisiejsza (Europe/Warsaw) jest wygasły.
+  return loadDate < warsawNowForLoadQueue().date
 }
 
 async function loadCentralLoadQueue() {
   if (!currentProfile) return { rows: [], expiredProposedStats: [] }
 
-  // 3L.44: housekeeping Wolnych ładunków. Termin załadunku, który już minął
-  // w strefie Europe/Warsaw, jest automatycznie przenoszony poza aktywną kolejkę.
+  // 3L.60: housekeeping Wolnych ładunków. Wpis pozostaje aktywny przez cały
+  // dzień załadunku w Europe/Warsaw i jest przenoszony poza kolejkę dopiero następnego dnia.
   // RPC jest celowo idempotentne — można je wywoływać przy każdym odświeżeniu.
   const { error: expireError } = await supabase.rpc('archive_expired_tms_proposed_loads')
   if (expireError) {
@@ -1459,9 +1444,8 @@ async function loadCentralLoadQueue() {
 
   const rows = (data || [])
     .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
-    // 3L.51: nawet jeśli housekeeping Supabase chwilowo się opóźni lub migracja
-    // nie odświeżyła jeszcze cache PostgREST, przeterminowany Wolny ładunek
-    // nie może wrócić do aktywnego panelu użytkownika.
+    // 3L.60: nawet jeśli housekeeping Supabase chwilowo się opóźni, do panelu
+    // nie wracają wpisy z poprzednich dni; bieżący dzień pozostaje widoczny w całości.
     .filter((row) => !(row?.queue_type === 'proposed' && isExpiredProposedLoadPayload(row?.payload)))
     .map((row) => ({
       id: String(row.load_ref || ''),
@@ -3028,7 +3012,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v78-map-gap-4h"
+        src="/tms.html?embedded=1&build=request-workflow-v81-stats-simplification"
         title="Top Dragon TMS"
       ></iframe>
     </main>
