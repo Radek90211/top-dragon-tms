@@ -2929,6 +2929,37 @@
 
     .modal-body { padding: 16px; }
 
+    .tutorial-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 2300;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(15, 23, 42, .58);
+    }
+    .tutorial-modal {
+      width: min(680px, 100%);
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, .24);
+    }
+    .tutorial-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--border); }
+    .tutorial-head h2 { margin:0; font-size:20px; }
+    .tutorial-body { padding:18px; display:grid; gap:14px; }
+    .tutorial-step { min-height:150px; border:1px solid #dbe3ee; border-radius:14px; padding:16px; background:#f8fafc; }
+    .tutorial-step h3 { margin:0 0 8px; font-size:16px; }
+    .tutorial-step p { margin:0; line-height:1.55; color:#334155; }
+    .tutorial-progress { color:var(--muted); font-size:12px; font-weight:750; }
+    .tutorial-foot { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--border); }
+    .tutorial-actions { display:flex; gap:8px; }
+    .app.dark-mode .tutorial-modal { background:#111827; border-color:#334155; }
+    .app.dark-mode .tutorial-step { background:#0f172a; border-color:#334155; }
+    .app.dark-mode .tutorial-step p { color:#cbd5e1; }
+
     .admin-transfer-backdrop {
       position: fixed;
       inset: 0;
@@ -69266,6 +69297,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       expandedCells: {},
       darkMode: false,
       appView: "plan",
+      tutorialOpen: false,
+      tutorialStep: 0,
       clientDirectoryFilter: "all",
       clientDirectoryDispatcherFilter: "all",
       clientDirectoryQuery: "",
@@ -71769,6 +71802,72 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function tutorialStepsForCurrentRole() {
+      const role = String(state.user?.supabaseRole || state.user?.role || "");
+      const roleName = role === "admin" ? "Administrator" : role === "accounting" ? "Rozliczenia" : role === "branch_manager" ? "Kierownik oddziału" : "Spedytor";
+      const steps = [
+        { title: "Witaj w Top Dragon TMS", text: `To krótki przewodnik po najważniejszych miejscach aplikacji dla roli: ${roleName}. Możesz przełączać widoki przyciskami w górnym pasku.` },
+        { title: "Plan kierowców", text: "W widoku Planu kierowców sprawdzisz trasy, godziny i przypisane zestawy. Kliknięcie relacji otwiera szczegóły, a mapa pomaga ocenić kolejność i lokalizacje." },
+        { title: "Baza klientów", text: "W Bazie klientów wyszukasz kontrahenta, sprawdzisz opiekuna i historię współpracy. Uprawnienia do edycji zależą od kategorii użytkownika i oddziału." },
+        { title: "Pomoc i importy", text: role === "admin" ? "Administrator ma dodatkowo Administrację, Import / eksport oraz przycisk AI. Import Excel i AI pokazują podgląd, walidują rekordy i potwierdzają zapis w Supabase." : role === "accounting" ? "Rozliczenia służą do kontroli stawek, zysku i statusów rozliczeń. Dane operacyjne pozostają dostępne zgodnie z zakresem odczytu." : role === "branch_manager" ? "Kierownik oddziału widzi i edytuje dane swojego oddziału, w tym flotę i planowane relacje, bez dostępu do zakresów innych oddziałów." : "Spedytor pracuje na swoich relacjach i przypisanej flocie. Przycisk AI pozwala analizować zlecenia i przygotować dane do planu." }
+      ];
+      return steps;
+    }
+
+    function renderTutorialModal() {
+      if (!state.tutorialOpen || !state.user) return "";
+      const steps = tutorialStepsForCurrentRole();
+      const index = Math.max(0, Math.min(Number(state.tutorialStep || 0), steps.length - 1));
+      const step = steps[index];
+      return `
+        <div class="tutorial-backdrop" onclick="closeTutorialOnBackdrop(event)">
+          <section class="tutorial-modal" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" onclick="event.stopPropagation()">
+            <header class="tutorial-head">
+              <div><h2 id="tutorial-title">Samouczek Top Dragon</h2><div class="tutorial-progress">Krok ${index + 1} z ${steps.length}</div></div>
+              <button type="button" class="btn" onclick="closeTutorial()" aria-label="Zamknij samouczek">Zamknij</button>
+            </header>
+            <div class="tutorial-body">
+              <article class="tutorial-step"><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p></article>
+            </div>
+            <footer class="tutorial-foot">
+              <button type="button" class="btn" onclick="previousTutorialStep()" ${index === 0 ? "disabled" : ""}>← Wstecz</button>
+              <div class="tutorial-actions">
+                ${index < steps.length - 1 ? `<button type="button" class="btn btn-dark" onclick="nextTutorialStep()">Dalej →</button>` : `<button type="button" class="btn btn-dark" onclick="closeTutorial()">Zakończ</button>`}
+              </div>
+            </footer>
+          </section>
+        </div>
+      `;
+    }
+
+    function openTutorial() {
+      if (!state.user) return;
+      state.tutorialOpen = true;
+      state.tutorialStep = 0;
+      render();
+    }
+
+    function closeTutorial() {
+      state.tutorialOpen = false;
+      state.tutorialStep = 0;
+      render();
+    }
+
+    function closeTutorialOnBackdrop(event) {
+      if (event?.target === event?.currentTarget) closeTutorial();
+    }
+
+    function nextTutorialStep() {
+      const last = tutorialStepsForCurrentRole().length - 1;
+      state.tutorialStep = Math.min(last, Number(state.tutorialStep || 0) + 1);
+      render();
+    }
+
+    function previousTutorialStep() {
+      state.tutorialStep = Math.max(0, Number(state.tutorialStep || 0) - 1);
+      render();
+    }
+
     function renderApp() {
       beginOperationalRenderCycle();
       const pendingForMe = state.user.role === "spedytor"
@@ -71804,6 +71903,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 </div>
                 ${["rozliczenia","admin"].includes(state.user.role) ? `<span class="theme-pill">${state.user.role === "rozliczenia" ? "Widok rozliczeń" : "Pełny dostęp"}</span><button class="btn" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
                 ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
+                <button class="btn" type="button" onclick="openTutorial()" title="Uruchom samouczek Top Dragon">Samouczek</button>
                 <button class="btn" data-action="dark-mode" onclick="toggleDarkMode()">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
                 <button class="btn" onclick="logout()">Wyloguj</button>
               </div>
@@ -71836,6 +71936,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${renderDeleteConfirm()}
           ${renderAttentionToast()}
           ${renderAppMessage()}
+          ${renderTutorialModal()}
           ${state.adminDataTransferOpen ? (window.renderAdminDataTransferModal?.() || "") : ""}
         </div>
       `;
