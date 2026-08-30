@@ -70463,8 +70463,35 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="queue-visibility-badge">${esc(label)}</span>`;
     }
 
+    function queueLoadDateIso(route) {
+      const raw = String(route?.loadDate || route?.date || "").trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      const pl = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      return pl ? `${pl[3]}-${pl[2]}-${pl[1]}` : "";
+    }
+
+    function queueTodayIsoWarsaw() {
+      try {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Warsaw", year: "numeric", month: "2-digit", day: "2-digit"
+        }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        if (values.year && values.month && values.day) return `${values.year}-${values.month}-${values.day}`;
+      } catch (error) {}
+      return currentAppDate();
+    }
+
+    function queueEntryIsTodayOrFuture(route) {
+      if (!route) return false;
+      const iso = queueLoadDateIso(route);
+      // Nie ukrywamy wpisu z niepoprawną/starą datą automatycznie — lepiej
+      // pozostawić go do ręcznej weryfikacji niż utracić wgląd w zgłoszony ładunek.
+      if (!iso) return true;
+      return iso >= queueTodayIsoWarsaw();
+    }
+
     function plannedRouteVisible(route) {
-      return Boolean(route);
+      return Boolean(route && queueEntryIsTodayOrFuture(route));
     }
 
     function visibleFutureRoutes() {
@@ -75204,29 +75231,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function proposedLoadExpiredForPanel3L51(route) {
-      const rawDate=String(route?.loadDate || route?.date || '').trim();
-      let iso=rawDate;
-      const pl=rawDate.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-      if(pl) iso=`${pl[3]}-${pl[2]}-${pl[1]}`;
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-      let nowDate=currentAppDate();
-      let nowHour=new Date().getHours()+new Date().getMinutes()/60;
-      try {
-        const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
-        const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-        nowDate=`${map.year}-${map.month}-${map.day}`;
-        nowHour=Number(map.hour||0)+Number(map.minute||0)/60;
-      } catch {}
-      if(iso<nowDate) return true;
-      if(iso>nowDate) return false;
-      const rawHour=String(route?.startHour ?? '').trim();
-      let hour=Number(rawHour);
-      if(!Number.isFinite(hour)) {
-        const clock=rawHour || String(route?.loadTime || route?.startTime || '').trim();
-        const m=clock.match(/^(\d{1,2}):(\d{2})/);
-        hour=m ? Number(m[1])+Number(m[2])/60 : 8;
-      }
-      return Math.max(0,Math.min(24,hour)) < nowHour;
+      // 3L.60: Wolny ładunek pozostaje widoczny przez CAŁY dzień załadunku.
+      // Godzina załadunku nie wygasza już wpisu. Dopiero data wcześniejsza niż
+      // dzisiejsza (Europe/Warsaw) przenosi go poza aktywną kolejkę.
+      const iso = queueLoadDateIso(route);
+      if (!iso) return false;
+      return iso < queueTodayIsoWarsaw();
     }
 
     function reportedLoadRoutesForDate(date = state.reportDate) {
@@ -75559,18 +75569,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadDayStartMs = proposedDateHourMomentMs(candidateLoadDate, 0);
       const readyAfterPreviousMs = proposedUnloadMomentMs(previous) + Math.max(0, Number(reposition.hours || 0)) * 3600000;
       const effectiveStartMs = Number.isFinite(loadDayStartMs) ? Math.max(loadDayStartMs, readyAfterPreviousMs) : readyAfterPreviousMs;
+      const repositionKm = Number(reposition.km || 0);
       return {
-        fit: Number(reposition.km || 0) <= PROPOSED_LOAD_DISTANCE_LIMIT_KM,
+        // 3L.60: 150 km jest progiem rekomendacji, nie blokadą wykonania.
+        // Jeżeli TomTom potwierdzi dojazd, zgodność pojazdu i dzień kwalifikacji,
+        // wolny ładunek można przypisać również przy dojeździe >150 km.
+        fit:true,
         pending:false,
         conflict:null,
         previous,
         eligibleLoadDate,
-        repositionKm:Number(reposition.km || 0),
+        repositionKm,
         repositionExact:true,
         repositionPending:false,
         effectiveStartMs,
         effectiveEndMs:effectiveStartMs,
-        reason:Number(reposition.km || 0) <= PROPOSED_LOAD_DISTANCE_LIMIT_KM ? "ok" : "distance"
+        reason:repositionKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM ? "ok" : "distance-warning"
       };
     }
 
@@ -75708,20 +75722,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function allProposedDriversForLoad(route, date = state.reportDate) {
+      // W szczegółach pokazujemy także pojazdy oddalone o ponad 150 km.
+      // Próg 150 km służy wyłącznie do wyróżnienia najlepszych dopasowań.
       return proposedDistancesForRoute(route, date, {
-        maxDistanceOnly: true,
         currentDispatcherOnly: false
       });
     }
 
     function currentDispatcherProposedDriversForTake(route, date = state.reportDate) {
-      return preferredQueueMatchRows(proposedDistancesForRoute(route, date, {
-        maxDistanceOnly: true,
-        exactDistanceOnly: true,
+      // 3L.60: pobranie Wolnego ładunku nie jest blokowane przez 150 km.
+      // Nadal wymagamy potwierdzonej trasy, zgodności pojazdu i poprawnego dnia planu.
+      return proposedDistancesForRoute(route, date, {
         compatibleOnly: true,
         scheduleFitOnly: true,
         currentDispatcherOnly: true
-      }));
+      }).filter(item => item.distanceExact && item.compatibility?.ok && item.scheduleFit);
     }
 
     function eligibleProposedDriversForCurrentDispatcher(route, date = state.reportDate) {
@@ -75778,7 +75793,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }).join("")
         : `<div class="expired-proposed-stat-empty-3l44">Brak automatycznie wygasłych wolnych ładunków.</div>`;
       return `<details class="expired-proposed-stats-3l44">
-        <summary><span>Automatycznie wygasłe po terminie</span><b>${total}</b><em>Pokaż kto dodał</em></summary>
+        <summary><span>Automatycznie wygasłe po dniu załadunku</span><b>${total}</b><em>Pokaż kto dodał</em></summary>
         <div class="expired-proposed-stat-list-3l44">${list}</div>
       </details>`;
     }
@@ -75805,7 +75820,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="proposed-drawer-head">
             <div>
               <h2 style="font-size:18px;">Wolne ładunki</h2>
-              <div class="hint">${availableCount} wolnych ładunków</div>
+              <div class="hint">${availableCount} wolnych ładunków · dzisiaj i przyszłe daty</div>
             </div>
             <button class="btn" type="button" onclick="toggleProposedPanel(false)">Zamknij</button>
           </div>
@@ -75842,7 +75857,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const dispatcher = route.createdBy || "—";
       const preferredMatches = preferredQueueMatchRows(distances);
       const closest = preferredMatches[0]
-        || distances.find(item => item.distanceExact && item.distanceKm <= PROPOSED_LOAD_DISTANCE_LIMIT_KM && item.scheduleFit)
+        || distances.find(item => item.distanceExact && item.scheduleFit)
         || null;
       const canModify = proposedLoadCanModify(route);
       const canTake = proposedLoadCanTake(route);
@@ -75896,17 +75911,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${distances.length ? distances.map(item => `
                 <div class="proposed-distance-row ${preferredDriverIds.has(item.driver?.id) ? "near" : ""}">
                   <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "—")} ${renderCompatibilityMini(item.driver, route)} ${item.schedulePending ? `<span class="busy-warning-icon" title="Trwa sprawdzanie dojazdu względem planu kierowcy" aria-label="Trwa sprawdzanie dojazdu względem planu kierowcy"></span>` : item.scheduleFit ? "" : `<span class="busy-warning-icon" title="Kierowca nie spełnia reguły dopasowania tej relacji" aria-label="Kierowca nie spełnia reguły dopasowania tej relacji"></span>`}</span>
-                  <b>${!item.distanceExact ? "sprawdzanie trasy kat. C…" : item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM ? `${Math.round(item.distanceKm)} km · poza limitem` : item.schedulePending ? "sprawdzanie planu…" : item.scheduleFit ? `${Math.round(item.distanceKm)} km po trasie kat. C` : "kolizja planu"}</b>
+                  <b>${!item.distanceExact ? "sprawdzanie trasy kat. C…" : item.schedulePending ? "sprawdzanie planu…" : !item.scheduleFit ? "kolizja planu" : item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM ? `${Math.round(item.distanceKm)} km · powyżej 150 km, można przypisać` : `${Math.round(item.distanceKm)} km po trasie kat. C`}</b>
                 </div>
-              `).join("") : `<div class="proposed-distance-empty">Brak pojazdów w promieniu 150 km od punktu załadunku.</div>`}
+              `).join("") : `<div class="proposed-distance-empty">Brak pozycji pojazdów do wyliczenia dojazdu do załadunku.</div>`}
             </div>
             <div class="proposed-load-actions">
               ${canTake && currentDrivers.length ? `
                 <select class="select" id="proposed-driver-${attr(route.id)}">
-                  ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(driverBusyOptionPrefix(item.driver.id, route.date || state.reportDate || START_DATE))}${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distancePending ? "*" : ""}</option>`).join("")}
+                  ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(driverBusyOptionPrefix(item.driver.id, route.date || state.reportDate || START_DATE))}${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distanceKm > PROPOSED_LOAD_DISTANCE_LIMIT_KM ? " · >150 km" : ""}${item.distancePending ? "*" : ""}</option>`).join("")}
                 </select>
                 <button class="btn-mini" type="button" onclick="takeProposedLoad(event, '${attr(route.id)}')">Pobierz na moją tablicę</button>
-              ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora w promieniu 150 km spełniającego regułę dopasowania. Ładunek nadal jest widoczny dla wszystkich.</span>` : ""}
+              ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora spełniającego regułę planu. Odległość powyżej 150 km nie blokuje przypisania.</span>` : ""}
             </div>
           `}
         </div>
@@ -77617,11 +77632,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ${renderStatsFocus(stats)}
             ${renderStatsList("Finanse", "Najważniejsze wartości dla wybranego zakresu", financeRows)}
             ${renderStatsTable("Spedytorzy", "Statystyki każdego spedytora w wybranym okresie", stats.byDispatcher, Math.max(12, stats.byDispatcher.length))}
-            ${renderStatsTable("Pojazdy", "Statystyki każdego pojazdu według numeru rejestracyjnego", stats.byVehicle, Math.max(12, stats.byVehicle.length))}
             ${renderStatsTable("Przewoźnicy", "Porównanie kosztów, zysku, km i dolotów", stats.byCarrier, 12)}
             ${renderStatsTable("Oddziały", "Porównanie oddziałów według wartości w kolumnach", stats.byBranch, 8)}
             ${renderStatsTable("Kierowcy", "Relacje, km, zysk i dolot każdego kierowcy", stats.byDriver, Math.max(12, stats.byDriver.length))}
-            ${renderStatsList("Dane do uzupełnienia", "Szybka kontrola pól finansowych i statusów", dataQualityRows)}
           </div>
         </aside>
       `;
@@ -77779,7 +77792,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="future-drawer-head">
             <div>
               <h2>Planowane relacje</h2>
-              <div class="hint">Relacje planowane dla oddziału.</div>
+              <div class="hint">Relacje planowane dla oddziału · dzisiaj i przyszłe daty.</div>
             </div>
             <button class="btn" type="button" onclick="toggleFuturePanel(false)">Zamknij</button>
           </div>
@@ -77962,7 +77975,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       const eligible = currentDispatcherProposedDriversForTake(proposed, proposed.date || state.reportDate || START_DATE);
       if (!eligible.some(item => item.driver.id === driver.id)) {
-        showAppMessage("Pojazd poza zasięgiem", "Wybrany pojazd musi być w promieniu 150 km od miejsca załadunku i spełniać wymagania ładunku.");
+        showAppMessage("Pojazd niedostępny", "Wybrany pojazd musi spełniać wymagania ładunku oraz regułę planu. Odległość powyżej 150 km sama w sobie nie blokuje przypisania.");
         return true;
       }
       const compatibility = driverLoadCompatibility(driver, proposed);
@@ -84211,7 +84224,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const formValue = id => String(document.getElementById(id)?.value ?? "");
       const rawDate = formValue("new-date");
-      const routeDate = clampDateToWorkingWindow(parseDateInput(rawDate, state.prefill?.date || currentAppDate()));
+      const parsedRouteDate = parseDateInput(rawDate, state.prefill?.date || currentAppDate());
+      // Kolejki nie są ograniczone aktualnym 15-dniowym oknem tablicy.
+      // Dzięki temu Wolny ładunek / Planowana relacja może zachować faktyczną
+      // datę załadunku także wtedy, gdy leży dalej w przyszłości.
+      const routeDate = proposedMode || futureMode ? parsedRouteDate : clampDateToWorkingWindow(parsedRouteDate);
       const loadValue = normalizeLocation(formValue("new-load"));
       const unloadValue = normalizeLocation(formValue("new-unload"));
       const loadAddressValue = formValue("new-load-address").trim();
@@ -84351,7 +84368,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       if (!freeDayValue && categoryCEstimate?.elapsedMin > 0) {
         const estimatedHours = Number(categoryCEstimate.elapsedMin) / 60;
-        setRouteGlobalEnd(route, Math.min(timelineMaxHour(), routeGlobalStart(route) + estimatedHours));
+        if (proposedMode || futureMode) {
+          // Dla kolejek liczymy koniec kalendarzowo, bez przycinania do aktualnego
+          // zakresu tablicy. To pozwala przechowywać relacje z dalszej przyszłości.
+          const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(route.date || ""));
+          if (dateMatch) {
+            const startMs = Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
+              + Math.max(0, Number(route.startHour || 0)) * 3600000;
+            const endMs = startMs + Math.max(0.25, estimatedHours) * 3600000;
+            const endDateObj = new Date(endMs);
+            route.endDate = endDateObj.toISOString().slice(0, 10);
+            route.endHour = endDateObj.getUTCHours() + endDateObj.getUTCMinutes() / 60;
+          }
+        } else {
+          setRouteGlobalEnd(route, Math.min(timelineMaxHour(), routeGlobalStart(route) + estimatedHours));
+        }
         if (categoryCEstimate.fallback && categoryCEstimate.warning) {
           showAppMessage("Trasa zapisana z awaryjnym szacunkiem czasu", categoryCEstimate.warning, "info");
         }
@@ -84717,18 +84748,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
 
+    // 3L.59: klienci są globalni. Oddział pozostaje wyłącznie historycznym
+    // polem technicznym w Supabase i nie wpływa na widoczność ani unikalność klienta.
     function centralClientBranchId(client) {
-      const own = String(client?._centralBranchId || "").trim();
-      if (own) return own;
-      const userBranch = String(state.user?.branchId || "").trim();
-      if (userBranch) return userBranch;
-      const dispatcher = String(client?.dispatcher || "").trim();
-      const dispatcherUser = dispatcher ? USERS.find(user => String(user?.login || "").trim() === dispatcher) : null;
-      return String(dispatcherUser?.branchId || "").trim();
+      return String(client?._centralBranchId || "").trim();
     }
 
     function centralClientKey(branchId, clientId) {
-      return `${String(branchId || "").trim()}::${String(clientId || "").trim()}`;
+      return String(clientId || "").trim();
     }
 
     function centralSerializableClient(client) {
@@ -84762,8 +84789,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       (state.clients || []).forEach(client => {
         const branchId = centralClientBranchId(client);
         const id = String(client?.id || "").trim();
-        if (branchId && id) currentByKey.set(centralClientKey(branchId, id), client);
-        else if (client && id) looseLocal.push(client);
+        if (id) currentByKey.set(centralClientKey(branchId, id), client);
+        else if (client) looseLocal.push(client);
       });
 
       const merged = [];
@@ -84773,7 +84800,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const branchId = String(row?.branchId || "").trim();
         const rawPayload = row?.payload && typeof row.payload === "object" ? cloneData(row.payload) : null;
         const clientId = String(rawPayload?.id || row?.id || "").trim();
-        if (!branchId || !clientId || !rawPayload) return;
+        if (!clientId || !rawPayload) return;
 
         const payload = normalizeStoredClient({ ...rawPayload, id: clientId });
         if (!payload) return;
@@ -84844,10 +84871,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!client || client.sample) return;
         const clientId = String(client.id || "").trim();
         const branchId = excelUuid(centralClientBranchId(client));
-        // 3L.56: nigdy nie wysyłamy do RPC wartości typu #REF!/tekst jako UUID.
-        // Stare, częściowo zaimportowane wpisy pozostają lokalnie do czasu ponownego
-        // poprawnego importu, ale nie generują już zapętlonych błędów synchronizacji.
-        if (!clientId || !branchId) return;
+        if (!clientId) return;
 
         const key = centralClientKey(branchId, clientId);
         currentKeys.add(key);
@@ -84869,16 +84893,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           requestId,
           client: payload,
           clientId,
-          branchId
+          branchId: ""
         }, window.location.origin);
       });
 
       for (const key of Array.from(CENTRAL_CLIENT_BASELINE.keys())) {
         if (currentKeys.has(key) || CENTRAL_CLIENT_PENDING_DELETE.has(key) || CENTRAL_CLIENT_PENDING_UPSERT.has(key)) continue;
-        const separator = key.indexOf("::");
-        const branchId = excelUuid(separator >= 0 ? key.slice(0, separator) : "");
-        const clientId = separator >= 0 ? key.slice(separator + 2) : key;
-        if (!branchId || !clientId) continue;
+        const branchId = "";
+        const clientId = String(key || "").trim();
+        if (!clientId) continue;
 
         const requestId = `client-archive-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         CENTRAL_CLIENT_PENDING_DELETE.add(key);
@@ -84888,7 +84911,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           type: "top-dragon-client-archive",
           requestId,
           clientId,
-          branchId
+          branchId: ""
         }, window.location.origin);
       }
       if (hasMoreUpserts) scheduleCentralClientsDiff(180);
@@ -85999,7 +86022,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const EXCEL_CLIENT_COLUMNS = [
         { key:"clientId", label:"Klient ID" },
-        { key:"branchId", label:"Oddział ID" },
         { key:"databaseType", label:"Baza" },
         { key:"name", label:"Nazwa" },
         { key:"address", label:"Adres" },
@@ -86246,7 +86268,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const payload = centralSerializableClient(client) || {};
           return {
             clientId: String(payload.id || ""),
-            branchId: centralClientBranchId(client),
             databaseType: String(payload.databaseType || "operations"),
             name: String(payload.name || ""),
             address: String(payload.address || ""),
@@ -86361,8 +86382,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         (dataRows || []).forEach((row, rowIndex) => {
           const map = excelRowMap(row);
           const json = excelJsonObject(excelValue(map, ["Dane JSON", "payloadJson"])) || {};
-          const dispatcherCell = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], json.dispatcher || ""));
-          const branchIds = excelResolveBranchIds(row, map, dispatcherCell, json._centralBranchId || json.branchId || json.branch_id, options.defaultBranchId || "");
+          const dispatcherCell = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], json.dispatcher || options.defaultDispatcher || ""));
           const raw = { ...json };
           const sourceId = excelSafeString(excelValue(map, ["Klient ID", "clientId", "id"]));
           raw.databaseType = excelSafeString(excelValue(map, ["Baza", "databaseType"], raw.databaseType || "operations"), "operations") || "operations";
@@ -86381,17 +86401,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           raw.lastContactAt = excelSafeString(excelValue(map, ["Ostatni kontakt", "lastContactAt"], raw.lastContactAt || ""));
           raw.updatedAt = new Date().toISOString();
 
-          if (!branchIds.length) {
-            skipped += 1;
-            issues.push(`${excelImportIssueLabel(row, rowIndex)}: nie udało się ustalić oddziału. Błędne wartości Excela (np. #REF!) są ignorowane; podaj UUID oddziału, nazwę oddziału albo spedytora.`);
-            return;
-          }
           if (!raw.name || !raw.address) {
             skipped += 1;
             issues.push(`${excelImportIssueLabel(row, rowIndex)}: brak nazwy lub adresu klienta.`);
             return;
           }
-          if (!Number.isFinite(Number(raw.lat)) || !Number.isFinite(Number(raw.lng))) {
+          if (!Number.isFinite(Number(raw.lat)) || !Number.isFinite(Number(raw.lng)) || (!Number(raw.lat) && !Number(raw.lng))) {
             const resolved = coordsFromSearchText(raw.address);
             if (resolved?.coords) {
               raw.lat = Number(resolved.coords[0]);
@@ -86405,31 +86420,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             return;
           }
 
-          branchIds.forEach(branchId => {
-            const validBranchId = excelUuid(branchId);
-            if (!validBranchId) return;
-            const candidate = { ...raw };
-            candidate.id = sourceId || raw.id || excelStableImportId("client-import", validBranchId, raw.name, raw.address);
-            const normalized = normalizeStoredClient(candidate);
-            if (!normalized?.id) return;
+          const candidate = { ...raw };
+          candidate.id = sourceId || raw.id || excelStableImportId("client-import", raw.name, raw.address);
+          const normalized = normalizeStoredClient(candidate);
+          if (!normalized?.id) {
+            skipped += 1;
+            issues.push(`${excelImportIssueLabel(row, rowIndex)}: nie udało się utworzyć identyfikatora klienta.`);
+            return;
+          }
 
-            // Samonaprawa po nieudanym imporcie ze starszej wersji: usuń lokalny
-            // duplikat tego samego klienta, jeżeli miał błędny/pusty identyfikator oddziału.
-            for (let index = clients.length - 1; index >= 0; index -= 1) {
-              const previous = clients[index];
-              if (String(previous?.id || "").trim() !== String(normalized.id || "").trim()) continue;
-              if (!excelUuid(centralClientBranchId(previous))) clients.splice(index, 1);
-            }
-
-            try { Object.defineProperty(normalized, "_centralBranchId", { value:validBranchId, writable:true, configurable:true, enumerable:false }); }
-            catch (error) { normalized._centralBranchId = validBranchId; }
-            const key = centralClientKey(validBranchId, normalized.id);
-            const index = clients.findIndex(client => centralClientKey(excelUuid(centralClientBranchId(client)), client?.id) === key);
-            if (index >= 0) clients[index] = normalized; else clients.push(normalized);
-            CENTRAL_CLIENT_BASELINE.delete(key);
-            CENTRAL_CLIENT_PENDING_DELETE.delete(key);
-            imported += 1;
-          });
+          const key = centralClientKey("", normalized.id);
+          const index = clients.findIndex(client => centralClientKey("", client?.id) === key);
+          if (index >= 0) clients[index] = normalized; else clients.push(normalized);
+          CENTRAL_CLIENT_BASELINE.delete(key);
+          CENTRAL_CLIENT_PENDING_DELETE.delete(key);
+          imported += 1;
         });
         state.clients = clients;
         saveClientDatabaseToStorage();
@@ -86628,7 +86633,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
           const result = kind === "clients" ? importClientRowsFromExcel(rows, options) : importRelationRowsFromExcel(rows, options);
           if (!result.imported && !result.planned) {
-            throw new Error(`Nie zaimportowano żadnego rekordu. ${excelImportIssuesText(result.issues, 5) || "Sprawdź nagłówki, oddział, spedytora i wymagane pola."}`);
+            const fallback = kind === "clients"
+              ? "Sprawdź nagłówki oraz wymagane pola: Nazwa i Adres. Klienci nie wymagają oddziału."
+              : "Sprawdź nagłówki, oddział, spedytora i wymagane pola.";
+            throw new Error(`Nie zaimportowano żadnego rekordu. ${excelImportIssuesText(result.issues, 5) || fallback}`);
           }
           state.adminDataTransferOpen = false;
           renderKeepingScroll();
@@ -86726,8 +86734,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!ADMIN_AI_IMPORT_STATE.open || !canUseAdminDataTransfer()) return "";
         const kind = ADMIN_AI_IMPORT_STATE.kind;
         const branches = adminAiBranchOptions();
-        if (!ADMIN_AI_IMPORT_STATE.defaultBranchId && branches[0]?.id) ADMIN_AI_IMPORT_STATE.defaultBranchId = branches[0].id;
-        const dispatchers = adminAiDispatcherOptions(ADMIN_AI_IMPORT_STATE.defaultBranchId);
+        if (kind !== "clients" && !ADMIN_AI_IMPORT_STATE.defaultBranchId && branches[0]?.id) ADMIN_AI_IMPORT_STATE.defaultBranchId = branches[0].id;
+        const dispatchers = adminAiDispatcherOptions(kind === "clients" ? "" : ADMIN_AI_IMPORT_STATE.defaultBranchId);
         if (!ADMIN_AI_IMPORT_STATE.defaultDispatcher && dispatchers[0]?.login) ADMIN_AI_IMPORT_STATE.defaultDispatcher = dispatchers[0].login;
         const columns = adminAiPreviewColumns(kind);
         const items = Array.isArray(ADMIN_AI_IMPORT_STATE.items) ? ADMIN_AI_IMPORT_STATE.items : [];
@@ -86741,15 +86749,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" class="icon-action-btn" title="Zamknij" aria-label="Zamknij" onclick="adminCloseAiImport()">✕</button>
               </div>
               <div class="admin-ai-import-body">
-                <div class="admin-ai-import-grid">
-                  <div>
+                <div class="admin-ai-import-grid ${kind === "clients" ? "admin-ai-import-grid-single" : ""}">
+                  ${kind === "clients" ? "" : `<div>
                     <label class="field-label" style="margin-top:0;">Domyślny oddział</label>
                     <select class="select" onchange="adminAiSetBranch(this.value)">
                       ${branches.map(branch => `<option value="${attr(branch.id)}" ${branch.id === ADMIN_AI_IMPORT_STATE.defaultBranchId ? "selected" : ""}>${esc(branch.name)}</option>`).join("")}
                     </select>
-                  </div>
+                  </div>`}
                   <div>
-                    <label class="field-label" style="margin-top:0;">Domyślny spedytor</label>
+                    <label class="field-label" style="margin-top:0;">${kind === "clients" ? "Domyślny opiekun klienta" : "Domyślny spedytor"}</label>
                     <select class="select" onchange="adminAiSetDispatcher(this.value)">
                       <option value="">— brak —</option>
                       ${dispatchers.map(user => `<option value="${attr(user.login)}" ${user.login === ADMIN_AI_IMPORT_STATE.defaultDispatcher ? "selected" : ""}>${esc(user.login)}${user.name && user.name !== user.login ? ` · ${esc(user.name)}` : ""}</option>`).join("")}
@@ -86807,8 +86815,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ADMIN_AI_IMPORT_STATE.model = "";
         ADMIN_AI_IMPORT_STATE.elapsedMs = 0;
         const branches = adminAiBranchOptions();
-        ADMIN_AI_IMPORT_STATE.defaultBranchId = branches[0]?.id || "";
-        ADMIN_AI_IMPORT_STATE.defaultDispatcher = adminAiDispatcherOptions(ADMIN_AI_IMPORT_STATE.defaultBranchId)[0]?.login || "";
+        ADMIN_AI_IMPORT_STATE.defaultBranchId = ADMIN_AI_IMPORT_STATE.kind === "clients" ? "" : (branches[0]?.id || "");
+        ADMIN_AI_IMPORT_STATE.defaultDispatcher = adminAiDispatcherOptions(ADMIN_AI_IMPORT_STATE.kind === "clients" ? "" : ADMIN_AI_IMPORT_STATE.defaultBranchId)[0]?.login || "";
         syncAdminAiImportModal();
       };
 
@@ -86977,9 +86985,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function adminAiClientRows(items) {
         return items.map(item => {
           const dispatcher = adminAiResolveDispatcher(item?.dispatcher, ADMIN_AI_IMPORT_STATE.defaultDispatcher);
-          const branchId = excelUuid(adminAiResolveBranchId(dispatcher));
           return {
-            "Oddział ID": branchId,
             "Baza": "operations",
             "Nazwa": String(item?.name || "").trim(),
             "Adres": String(item?.address || [item?.postalCode,item?.city].filter(Boolean).join(" ") || "").trim(),
@@ -87079,7 +87085,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const defaultDispatcher = adminAiResolveDispatcher(ADMIN_AI_IMPORT_STATE.defaultDispatcher);
           if (ADMIN_AI_IMPORT_STATE.kind === "clients") {
             const valid = selectedItems.filter(item => item?.name && (item?.address || item?.postalCode || item?.city));
-            const result = importClientRowsFromExcel(adminAiClientRows(valid), { defaultBranchId, defaultDispatcher });
+            const result = importClientRowsFromExcel(adminAiClientRows(valid), { defaultDispatcher });
             const missing = selectedItems.length - valid.length;
             if (!result.imported) throw new Error(`AI rozpoznało rekordy, ale żaden nie przeszedł walidacji importu. ${excelImportIssuesText(result.issues, 5)}`);
             showAppMessage("Import AI klientów zakończony", `Zaimportowano ${result.imported} rekordów.${missing || result.skipped ? ` Pominięto ${missing + result.skipped} rekordów.` : ""}${result.issues?.length ? ` ${excelImportIssuesText(result.issues)}` : ""}`, result.skipped || missing ? "info" : "success");
@@ -88554,27 +88560,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
 
           <div class="weekly-settlement-subsection">
-            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b><span class="weekly-settlement-note">Dodatnie wyrównanie zwiększa wypłatę przewoźnika; ujemne ją zmniejsza.</span></div>
-            ${canAddAdjustment ? `<div class="weekly-settlement-form">
-              <input id="weekly-adjustment-week" type="hidden" value="${attr(weekStart)}" />
-              <label><span>Przewoźnik</span><select id="weekly-adjustment-carrier" class="select"><option value="">Wybierz przewoźnika</option>${carriers.map(item => `<option value="${attr(item.id)}">${esc(item.name)}</option>`).join("")}</select></label>
-              <label><span>Wyrównanie PLN</span><input id="weekly-adjustment-amount" class="input" inputmode="decimal" placeholder="np. 300 lub -100" /></label>
-              <label class="wide-mobile"><span>Komentarz</span><input id="weekly-adjustment-comment" class="input" maxlength="1200" placeholder="Powód wyrównania / ustalenie z przewoźnikiem" /></label>
-              <button type="button" class="btn btn-dark" onclick="createWeeklyCarrierAdjustment()">Dodaj</button>
-            </div>` : ""}
-            <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Przewoźnik</th><th>Koszt z relacji</th><th>Wyrównanie</th><th>Do wypłaty</th><th>Komentarz / korekty</th></tr></thead><tbody>
-              ${carrierRows.length ? carrierRows.map(row => `<tr><td><b>${esc(row.name)}</b></td><td>${statsMoney(row.baseCost)}</td><td class="${row.adjustment > 0 ? "weekly-settlement-money-minus" : row.adjustment < 0 ? "weekly-settlement-money-plus" : ""}">${statsMoney(row.adjustment)}</td><td><b>${statsMoney(row.payout)}</b></td><td>${row.comments.length ? row.comments.map(comment => `<div>${esc(comment)}</div>`).join("") : "—"}${row.adjustmentIds.some(canDeleteWeeklyCarrierAdjustment) ? `<div class="weekly-transfer-actions" style="margin-top:5px">${row.adjustmentIds.filter(canDeleteWeeklyCarrierAdjustment).map(item => `<button type="button" class="btn-mini" onclick="deleteWeeklyCarrierAdjustment('${attr(item.id)}','${attr(weekStart)}')">Usuń korektę ${statsMoney(item.amount)}</button>`).join("")}</div>` : ""}</td></tr>`).join("") : `<tr><td colspan="5" class="weekly-settlement-empty">Brak relacji i wyrównań przewoźników w tym tygodniu.</td></tr>`}
-            </tbody></table></div>
-          </div>
-
-          <div class="weekly-settlement-subsection">
-            <div class="weekly-settlement-subhead"><b>Wynik spedytorów po zaakceptowanych przelewach</b><span class="weekly-settlement-note">Przelew nie wpływa na wynik, dopóki odbiorca go nie zaakceptuje.</span></div>
-            <div class="weekly-settlement-table-wrap"><table class="weekly-settlement-table"><thead><tr><th>Spedytor</th><th>Wynik operacyjny</th><th>Wysłane</th><th>Otrzymane</th><th>Saldo przelewów</th><th>Wynik po przelewach</th></tr></thead><tbody>
-              ${dispatcherRows.length ? dispatcherRows.map(row => `<tr class="${row.id === String(state.user?.supabaseId || "") ? "weekly-current-user-row" : ""}"><td><b>${esc(row.name)}</b></td><td>${statsMoney(row.rawProfit)}</td><td class="weekly-settlement-money-minus">${statsMoney(row.sent)}</td><td class="weekly-settlement-money-plus">${statsMoney(row.received)}</td><td class="${row.net >= 0 ? "weekly-settlement-money-plus" : "weekly-settlement-money-minus"}">${statsMoney(row.net)}</td><td><b class="${row.adjusted >= 0 ? "weekly-settlement-money-plus" : "weekly-settlement-money-minus"}">${statsMoney(row.adjusted)}</b></td></tr>`).join("") : `<tr><td colspan="6" class="weekly-settlement-empty">Brak wyników spedytorów dla tego tygodnia.</td></tr>`}
-            </tbody></table></div>
-          </div>
-
-          <div class="weekly-settlement-subsection">
             <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b><span class="weekly-settlement-note">To wewnętrzna korekta wyniku TMS, nie przelew bankowy. Transfer potwierdza wyłącznie odbiorca — akceptacja kierownika oddziału nie jest wymagana.</span></div>
             ${state.user?.role === "spedytor" ? `<div class="weekly-transfer-howto"><b>Jak przelać wynik?</b><span>Wybierz odbiorcę, wpisz kwotę i komentarz. Wynik zmieni się po potwierdzeniu przez odbiorcę. Kierownicy oddziałów nie zatwierdzają tej operacji.</span></div><div class="weekly-settlement-form">
               <input id="weekly-transfer-week" type="hidden" value="${attr(weekStart)}" />
@@ -89049,19 +89034,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           `<div class="stats-drawer-head-actions"><button class="btn" type="button" onclick="toggleStatsFullscreen()">${state.statsFullscreen ? 'Widok panelu' : 'Pełny ekran'}</button><button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button></div>`
         );
         const metricGrid = renderStatsMetricGrid(stats);
-        const quickActions = `<div class="stats-company-actions"><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('carrier')">Kwota / wyrównanie dla przewoźnika</button><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('dispatcher')">Przekaż zysk spedytorowi</button><button type="button" class="btn" onclick="refreshCompanyDispatcherStats()">Odśwież tabelę</button></div>`;
-        html = html.replace(metricGrid, `${quickActions}${renderCompanyDispatcherStatsTable(stats)}<div class="stats-detail-caption">Poniżej: szczegółowe dane relacji dostępnych w bieżącym widoku użytkownika.</div>${metricGrid}`);
+        html = html.replace(metricGrid, `${renderCompanyDispatcherStatsTable(stats)}<div class="stats-detail-caption">Poniżej: szczegółowe dane relacji dostępnych w bieżącym widoku użytkownika.</div>${metricGrid}`);
         const duplicateDispatcherTable = renderStatsTable("Spedytorzy", "Statystyki każdego spedytora w wybranym okresie", stats.byDispatcher, Math.max(12, stats.byDispatcher.length));
         html = html.replace(duplicateDispatcherTable, "");
 
         if (stats.range === "week") {
-          html = html.replace('<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>', '<div class="weekly-settlement-subsection" id="weekly-carrier-tools">\n            <div class="weekly-settlement-subhead"><b>Kwota / wyrównanie dla przewoźnika</b>');
-          html = html.replace('onclick="createWeeklyCarrierAdjustment()">Dodaj</button>', 'onclick="createWeeklyCarrierAdjustment()">Zapisz kwotę dla przewoźnika</button>');
           html = html.replace('<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>', '<div class="weekly-settlement-subsection" id="weekly-dispatcher-transfer-tools">\n            <div class="weekly-settlement-subhead"><b>Przekaż zysk innemu spedytorowi</b>');
           html = html.replace('onclick="createWeeklyDispatcherTransfer()">Przelej do akceptacji</button>', 'onclick="createWeeklyDispatcherTransfer()">Wyślij do akceptacji</button>');
-          const weeklyMarker = '<section class="weekly-settlement-section">';
-          const nav = `<div class="weekly-quick-entry"><div class="weekly-quick-card"><div><b>Przewoźnik</b><span>Dodaj kwotę wyrównującą wypłatę i komentarz.</span></div><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('carrier')">Wprowadź kwotę</button></div><div class="weekly-quick-card"><div><b>Spedytor</b><span>Przekaż część wyniku; odbiorca musi zaakceptować.</span></div><button type="button" class="btn btn-dark" onclick="openWeeklySettlementTools('dispatcher')">Przekaż zysk</button></div></div>`;
-          html = html.replace(weeklyMarker, `${nav}${weeklyMarker}`);
           if (state.statsWeeklyFocus) {
             const focusId = state.statsWeeklyFocus === "carrier" ? "weekly-carrier-tools" : "weekly-dispatcher-transfer-tools";
             queueMicrotask(() => setTimeout(() => {
@@ -89213,9 +89192,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           showAppMessage("Zmiana wymaga kierownika", "Spedytor może wnioskować o przypisanie opiekuna. Usunięcie istniejącego opiekuna wykonuje kierownik oddziału lub administrator.");
           return;
         }
-        const targetUser = USERS.find(user => user.supabaseRole === "dispatcher" && user.login === desiredLogin && (!state.user?.branchId || user.branchId === state.user.branchId));
+        const targetUser = USERS.find(user => user.supabaseRole === "dispatcher" && user.login === desiredLogin);
         if (!targetUser?.supabaseId) {
-          showAppMessage("Nie znaleziono spedytora", "Wybrany opiekun nie jest aktywnym spedytorem tego oddziału.", "error");
+          showAppMessage("Nie znaleziono spedytora", "Wybrany opiekun nie jest aktywnym spedytorem.", "error");
           return;
         }
         const beforeIds = new Set((state.clients || []).map(item => item.id));
@@ -90176,11 +90155,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <button class="btn ${stats.range==='month'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('month')">Miesiąc</button>
             <button class="btn ${stats.range==='custom'?'toggle-active':'toggle-inactive'}" type="button" onclick="setStatsRange('custom')">Wybrany okres</button>
           </div>
-          <div class="stats-stable-actions">
-            <button class="btn" type="button" onclick="refreshCompanyDispatcherStats()">Odśwież tabelę</button>
-            <button class="btn btn-dark" type="button" onclick="openWeeklySettlementTools('carrier')">Wyrównanie przewoźnika</button>
-            <button class="btn btn-dark" type="button" onclick="openWeeklySettlementTools('dispatcher')">Transfer spedytora</button>
-          </div>
         </div>`;
       }
 
@@ -90213,10 +90187,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ${renderStatsMetricGrid(stats)}
             ${renderStatsFocus(stats)}
             ${renderStatsList('Finanse','Najważniejsze wartości dla wybranego zakresu',financeRows)}
-            ${renderStatsTable('Pojazdy','Wyniki według pojazdu',stats.byVehicle,Math.max(12,stats.byVehicle.length))}
             ${renderStatsTable('Przewoźnicy','Koszt, wynik i kilometry',stats.byCarrier,12)}
             ${renderStatsTable('Kierowcy','Relacje, km, zysk i dolot',stats.byDriver,Math.max(12,stats.byDriver.length))}
-            ${renderStatsList('Dane do uzupełnienia','Kontrola danych potrzebnych do rozliczeń',qualityRows)}
             ${stableWeekly3L40(stats)}
           </div>
         </aside>`;
@@ -90865,12 +90837,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const rows=[];
         adjustments.slice(-5).reverse().forEach(item=>rows.push({kind:'Przewoźnik',text:`${item.driverName ? item.driverName+' · ' : ''}${item.carrierName || 'Przewoźnik'}${item.comment ? ' · '+item.comment : ''}`,amount:Number(item.amount||0),cls:Number(item.amount||0)>=0?'minus':'plus'}));
         transfers.slice(-7).reverse().forEach(item=>rows.push({kind:'Transfer',text:`${transferName3L43(item,'from')} → ${transferName3L43(item,'to')} · ${transferStatus3L43(item)}${item.comment ? ' · '+item.comment : ''}`,amount:Number(item.amount||0),cls:item.status==='accepted'?'plus':item.status==='pending'?'pending':'inactive'}));
-        const financeSupabaseRole=String(state.user?.supabaseRole||'');
-        const canCreateCarrierAdjustment=['dispatcher','branch_manager','accounting','admin'].includes(financeSupabaseRole) || ['spedytor','rozliczenia','admin'].includes(String(state.user?.role||''));
-        const canCreateDispatcherTransfer=financeSupabaseRole ? financeSupabaseRole==='dispatcher' : state.user?.role==='spedytor';
-        const financeActions=`${canCreateCarrierAdjustment?`<button class="btn" type="button" onclick="focusWeeklyTool3L43('carrier')">Wyrównanie przewoźnika</button>`:''}${canCreateDispatcherTransfer?`<button class="btn" type="button" onclick="focusWeeklyTool3L43('dispatcher')">Transfer spedytora</button>`:''}`;
         return `<section class="stats-finance-analysis-3l43">
-          <div class="stats-finance-analysis-head-3l43"><div><b>Rozliczenia tygodniowe — analiza</b><small>${esc(formatDateForInput(ws))} – ${esc(formatDateForInput(we))} · widoczne dla pracowników w jednym miejscu</small></div>${financeActions?`<div class="stats-stable-actions">${financeActions}</div>`:''}</div>
+          <div class="stats-finance-analysis-head-3l43"><div><b>Rozliczenia tygodniowe — analiza</b><small>${esc(formatDateForInput(ws))} – ${esc(formatDateForInput(we))} · widoczne dla pracowników w jednym miejscu</small></div></div>
           <div class="stats-finance-kpis-3l43">
             <div class="stats-finance-kpi-3l43"><small>Wyrównania przewoźników</small><b>${adjustments.length} · ${esc(statsMoney(adjSum))}</b></div>
             <div class="stats-finance-kpi-3l43"><small>Transfery zaakceptowane</small><b>${accepted.length} · ${esc(statsMoney(transferSum))}</b></div>
@@ -91245,10 +91213,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const baseRender = weeklyHelper.render;
         weeklyHelper.render = function(stats) {
           let html = baseRender.apply(this, arguments);
-          html = html.replace(
-            '<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>',
-            '<div class="weekly-settlement-subsection" id="weekly-carrier-tools">\n            <div class="weekly-settlement-subhead"><b>Przewoźnicy — kwota do wypłaty za tydzień</b>'
-          );
           html = html.replace(
             '<div class="weekly-settlement-subsection">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>',
             '<div class="weekly-settlement-subsection" id="weekly-dispatcher-transfer-tools">\n            <div class="weekly-settlement-subhead"><b>Przelew wyniku między spedytorami</b>'
@@ -93131,5 +93095,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     })();
   </script>
+
+  <style id="targeted-3l61-stats-simplification">
+    /* 3L.61 — uproszczony panel Statystyk. Akcje okna są razem po prawej stronie. */
+    .stats-drawer-head { display:flex !important; align-items:flex-start !important; justify-content:space-between !important; gap:12px !important; }
+    .stats-drawer-head-actions { margin-left:auto !important; display:flex !important; align-items:center !important; justify-content:flex-end !important; gap:6px !important; flex:0 0 auto !important; }
+  </style>
 </body>
 </html>
