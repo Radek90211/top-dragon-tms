@@ -1,252 +1,147 @@
-import { parseJsonBody } from '../server/admin.js'
-import {
-  aiErrorStatus,
-  auditAiAnalysis,
-  requireAiUser,
-  runStructuredExtraction,
-} from '../server/ai-analyzer.js'
+/*
+ * Chroniony endpoint Vercel dla administracyjnego importu AI.
+ * Nie używa klucza OpenAI w przeglądarce: iframe przekazuje tylko tekst źródłowy
+ * i aktualny token Supabase, a odpowiedź jest zawsze ograniczona do JSON.
+ */
 
-export const maxDuration = 60
+const ALLOWED_KINDS = new Set(['clients', 'relations', 'vehicles'])
+const MAX_SOURCE_LENGTH = 120000
+const MAX_ITEMS = 1000
 
-const MAX_SOURCE_LENGTH = 180000
-const MAX_ITEMS = 300
-
-function clean(value) {
-  return String(value ?? '').trim()
+function env(name, fallback = '') {
+  return String(process.env?.[name] || fallback || '').trim()
 }
 
-function stringField() {
-  return { type: 'string' }
+function json(res, status, body) {
+  res.status(status).json(body)
 }
 
-function numberField() {
-  return { type: 'number' }
+function errorMessage(value, fallback) {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (value?.message) return String(value.message)
+  return fallback
 }
 
-function confidenceField() {
-  return { type: 'number', minimum: 0, maximum: 1 }
-}
+async function authenticateAdmin(req) {
+  const authorization = String(req.headers?.authorization || '')
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+  if (!match) throw Object.assign(new Error('Brak tokenu sesji Supabase.'), { statusCode: 401 })
 
-function booleanField() {
-  return { type: 'boolean' }
-}
+  const supabaseUrl = env('SUPABASE_URL') || env('VITE_SUPABASE_URL') || env('NEXT_PUBLIC_SUPABASE_URL')
+  const anonKey = env('SUPABASE_ANON_KEY') || env('SUPABASE_PUBLISHABLE_KEY') || env('VITE_SUPABASE_ANON_KEY') || env('VITE_SUPABASE_PUBLISHABLE_KEY') || env('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Brak konfiguracji SUPABASE_URL/SUPABASE_ANON_KEY dla endpointu importu AI.'), { statusCode: 500 })
 
-function clientItemSchema() {
-  return {
-    type: 'object',
-    properties: {
-      sourceRow: numberField(),
-      name: stringField(),
-      address: stringField(),
-      postalCode: stringField(),
-      city: stringField(),
-      nip: stringField(),
-      cargoTypes: stringField(),
-      businessType: stringField(),
-      dispatcher: stringField(),
-      lat: numberField(),
-      lng: numberField(),
-      approximate: booleanField(),
-      qualityRating: numberField(),
-      paymentDays: numberField(),
-      cooperationNotes: stringField(),
-      lastContactAt: stringField(),
-      confidence: confidenceField(),
-    },
-    required: [
-      'sourceRow', 'name', 'address', 'postalCode', 'city', 'nip', 'cargoTypes',
-      'businessType', 'dispatcher', 'lat', 'lng', 'approximate', 'qualityRating',
-      'paymentDays', 'cooperationNotes', 'lastContactAt', 'confidence',
-    ],
-    additionalProperties: false,
+  const userResponse = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, {
+    headers: { apikey: anonKey, Authorization: `Bearer ${match[1]}` },
+  })
+  const userData = await userResponse.json().catch(() => ({}))
+  if (!userResponse.ok || !userData?.id) throw Object.assign(new Error('Sesja Supabase jest nieważna lub wygasła.'), { statusCode: 401 })
+
+  const profileUrl = `${supabaseUrl.replace(/\/$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(userData.id)}&select=role,active&limit=1`
+  const profileResponse = await fetch(profileUrl, {
+    headers: { apikey: anonKey, Authorization: `Bearer ${match[1]}` },
+  })
+  const profileData = await profileResponse.json().catch(() => ([]))
+  const profile = Array.isArray(profileData) ? profileData[0] : null
+  if (!profileResponse.ok || !profile || profile.active === false || profile.role !== 'admin') {
+    throw Object.assign(new Error('Import administracyjny AI wymaga aktywnego konta Administratora.'), { statusCode: 403 })
   }
+  return { token: match[1], user: userData, profile }
 }
 
-function vehicleItemSchema() {
-  return {
-    type: 'object',
-    properties: {
-      sourceRow: numberField(),
-      carrierName: stringField(),
-      driverName: stringField(),
-      phone: stringField(),
-      nationality: stringField(),
-      baseLocation: stringField(),
-      vehicleRegistrationNo: stringField(),
-      vehicleBrand: stringField(),
-      trailerRegistrationNo: stringField(),
-      trailerHeightM: numberField(),
-      dispatcher: stringField(),
-      hidden: booleanField(),
-      confidence: confidenceField(),
-    },
-    required: [
-      'sourceRow', 'carrierName', 'driverName', 'phone', 'nationality',
-      'baseLocation', 'vehicleRegistrationNo', 'vehicleBrand',
-      'trailerRegistrationNo', 'trailerHeightM', 'dispatcher', 'hidden', 'confidence',
-    ],
-    additionalProperties: false,
-  }
-}
-
-function relationItemSchema() {
-  return {
-    type: 'object',
-    properties: {
-      sourceRow: numberField(),
-      date: stringField(),
-      loadDate: stringField(),
-      loadTime: stringField(),
-      load: stringField(),
-      loadAddress: stringField(),
-      unloadDate: stringField(),
-      unloadTime: stringField(),
-      unload: stringField(),
-      unloadAddress: stringField(),
-      client: stringField(),
-      reference: stringField(),
-      dispatcher: stringField(),
-      rate: numberField(),
-      cost: numberField(),
-      loadedKm: numberField(),
-      approachKm: numberField(),
-      baseKm: numberField(),
-      notes: stringField(),
-      confidence: confidenceField(),
-    },
-    required: [
-      'sourceRow', 'date', 'loadDate', 'loadTime', 'load', 'loadAddress',
-      'unloadDate', 'unloadTime', 'unload', 'unloadAddress', 'client',
-      'reference', 'dispatcher', 'rate', 'cost', 'loadedKm', 'approachKm',
-      'baseKm', 'notes', 'confidence',
-    ],
-    additionalProperties: false,
-  }
-}
-
-function kindConfiguration(kind) {
+function schemaForKind(kind) {
   if (kind === 'clients') {
-    return {
-      itemSchema: clientItemSchema(),
-      noun: 'klientów',
-      instructions: [
-        'Rozpoznaj rekordy klientów i lokalizacji z dowolnej tabeli, CSV, listy lub tekstu.',
-        'Każda fizyczna lokalizacja klienta ma być osobnym rekordem.',
-        'Nie zgaduj NIP, współrzędnych, opiekuna, oceny ani terminu płatności.',
-        'Jeżeli współrzędnych nie ma w źródle, zwróć lat=0 i lng=0; aplikacja spróbuje ustalić je lokalnie z kodu pocztowego lub miejscowości.',
-        'Jeżeli adres składa się tylko z kodu i miejscowości, zachowaj taki adres.',
-        'qualityRating zwróć 0, jeżeli źródło nie zawiera oceny; paymentDays zwróć 0, jeżeli źródło nie zawiera terminu.',
-      ].join(' '),
-    }
+    return `items zawierające wyłącznie klientów z polami: id, name, address, postalCode, city, nip, cargoTypes, businessType, dispatcher, lat, lng, approximate, qualityRating, paymentDays, cooperationNotes, lastContactAt, confidence.`
   }
   if (kind === 'vehicles') {
-    return {
-      itemSchema: vehicleItemSchema(),
-      noun: 'pojazdów',
-      instructions: [
-        'Rozpoznaj flotę transportową. Jeden rekord ma opisywać jeden aktywny zestaw kierowca + ciągnik + opcjonalna naczepa + przewoźnik.',
-        'Nie wymyślaj numerów rejestracyjnych, telefonu, narodowości ani spedytora.',
-        'Numery rejestracyjne zwracaj bez zmiany treści poza usunięciem zbędnych spacji na początku i końcu.',
-        'trailerHeightM zwróć 0, jeżeli wysokość nie występuje w źródle. nationality zwróć pusty string, jeżeli brak danych.',
-      ].join(' '),
-    }
+    return `items zawierające zestawy floty z polami: id, dispatcher, carrierName, driverName, phone, nationality, baseLocation, vehicleRegistrationNo, vehicleBrand, trailerRegistrationNo, trailerHeightM, hidden, confidence.`
   }
-  return {
-    itemSchema: relationItemSchema(),
-    noun: 'relacji',
-    instructions: [
-      'Rozpoznaj relacje/ładunki transportowe. Każdy niezależny załadunek -> rozładunek ma być osobnym rekordem.',
-      'Daty normalizuj do YYYY-MM-DD, godziny do HH:MM.',
-      'Nie zgaduj stawek, kosztów ani kilometrów. Brakującą liczbę zwróć jako 0.',
-      'Nie łącz kilku relacji w jeden rekord. Jeżeli źródło zawiera kilka wierszy, zachowaj ich rozdzielenie.',
-      'W polu load/unload podaj możliwie krótki opis lokalizacji, a pełniejsze dane ulicy/numeru w loadAddress/unloadAddress.',
-    ].join(' '),
-  }
+  return `items zawierające planowane relacje z polami: id, dispatcher, loadDate, unloadDate, loadTime, unloadTime, load, loadAddress, unload, unloadAddress, client, approachKm, loadedKm, baseKm, rate, cost, reference, notes, confidence.`
 }
 
-export default async function handler(request, response) {
-  if (request.method !== 'POST') {
-    return response.status(405).json({ ok: false, message: 'Dozwolona jest wyłącznie metoda POST.' })
+function instructionsForKind(kind) {
+  return [
+    'Jesteś modułem ekstrakcji danych dla Top Dragon TMS.',
+    'Zwróć wyłącznie poprawny JSON w formacie {"items":[],"warnings":[]}; bez Markdown, komentarzy i dodatkowych kluczy.',
+    'Nie wymyślaj danych. Jeśli wartość nie występuje w źródle, użyj pustego tekstu, null albo 0 zgodnie z typem.',
+    'Zachowaj polskie znaki, nie zmieniaj identyfikatorów i nie łącz dwóch rekordów w jeden.',
+    schemaForKind(kind),
+    kind === 'clients' ? 'Klient jest poprawny tylko wtedy, gdy ma name i address albo jednoznaczny adres z postalCode/city.' : '',
+    kind === 'relations' ? 'Relacja jest poprawna tylko wtedy, gdy ma load, unload i datę załadunku.' : '',
+    kind === 'vehicles' ? 'Zestaw jest poprawny tylko wtedy, gdy ma driverName lub vehicleRegistrationNo.' : '',
+  ].filter(Boolean).join('\n')
+}
+
+function normalizeItems(kind, items) {
+  return (Array.isArray(items) ? items : []).slice(0, MAX_ITEMS).map((item) => {
+    if (!item || typeof item !== 'object') return null
+    const normalized = {}
+    Object.entries(item).slice(0, 40).forEach(([key, value]) => {
+      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(key)) return
+      if (typeof value === 'string') normalized[key] = value.slice(0, 2000)
+      else if (typeof value === 'number' && Number.isFinite(value)) normalized[key] = value
+      else if (typeof value === 'boolean') normalized[key] = value
+      else if (value == null) normalized[key] = null
+    })
+    if (kind === 'clients' && (!String(normalized.name || '').trim() || (!String(normalized.address || '').trim() && !String(normalized.city || '').trim()))) return null
+    if (kind === 'relations' && (!String(normalized.load || '').trim() || !String(normalized.unload || '').trim())) return null
+    if (kind === 'vehicles' && (!String(normalized.driverName || '').trim() && !String(normalized.vehicleRegistrationNo || '').trim())) return null
+    return normalized
+  }).filter(Boolean)
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return json(res, 405, { ok: false, message: 'Dozwolona jest wyłącznie metoda POST.' })
   }
 
+  const startedAt = Date.now()
   try {
-    const auth = await requireAiUser(request)
-    if (!auth.ok) return response.status(auth.status).json({ ok: false, message: auth.message })
-    if (String(auth.profile?.role || '') !== 'admin') {
-      return response.status(403).json({ ok: false, message: 'Import danych przez AI jest dostępny wyłącznie dla administratora.' })
-    }
+    const { token } = await authenticateAdmin(req)
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const kind = String(body.kind || '').trim().toLowerCase()
+    const sourceText = String(body.sourceText || '').trim()
+    const sourceName = String(body.sourceName || 'import').trim().slice(0, 160)
+    if (!ALLOWED_KINDS.has(kind)) return json(res, 400, { ok: false, message: 'Nieobsługiwany rodzaj importu AI.' })
+    if (sourceText.length < 3) return json(res, 400, { ok: false, message: 'Brak danych źródłowych do analizy AI.' })
+    if (sourceText.length > MAX_SOURCE_LENGTH) return json(res, 413, { ok: false, message: `Dane źródłowe są za długie. Maksimum to ${MAX_SOURCE_LENGTH} znaków.` })
 
-    const body = parseJsonBody(request)
-    const kindRaw = clean(body?.kind).toLowerCase()
-    const kind = ['clients', 'vehicles', 'relations'].includes(kindRaw) ? kindRaw : ''
-    const sourceText = clean(body?.sourceText)
-    const sourceName = clean(body?.sourceName)
-    const referenceDate = clean(body?.referenceDate)
+    const openAiKey = env('OPENAI_API_KEY')
+    if (!openAiKey) return json(res, 503, { ok: false, message: 'Brak OPENAI_API_KEY w konfiguracji wdrożenia. Import AI jest chwilowo niedostępny.' })
 
-    if (!kind) return response.status(400).json({ ok: false, message: 'Nieprawidłowy typ importu AI.' })
-    if (!sourceText) return response.status(400).json({ ok: false, message: 'Brak danych do analizy.' })
-    if (sourceText.length > MAX_SOURCE_LENGTH) {
-      return response.status(413).json({ ok: false, message: `Materiał jest zbyt duży. Maksymalnie ${MAX_SOURCE_LENGTH} znaków na jedną analizę.` })
-    }
-
-    const config = kindConfiguration(kind)
-    const schema = {
-      type: 'object',
-      properties: {
-        items: { type: 'array', maxItems: MAX_ITEMS, items: config.itemSchema },
-        warnings: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['items', 'warnings'],
-      additionalProperties: false,
-    }
-
-    const commonInstructions = [
-      `Jesteś modułem importu danych systemu transportowego Top Dragon TMS. Analizujesz ${config.noun}.`,
-      'Źródło może mieć błędne nagłówki, przesunięte kolumny, skróty, literówki i puste komórki.',
-      'Wartości arkuszowych błędów #REF!, #N/A, #VALUE!, #NAME?, #DIV/0!, #NUM! i #NULL! traktuj zawsze jako brak danych, nigdy jako rzeczywistą wartość.',
-      'Zwróć tylko informacje wynikające ze źródła. Nie twórz fikcyjnych rekordów ani danych.',
-      'sourceRow to 1-based numer wiersza danych, a dla tekstu bez tabeli kolejny numer rekordu.',
-      'confidence ma być liczbą od 0 do 1.',
-      'Jeżeli rekord jest nieczytelny, pomiń go i opisz problem w warnings.',
-      `Nie zwracaj więcej niż ${MAX_ITEMS} rekordów.`,
-      referenceDate ? `Datą odniesienia jest ${referenceDate}.` : '',
-      config.instructions,
-    ].filter(Boolean).join(' ')
-
-    const { data, model, elapsedMs } = await runStructuredExtraction({
-      schema,
-      instructions: commonInstructions,
-      parts: [{ text: `ŹRÓDŁO: ${sourceName || 'dane wklejone przez administratora'}\n\n${sourceText}` }],
-      timeoutMs: 55000,
+    const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiKey}` },
+      body: JSON.stringify({
+        model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
+        store: false,
+        instructions: instructionsForKind(kind),
+        input: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}`,
+        text: { format: { type: 'json_object' } },
+      }),
     })
-
-    const rawItems = Array.isArray(data?.items) ? data.items.slice(0, MAX_ITEMS) : []
-    const errorTokens = new Set(['#REF!', '#N/A', '#VALUE!', '#NAME?', '#DIV/0!', '#NUM!', '#NULL!'])
-    const scrub = (value) => {
-      const text = clean(value)
-      return errorTokens.has(text.toUpperCase()) ? '' : text
+    const openAiData = await openAiResponse.json().catch(() => ({}))
+    if (!openAiResponse.ok) {
+      const providerMessage = errorMessage(openAiData?.error, `OpenAI zwróciło HTTP ${openAiResponse.status}.`)
+      return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${providerMessage}` })
     }
-    const items = rawItems.map((item) => {
-      const copy = { ...(item || {}) }
-      Object.keys(copy).forEach((key) => {
-        if (typeof copy[key] === 'string') copy[key] = scrub(copy[key])
-      })
-      copy.confidence = Math.max(0, Math.min(1, Number(copy.confidence || 0)))
-      return copy
-    })
-    const warnings = Array.isArray(data?.warnings) ? data.warnings.map(scrub).filter(Boolean) : []
-    await auditAiAnalysis(auth, `admin_import_${kind}`, {
-      model,
-      fileName: sourceName,
-      routeCount: items.length,
-      elapsedMs,
-    })
 
-    return response.status(200).json({ ok: true, kind, items, warnings, model, elapsedMs })
+    const outputText = String(openAiData?.output_text || openAiData?.output?.flatMap((item) => item?.content || []).find((item) => item?.type === 'output_text')?.text || '').trim()
+    let parsed
+    try { parsed = JSON.parse(outputText) } catch { throw new Error('Model AI zwrócił niepoprawny JSON. Spróbuj ponownie z krótszym lub bardziej uporządkowanym źródłem.') }
+    const items = normalizeItems(kind, parsed?.items)
+    const warnings = (Array.isArray(parsed?.warnings) ? parsed.warnings : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100)
+    return json(res, 200, {
+      ok: true,
+      kind,
+      items,
+      warnings,
+      model: String(openAiData?.model || env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini')),
+      elapsedMs: Date.now() - startedAt,
+    })
   } catch (error) {
-    return response.status(aiErrorStatus(error)).json({
-      ok: false,
-      message: String(error?.message || 'Nie udało się przeanalizować danych do importu.'),
-    })
+    const status = Number(error?.statusCode || 500)
+    return json(res, status >= 400 && status < 600 ? status : 500, { ok: false, message: errorMessage(error, 'Nie udało się wykonać importu AI.') })
   }
 }
