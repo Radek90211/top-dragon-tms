@@ -489,6 +489,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         </div>
       </header>
 
+      ${renderAdminPreviewBar()}
+
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
       <div class="admin-grid">
@@ -615,6 +617,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   `
 
   document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
+  wireAdminPreviewControls()
 
   document.querySelector('#admin-refresh')?.addEventListener('click', async () => {
     if (adminPanelBusy) return
@@ -3460,7 +3463,7 @@ function renderAdminPreviewBar() {
     ? `Aktywny podgląd funkcji: ${roleLabel(adminPreview.role)}`
     : 'Aktywny kontekst: Administrator'
   return `
-    <section id="admin-role-preview" style="position:sticky;top:0;z-index:10000;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:0 0 12px 12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.12);">
+    <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
       <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Podgląd nie wybiera ani nie zastępuje konkretnego pracownika; konto administratora i token pozostają bez zmian.</div></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;">Kategoria
         <select id="admin-preview-role" style="min-width:150px;">
@@ -3511,9 +3514,14 @@ function refreshAdminPreviewBar() {
   wireAdminPreviewControls()
 }
 
-function applyAdminCategoryPreview(role) {
+async function applyAdminCategoryPreview(role) {
   adminPreview = role === 'admin' ? null : { role }
   activeAuthMessage = buildTmsAuthMessage()
+  if (!activeTmsFrame?.contentWindow) {
+    await renderDashboard(currentUser)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+    return
+  }
   activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
   refreshAdminPreviewBar()
   window.scrollTo({ top: 0, behavior: 'auto' })
@@ -3566,7 +3574,6 @@ async function renderDashboard(user) {
 
   app.innerHTML = `
     <main class="workspace">
-      ${renderAdminPreviewBar()}
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <img src="/top-dragon-logo.jpg" alt="Top Dragon" />
         <span>Uruchamianie panelu…</span>
@@ -3574,7 +3581,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v87-category-preview-tutorial-fields"
+        src="/tms.html?embedded=1&build=request-workflow-v88-context-tutorials"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3590,7 +3597,6 @@ async function renderDashboard(user) {
 
   frame?.addEventListener('load', sendIdentityToTms)
   sendIdentityToTms()
-  wireAdminPreviewControls()
 
   syncUserDirectoryToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
