@@ -2563,8 +2563,8 @@ async function importFleetExcelFromTms(message) {
   const requestId = String(message?.requestId || '')
   const sourceRows = Array.isArray(message?.rows) ? message.rows : []
 
-  if (!currentProfile || !['admin', 'branch_manager', 'dispatcher'].includes(currentRole())) {
-    sendFleetOperationResult(requestId, false, 'import', 'Brak uprawnień do importu floty.')
+  if (!currentProfile || currentRole() !== 'admin') {
+    sendFleetOperationResult(requestId, false, 'import', 'Import floty jest dostępny wyłącznie dla administratora.')
     return
   }
   if (!sourceRows.length) {
@@ -3466,7 +3466,7 @@ function renderAdminPreviewBar() {
     <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
       <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Podgląd nie wybiera ani nie zastępuje konkretnego pracownika; konto administratora i token pozostają bez zmian.</div></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;">Kategoria
-        <select id="admin-preview-role" style="min-width:150px;">
+        <select id="admin-preview-role" style="min-width:170px;height:40px;padding:0 38px 0 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
           <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
           <option value="accounting" ${adminPreview?.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
           <option value="dispatcher" ${adminPreview?.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
@@ -3581,7 +3581,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v88-context-tutorials"
+        src="/tms.html?embedded=1&build=request-workflow-v89-help-fleet-header"
         title="Top Dragon TMS"
       ></iframe>
     </main>
