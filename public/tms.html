@@ -71876,7 +71876,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           { key: "relation-load", title: "Utwórz relację — załadunek", text: "Wpisz miejscowość lub kod pocztowy załadunku. Podpowiedź lokalizacji pojawi się pod polem.", selector: '#new-load' },
           { key: "relation-unload", title: "Utwórz relację — rozładunek", text: "Wpisz miejsce rozładunku. Aplikacja wykorzysta je do planowania kilometrów i kolejności trasy.", selector: '#new-unload' },
           { key: "relation-client", title: "Utwórz relację — klient", text: "Wybierz istniejącego klienta z podpowiedzi albo wpisz nazwę nowego. Opiekun i uprawnienia zależą od Twojej roli.", selector: '#new-client' },
-          { key: "relation-rate", title: "Utwórz relację — stawka", text: "Podaj stawkę. Kalkulator poniżej pokaże kilometry, koszt przewoźnika i marżę.", selector: '#new-rate' },
+          { key: "relation-km", title: "Utwórz relację — kilometry", text: "Pole Kilometry oznacza długość odcinka z ładunkiem. Dolot wpisuje się osobno, a aplikacja sumuje oba odcinki w kalkulatorze.", selector: '#new-loaded' },
+          { key: "relation-rate", title: "Utwórz relację — stawka", text: "Wpisz uzgodnioną z klientem łączną stawkę za przewóz w PLN. Kalkulator przeliczy stawkę na kilometr.", selector: '#new-rate' },
+          { key: "relation-oversize", title: "Utwórz relację — kwota za gabaryt", text: "Jeżeli transport jest ponadgabarytowy, wpisz tutaj dodatkowy koszt. Dla zwykłej relacji pozostaw zero.", selector: '#new-oversized-cost' },
+          { key: "relation-cost", title: "Utwórz relację — koszt przewoźnika", text: "Koszt przewoźnika jest obliczany automatycznie na podstawie kilometrów i dodatkowej kwoty za gabaryt. Pole ma charakter informacyjny.", selector: '#new-cost' },
           { key: "relation-close", title: "Utwórz relację — bezpieczne zakończenie", text: "W prawdziwej pracy przycisk zapisuje relację. W samouczku zamknij formularz bez zapisu, aby przejść dalej.", selector: '.modal-backdrop form.modal .modal-head .btn', clickAdvance: true },
         );
       } else {
@@ -80710,13 +80713,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${renderFreightProfitabilityCalculator(route)}
             </section>
 
-            ${canEdit && !isFreeDayRoute(route) ? `
-              <section class="section relation-return-section">
-                <div><b>Zwróć relację z tablicy</b><div class="small">Relacja zniknie z planu kierowcy i wróci do wybranej kolejki z informacją o zwrocie.</div></div>
-                <div class="relation-return-actions"><button class="btn" onclick="returnBoardRouteToQueue(event,'${attr(route.id)}','future')">Do Planowanych relacji</button><button class="btn" onclick="returnBoardRouteToQueue(event,'${attr(route.id)}','proposed')">Do Wolnych ładunków</button></div>
-              </section>
-            ` : ""}
-
             ${!canDelete ? `
               <section class="section section-soft">
                 <b>${state.user.role === "rozliczenia" ? "Podgląd tylko do odczytu" : "Edycja zablokowana"}</b>
@@ -80756,8 +80752,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="profitability-metric"><span>Stawka/km</span><b data-finance-metric="perKm">${result.ratePerKm.toFixed(2)} zł</b></div>
             <div class="profitability-metric"><span>Koszt/km</span><b data-finance-metric="costPerKm">${result.costPerKm.toFixed(2)} zł</b></div>
             <div class="profitability-metric"><span>Marża</span><b data-finance-metric="profit">${money(result.margin)}</b></div>
-            <div class="profitability-metric"><span>Marża %</span><b data-finance-metric="marginPct">${result.marginPct.toFixed(1)}%</b></div>
-            <div class="profitability-metric"><span>Min. stawka dla 15%</span><b data-finance-metric="minimumRate">${money(Math.ceil(result.minimumRate15))}</b></div>
           </div>
         </div>`;
     }
@@ -80928,8 +80922,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                       <div class="profitability-metric"><span>Stawka/km</span><b id="new-rate-per-km">0,00 zł/km</b></div>
                       <div class="profitability-metric"><span>Koszt/km</span><b id="new-cost-per-km">0,00 zł/km</b></div>
                       <div class="profitability-metric"><span>Marża</span><b id="new-profit">0 zł</b></div>
-                      <div class="profitability-metric"><span>Marża %</span><b id="new-margin-pct">0,0%</b></div>
-                      <div class="profitability-metric"><span>Min. stawka dla 15%</span><b id="new-min-rate">0 zł</b></div>
                     </div>
                   </div>
                   <div id="new-km-auto-hint" class="route-km-auto-hint" style="display:none"></div>
@@ -81016,14 +81008,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       render();
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
-        CENTRAL_RELATIONS_READY = false;
-        CENTRAL_CLIENTS_READY = false;
-        CENTRAL_LOAD_QUEUE_READY = false;
-        CENTRAL_LOAD_REQUESTS_READY = false;
-        setTimeout(requestCentralRelations, 0);
-        setTimeout(requestCentralClients, 20);
-        setTimeout(requestCentralLoadQueue, 40);
-        setTimeout(requestCentralLoadRequests, 60);
+        if (!state.user.permissionPreview) {
+          CENTRAL_RELATIONS_READY = false;
+          CENTRAL_CLIENTS_READY = false;
+          CENTRAL_LOAD_QUEUE_READY = false;
+          CENTRAL_LOAD_REQUESTS_READY = false;
+          setTimeout(requestCentralRelations, 0);
+          setTimeout(requestCentralClients, 20);
+          setTimeout(requestCentralLoadQueue, 40);
+          setTimeout(requestCentralLoadRequests, 60);
+        }
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
       setTimeout(deliverPendingClientOwnerAlerts, 160);
@@ -89752,10 +89746,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
           return `<section class="section relation-transfer-box"><b>Transfer oczekuje na akceptację</b><div class="small">Odbiorca: ${esc(pending.toDispatcherName || "—")}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div></section>`;
         }
-        if (!own) return "";
-        const targets = relationTransferTargetUsers();
-        if (!targets.length) return "";
-        return `<section class="section relation-transfer-box"><b>Przenieś relację do innego spedytora</b><div class="small">Odbiorca musi zaakceptować transfer i wskazać swój pojazd.</div><div class="relation-transfer-form"><select id="relation-transfer-target-${attr(route.id)}" class="select"><option value="">— wybierz spedytora —</option>${targets.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select><input id="relation-transfer-comment-${attr(route.id)}" class="input" maxlength="300" placeholder="komentarz opcjonalnie"/><button class="btn btn-dark" onclick="createRelationTransfer('${attr(route.id)}')">Wyślij do akceptacji</button></div></section>`;
+        return "";
       }
 
       const originalRenderSidePanel3L31 = renderSidePanel;
