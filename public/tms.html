@@ -2936,7 +2936,8 @@
       display: grid;
       place-items: center;
       padding: 18px;
-      background: rgba(15, 23, 42, .58);
+      background: transparent;
+      pointer-events: none;
     }
     .tutorial-modal {
       width: min(680px, 100%);
@@ -2956,9 +2957,18 @@
     .tutorial-progress { color:var(--muted); font-size:12px; font-weight:750; }
     .tutorial-foot { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--border); }
     .tutorial-actions { display:flex; gap:8px; }
+    .tutorial-dim-panel { position:fixed; z-index:2299; background:rgba(15,23,42,.68); pointer-events:none; }
+    .tutorial-modal { position:relative; z-index:2302; pointer-events:auto; }
+    .tutorial-modal.tutorial-modal-portal { position:fixed; width:min(520px, calc(100% - 36px)); max-height:calc(100vh - 36px); }
+    .tutorial-modal.tutorial-modal-portal.dark-mode { background:#111827; border-color:#334155; }
+    .tutorial-modal.tutorial-modal-portal.dark-mode .tutorial-step { background:#0f172a; border-color:#334155; }
+    .tutorial-modal.tutorial-modal-portal.dark-mode .tutorial-step p { color:#cbd5e1; }
+    .tutorial-highlighted { position:relative !important; z-index:2301 !important; outline:3px solid #f59e0b !important; outline-offset:4px !important; box-shadow:0 0 0 7px rgba(245,158,11,.28) !important; border-radius:8px !important; }
+    .tutorial-target-missing { color:#92400e; background:#fffbeb; border:1px solid #f59e0b; border-radius:10px; padding:9px 10px; font-size:12px; }
     .app.dark-mode .tutorial-modal { background:#111827; border-color:#334155; }
     .app.dark-mode .tutorial-step { background:#0f172a; border-color:#334155; }
     .app.dark-mode .tutorial-step p { color:#cbd5e1; }
+    .app.dark-mode .tutorial-target-missing { color:#fde68a; background:#451a03; border-color:#92400e; }
 
     .admin-transfer-backdrop {
       position: fixed;
@@ -70983,6 +70993,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function render() {
       const app = document.getElementById("app");
       const preservedMap = detachLeafletMapForRender();
+      removePortaledTutorialModal();
 
       if (!state.user) {
         disposeLeafletMap();
@@ -71003,6 +71014,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       app.innerHTML = renderApp();
       restoreLeafletMapAfterRender(preservedMap);
+      setTimeout(() => syncTutorialSpotlight(), 0);
       setTimeout(() => syncCurrentTimeLines(), 0);
       setTimeout(() => scheduleNearbyDispatcherBadgeSync(), 0);
       if (state.detailsOpen && state.selectedRouteId) {
@@ -71802,16 +71814,91 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
-    function tutorialStepsForCurrentRole() {
-      const role = String(state.user?.supabaseRole || state.user?.role || "");
-      const roleName = role === "admin" ? "Administrator" : role === "accounting" ? "Rozliczenia" : role === "branch_manager" ? "Kierownik oddziału" : "Spedytor";
-      const steps = [
-        { title: "Witaj w Top Dragon TMS", text: `To krótki przewodnik po najważniejszych miejscach aplikacji dla roli: ${roleName}. Możesz przełączać widoki przyciskami w górnym pasku.` },
-        { title: "Plan kierowców", text: "W widoku Planu kierowców sprawdzisz trasy, godziny i przypisane zestawy. Kliknięcie relacji otwiera szczegóły, a mapa pomaga ocenić kolejność i lokalizacje." },
-        { title: "Baza klientów", text: "W Bazie klientów wyszukasz kontrahenta, sprawdzisz opiekuna i historię współpracy. Uprawnienia do edycji zależą od kategorii użytkownika i oddziału." },
-        { title: "Pomoc i importy", text: role === "admin" ? "Administrator ma dodatkowo Administrację, Import / eksport oraz przycisk AI. Import Excel i AI pokazują podgląd, walidują rekordy i potwierdzają zapis w Supabase." : role === "accounting" ? "Rozliczenia służą do kontroli stawek, zysku i statusów rozliczeń. Dane operacyjne pozostają dostępne zgodnie z zakresem odczytu." : role === "branch_manager" ? "Kierownik oddziału widzi i edytuje dane swojego oddziału, w tym flotę i planowane relacje, bez dostępu do zakresów innych oddziałów." : "Spedytor pracuje na swoich relacjach i przypisanej flocie. Przycisk AI pozwala analizować zlecenia i przygotować dane do planu." }
+    let tutorialSpotlightTarget = null;
+    let tutorialSpotlightIndex = -1;
+    let tutorialTargetClickHandler = null;
+    let tutorialSpotlightHost = null;
+    let tutorialSpotlightHostOriginalZIndex = "";
+
+    function removePortaledTutorialModal() {
+      document.querySelectorAll("body > .tutorial-modal.tutorial-modal-portal").forEach(element => element.remove());
+    }
+
+    function clearTutorialSpotlightTarget() {
+      if (tutorialSpotlightTarget) tutorialSpotlightTarget.classList.remove("tutorial-highlighted");
+      if (tutorialSpotlightTarget && tutorialTargetClickHandler) tutorialSpotlightTarget.removeEventListener("click", tutorialTargetClickHandler, true);
+      if (tutorialSpotlightHost) tutorialSpotlightHost.style.zIndex = tutorialSpotlightHostOriginalZIndex;
+      tutorialSpotlightTarget = null;
+      tutorialSpotlightIndex = -1;
+      tutorialTargetClickHandler = null;
+      tutorialSpotlightHost = null;
+      tutorialSpotlightHostOriginalZIndex = "";
+    }
+
+    function positionTutorialPortal(modal, target) {
+      if (!modal?.classList.contains("tutorial-modal-portal")) return;
+      const targetRect = target?.getBoundingClientRect?.();
+      if (!targetRect) return;
+      const margin = 18;
+      const modalWidth = Math.min(modal.offsetWidth || 520, Math.max(220, window.innerWidth - margin * 2));
+      const modalHeight = Math.min(modal.offsetHeight || 260, Math.max(160, window.innerHeight - margin * 2));
+      const candidates = [
+        { left: margin, top: margin },
+        { left: Math.max(margin, window.innerWidth - modalWidth - margin), top: margin },
+        { left: margin, top: Math.max(margin, window.innerHeight - modalHeight - margin) },
+        { left: Math.max(margin, window.innerWidth - modalWidth - margin), top: Math.max(margin, window.innerHeight - modalHeight - margin) },
       ];
+      const overlap = candidate => {
+        const width = Math.min(modalWidth, window.innerWidth - candidate.left - margin);
+        const height = Math.min(modalHeight, window.innerHeight - candidate.top - margin);
+        const x = Math.max(0, Math.min(candidate.left + width, targetRect.right) - Math.max(candidate.left, targetRect.left));
+        const y = Math.max(0, Math.min(candidate.top + height, targetRect.bottom) - Math.max(candidate.top, targetRect.top));
+        return x * y;
+      };
+      const best = candidates.sort((left, right) => overlap(left) - overlap(right))[0];
+      modal.style.left = `${best.left}px`;
+      modal.style.top = `${best.top}px`;
+      modal.style.right = "auto";
+      modal.style.bottom = "auto";
+    }
+
+    function tutorialStepsForCurrentRole() {
+      const role = String(state.user?.role || state.user?.supabaseRole || "");
+      const roleName = role === "admin" ? "Administrator" : role === "rozliczenia" || role === "accounting" ? "Rozliczenia" : role === "kierownik" || role === "branch_manager" ? "Kierownik oddziału" : "Spedytor";
+      const steps = [
+        { key: "plan", title: "Plan kierowców", text: `To główny ekran pracy dla roli ${roleName}. Kliknij podświetlony przycisk, aby przejść do planu tras.`, selector: '[data-app-view-nav="plan"]', clickAdvance: true },
+      ];
+      const canCreateRelation = ["spedytor", "kierownik", "admin"].includes(role) || ["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""));
+      if (canCreateRelation) {
+        steps.push(
+          { key: "relation-add", title: "Utwórz relację — krok 1", text: "W planie kliknij znak „+” przy wybranym kierowcy i dniu. Otworzy się formularz nowej relacji. Kliknięcie jest bezpieczne — samouczek nie zapisuje danych.", selector: 'button[title="Dodaj relację"]', clickAdvance: true, allowDemoOpen: true },
+          { key: "relation-driver", title: "Utwórz relację — kierowca", text: "Kierowca wynika z komórki planu, którą kliknąłeś. Sprawdź zestaw i datę przed wpisaniem miejscowości.", selector: '.modal-backdrop form.modal .readonly-box' },
+          { key: "relation-load", title: "Utwórz relację — załadunek", text: "Wpisz miejscowość lub kod pocztowy załadunku. Podpowiedź lokalizacji pojawi się pod polem.", selector: '#new-load' },
+          { key: "relation-unload", title: "Utwórz relację — rozładunek", text: "Wpisz miejsce rozładunku. Aplikacja wykorzysta je do planowania kilometrów i kolejności trasy.", selector: '#new-unload' },
+          { key: "relation-client", title: "Utwórz relację — klient", text: "Wybierz istniejącego klienta z podpowiedzi albo wpisz nazwę nowego. Opiekun i uprawnienia zależą od Twojej roli.", selector: '#new-client' },
+          { key: "relation-rate", title: "Utwórz relację — stawka", text: "Podaj stawkę. Kalkulator poniżej pokaże kilometry, koszt przewoźnika i marżę.", selector: '#new-rate' },
+          { key: "relation-close", title: "Utwórz relację — bezpieczne zakończenie", text: "W prawdziwej pracy przycisk zapisuje relację. W samouczku zamknij formularz bez zapisu, aby przejść dalej.", selector: '.modal-backdrop form.modal .modal-head .btn', clickAdvance: true },
+        );
+      } else {
+        steps.push({ key: "relation-unavailable", title: "Relacje operacyjne", text: "Ta kategoria nie tworzy relacji operacyjnych. Możesz je przeglądać zgodnie ze swoim zakresem, a zapisy wykonuje spedytor, kierownik lub administrator.", selector: '[data-app-view-nav="plan"]' });
+      }
+      steps.push(
+        { key: "clients", title: "Baza klientów", text: "Kliknij podświetloną zakładkę, aby wyszukiwać klientów, sprawdzać opiekunów, historię kontaktu i dane geograficzne.", selector: '[data-app-view-nav="clients"]', clickAdvance: true },
+      );
+      if (role === "admin") steps.push({ key: "admin-import", title: "Import i administracja", text: "Administrator ma przyciski Administracja oraz Import / eksport. Import Excel i AI najpierw pokazują podgląd, a potem potwierdzają zapis.", selector: 'button[title="Importuj lub eksportuj relacje, klientów i pojazdy"]' });
+      if (role === "spedytor" || role === "dispatcher") steps.push({ key: "ai", title: "Analiza AI", text: "Przycisk AI służy do analizy zleceń z PDF lub tekstu i przygotowania relacji do sprawdzenia przed zapisem.", selector: 'button.btn-ai-home' });
+      if (role === "kierownik" || role === "branch_manager") steps.push({ key: "fleet", title: "Flota oddziału", text: "Przycisk + Kierowca / pojazd otwiera zarządzanie flotą w zakresie Twojego oddziału.", selector: 'button[title="Dodaj kierowcę, ciągnik lub naczepę"]' });
+      if (role === "rozliczenia" || role === "accounting") steps.push({ key: "accounting", title: "Rozliczenia", text: "W widoku rozliczeń sprawdzisz stawki, koszty, marżę i statusy. Operacyjne dane pozostają tylko do odczytu.", selector: '[data-tutorial="accounting-report"]' });
       return steps;
+    }
+
+    function tutorialTargetForStep(step) {
+      if (!step?.selector) return null;
+      try {
+        return document.querySelector(step.selector);
+      } catch (error) {
+        return null;
+      }
     }
 
     function renderTutorialModal() {
@@ -71819,6 +71906,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const steps = tutorialStepsForCurrentRole();
       const index = Math.max(0, Math.min(Number(state.tutorialStep || 0), steps.length - 1));
       const step = steps[index];
+      const targetMissing = !tutorialTargetForStep(step);
+      const relationDemoButton = step.key === "relation-add" && targetMissing
+        ? `<button type="button" class="btn btn-dark" onclick="tutorialOpenRelationDemo()">Pokaż formularz relacji</button>`
+        : "";
+      const closeDemoButton = step.key === "relation-close" && !targetMissing
+        ? `<button type="button" class="btn" onclick="tutorialCloseRelationDemo()">Zamknij bez zapisu</button>`
+        : "";
       return `
         <div class="tutorial-backdrop" onclick="closeTutorialOnBackdrop(event)">
           <section class="tutorial-modal" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" onclick="event.stopPropagation()">
@@ -71828,6 +71922,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </header>
             <div class="tutorial-body">
               <article class="tutorial-step"><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p></article>
+              ${targetMissing ? '<div class="tutorial-target-missing">Element tego kroku nie jest obecnie dostępny. Wykonaj poprzednie kroki albo przejdź dalej.</div>' : '<div class="tutorial-progress">Podświetlony element znajduje się poza oknem opisu. Kliknij go, jeżeli krok to wskazuje, albo użyj przycisku „Dalej”.</div>'}
+              ${relationDemoButton || closeDemoButton ? `<div class="tutorial-actions">${relationDemoButton}${closeDemoButton}</div>` : ""}
             </div>
             <footer class="tutorial-foot">
               <button type="button" class="btn" onclick="previousTutorialStep()" ${index === 0 ? "disabled" : ""}>← Wstecz</button>
@@ -71840,16 +71936,88 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function syncTutorialSpotlight() {
+      document.querySelectorAll(".tutorial-dim-panel").forEach(element => element.remove());
+      const currentSteps = state.user ? tutorialStepsForCurrentRole() : [];
+      const currentStep = currentSteps[Math.max(0, Math.min(Number(state.tutorialStep || 0), Math.max(0, currentSteps.length - 1)))];
+      const currentTarget = tutorialTargetForStep(currentStep);
+      if (tutorialSpotlightTarget && tutorialSpotlightTarget !== currentTarget) {
+        clearTutorialSpotlightTarget();
+      }
+      if (!state.tutorialOpen || !state.user) return;
+      const steps = tutorialStepsForCurrentRole();
+      const index = Math.max(0, Math.min(Number(state.tutorialStep || 0), steps.length - 1));
+      const step = steps[index];
+      const target = tutorialTargetForStep(step);
+      if (!target) return;
+      const targetChanged = tutorialSpotlightTarget !== target;
+      const stepChanged = tutorialSpotlightIndex !== index;
+      if (targetChanged) clearTutorialSpotlightTarget();
+      if (targetChanged || stepChanged) {
+        if (!targetChanged && tutorialSpotlightTarget && tutorialTargetClickHandler) {
+          tutorialSpotlightTarget.removeEventListener("click", tutorialTargetClickHandler, true);
+          tutorialTargetClickHandler = null;
+        }
+        tutorialSpotlightTarget = target;
+        tutorialSpotlightIndex = index;
+        target.classList.add("tutorial-highlighted");
+        if (step.clickAdvance) {
+          tutorialTargetClickHandler = () => setTimeout(() => {
+            if (!state.tutorialOpen || state.tutorialStep !== index) return;
+            nextTutorialStep();
+          }, 180);
+          target.addEventListener("click", tutorialTargetClickHandler, true);
+        } else tutorialTargetClickHandler = null;
+        target.scrollIntoView?.({ behavior: "auto", block: "center", inline: "center" });
+      }
+      const targetHost = target.closest(".modal-backdrop");
+      if (targetHost && tutorialSpotlightHost !== targetHost) {
+        if (tutorialSpotlightHost) tutorialSpotlightHost.style.zIndex = tutorialSpotlightHostOriginalZIndex;
+        tutorialSpotlightHost = targetHost;
+        tutorialSpotlightHostOriginalZIndex = targetHost.style.zIndex || "";
+        targetHost.style.zIndex = "2301";
+      }
+      const tutorialModal = document.querySelector(".tutorial-modal");
+      const tutorialBackdrop = document.querySelector(".tutorial-backdrop");
+      if (tutorialModal && tutorialBackdrop && tutorialModal.parentElement === tutorialBackdrop) {
+        document.body.appendChild(tutorialModal);
+        tutorialModal.classList.add("tutorial-modal-portal");
+      }
+      document.querySelector(".tutorial-modal.tutorial-modal-portal")?.classList.toggle("dark-mode", Boolean(document.querySelector(".app.dark-mode")));
+      const rect = target.getBoundingClientRect();
+      positionTutorialPortal(document.querySelector(".tutorial-modal.tutorial-modal-portal"), target);
+      const pad = 9;
+      const left = Math.max(0, rect.left - pad);
+      const top = Math.max(0, rect.top - pad);
+      const right = Math.min(window.innerWidth, rect.right + pad);
+      const bottom = Math.min(window.innerHeight, rect.bottom + pad);
+      const backdrop = tutorialBackdrop;
+      if (!backdrop) return;
+      const addPanel = (style) => {
+        const panel = document.createElement("div");
+        panel.className = "tutorial-dim-panel";
+        Object.assign(panel.style, style);
+        backdrop.appendChild(panel);
+      };
+      addPanel({ left: "0px", top: "0px", width: "100vw", height: `${top}px` });
+      addPanel({ left: "0px", top: `${bottom}px`, width: "100vw", height: `${Math.max(0, window.innerHeight - bottom)}px` });
+      addPanel({ left: "0px", top: `${top}px`, width: `${left}px`, height: `${Math.max(0, bottom - top)}px` });
+      addPanel({ left: `${right}px`, top: `${top}px`, width: `${Math.max(0, window.innerWidth - right)}px`, height: `${Math.max(0, bottom - top)}px` });
+    }
+
     function openTutorial() {
       if (!state.user) return;
       state.tutorialOpen = true;
       state.tutorialStep = 0;
+      tutorialSpotlightTarget = null;
       render();
     }
 
     function closeTutorial() {
       state.tutorialOpen = false;
       state.tutorialStep = 0;
+      clearTutorialSpotlightTarget();
+      removePortaledTutorialModal();
       render();
     }
 
@@ -71865,6 +72033,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function previousTutorialStep() {
       state.tutorialStep = Math.max(0, Number(state.tutorialStep || 0) - 1);
+      render();
+    }
+
+    function tutorialOpenRelationDemo() {
+      if (!state.user) return;
+      const driver = visibleDriversForCurrentUser?.()[0] || operationalDrivers?.()[0];
+      if (!driver?.id) {
+        showAppMessage("Brak kierowcy do demonstracji", "Najpierw dodaj kierowcę i pojazd w module floty.", "info");
+        return;
+      }
+      state.appView = "plan";
+      openAdd(driver.id, currentAppDate());
+      const index = tutorialStepsForCurrentRole().findIndex(step => step.key === "relation-driver");
+      if (index >= 0) state.tutorialStep = index;
+      render();
+    }
+
+    function tutorialCloseRelationDemo() {
+      closeAdd();
+      const index = tutorialStepsForCurrentRole().findIndex(step => step.key === "clients");
+      if (index >= 0) state.tutorialStep = index;
       render();
     }
 
@@ -71901,7 +72090,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   </span>
                   <span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span>
                 </div>
-                ${["rozliczenia","admin"].includes(state.user.role) ? `<span class="theme-pill">${state.user.role === "rozliczenia" ? "Widok rozliczeń" : "Pełny dostęp"}</span><button class="btn" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
+                ${["rozliczenia","admin"].includes(state.user.role) ? `<span class="theme-pill">${state.user.role === "rozliczenia" ? "Widok rozliczeń" : "Pełny dostęp"}</span><button class="btn" data-tutorial="accounting-report" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
                 ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
                 <button class="btn" type="button" onclick="openTutorial()" title="Uruchom samouczek Top Dragon">Samouczek</button>
                 <button class="btn" data-action="dark-mode" onclick="toggleDarkMode()">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
