@@ -2957,6 +2957,10 @@
     .tutorial-progress { color:var(--muted); font-size:12px; font-weight:750; }
     .tutorial-foot { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:12px 18px; border-top:1px solid var(--border); }
     .tutorial-actions { display:flex; gap:8px; }
+    .tutorial-nav-item { display:inline-flex; align-items:center; gap:3px; }
+    .tutorial-help-btn { width:24px; height:24px; padding:0; border:1px solid #94a3b8; border-radius:50%; background:#fff; color:#334155; font-size:13px; font-weight:900; line-height:1; cursor:pointer; display:inline-grid; place-items:center; }
+    .tutorial-help-btn:hover { background:#fef3c7; border-color:#f59e0b; color:#92400e; }
+    .app.dark-mode .tutorial-help-btn { background:#111827; border-color:#64748b; color:#e2e8f0; }
     .tutorial-dim-panel { position:fixed; z-index:2299; background:rgba(15,23,42,.68); pointer-events:none; }
     .tutorial-modal { position:relative; z-index:2302; pointer-events:auto; }
     .tutorial-modal.tutorial-modal-portal { position:fixed; width:min(520px, calc(100% - 36px)); max-height:calc(100vh - 36px); }
@@ -69309,6 +69313,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       appView: "plan",
       tutorialOpen: false,
       tutorialStep: 0,
+      tutorialTopic: "relations",
       clientDirectoryFilter: "all",
       clientDirectoryDispatcherFilter: "all",
       clientDirectoryQuery: "",
@@ -71817,8 +71822,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     let tutorialSpotlightTarget = null;
     let tutorialSpotlightIndex = -1;
     let tutorialTargetClickHandler = null;
+    let tutorialTargetInputHandler = null;
+    let tutorialTargetInputTimer = null;
     let tutorialSpotlightHost = null;
     let tutorialSpotlightHostOriginalZIndex = "";
+    let tutorialSpotlightSyncFrame = 0;
 
     function removePortaledTutorialModal() {
       document.querySelectorAll("body > .tutorial-modal.tutorial-modal-portal").forEach(element => element.remove());
@@ -71827,10 +71835,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function clearTutorialSpotlightTarget() {
       if (tutorialSpotlightTarget) tutorialSpotlightTarget.classList.remove("tutorial-highlighted");
       if (tutorialSpotlightTarget && tutorialTargetClickHandler) tutorialSpotlightTarget.removeEventListener("click", tutorialTargetClickHandler, true);
+      if (tutorialSpotlightTarget && tutorialTargetInputHandler) {
+        tutorialSpotlightTarget.removeEventListener("input", tutorialTargetInputHandler, true);
+        tutorialSpotlightTarget.removeEventListener("change", tutorialTargetInputHandler, true);
+      }
+      if (tutorialTargetInputTimer) clearTimeout(tutorialTargetInputTimer);
       if (tutorialSpotlightHost) tutorialSpotlightHost.style.zIndex = tutorialSpotlightHostOriginalZIndex;
       tutorialSpotlightTarget = null;
       tutorialSpotlightIndex = -1;
       tutorialTargetClickHandler = null;
+      tutorialTargetInputHandler = null;
+      tutorialTargetInputTimer = null;
       tutorialSpotlightHost = null;
       tutorialSpotlightHostOriginalZIndex = "";
     }
@@ -71862,46 +71877,99 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       modal.style.bottom = "auto";
     }
 
-    function tutorialStepsForCurrentRole() {
+    function tutorialTopicLabel(topic = state.tutorialTopic) {
+      const labels = {
+        relations: "Tworzenie relacji",
+        clients: "Baza klientów",
+        fleet: "Kierowcy i pojazdy",
+        ai: "AI",
+        assistant: "Asystent spedytora",
+        nearest: "Najbliższy pojazd",
+      };
+      return labels[topic] || labels.relations;
+    }
+
+    function tutorialStepsForCurrentRole(topic = state.tutorialTopic || "relations") {
       const role = String(state.user?.role || state.user?.supabaseRole || "");
       const roleName = role === "admin" ? "Administrator" : role === "rozliczenia" || role === "accounting" ? "Rozliczenia" : role === "kierownik" || role === "branch_manager" ? "Kierownik oddziału" : "Spedytor";
+      if (topic === "clients") {
+        const steps = [
+          { key: "clients-open", title: "Otwórz Bazę klientów", text: "Kliknij zakładkę Baza klientów. Znajdziesz tam kartotekę firm, dane adresowe, NIP i przypisanego opiekuna.", selector: '[data-app-view-nav="clients"]', clickAdvance: true },
+          { key: "clients-search", title: "Wyszukiwanie klientów", text: "Wyszukuj po nazwie, NIP-ie, adresie albo opiekunie. Wyniki są filtrowane podczas pisania.", selector: '.client-directory-toolbar input' },
+          { key: "clients-filters", title: "Opiekun i filtry", text: "Możesz zawęzić listę do konkretnego spedytora, klientów z opiekunem albo klientów bez opiekuna.", selector: '.client-directory-toolbar .dispatcher-color-select' },
+        ];
+        if (["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""))) {
+          steps.push({ key: "clients-add", title: "Dodawanie klienta", text: "W tym formularzu wpisujesz nazwę, NIP, adres, opiekuna i notatkę. Przycisk Dodaj klienta zapisuje nową pozycję w kartotece.", selector: '.client-db-form' });
+        }
+        steps.push({ key: "clients-list", title: "Lista klientów", text: "Na liście sprawdzisz podstawowe dane klienta. Dostępne przyciski Edytuj i Usuń zależą od kategorii użytkownika.", selector: '#client-directory-list' });
+        return steps;
+      }
+      if (topic === "fleet") return [
+        { key: "fleet-open", title: "Otwórz Kierowców i pojazdy", text: "Kliknij + Kierowca / pojazd, aby przejść do floty dostępnej dla Twojej kategorii.", selector: 'button[title="Dodaj kierowcę, ciągnik lub naczepę"]', clickAdvance: true },
+        { key: "fleet-form", title: "Dodawanie zestawu", text: "Uzupełnij przewoźnika, kierowcę, telefon, dokumenty, numery rejestracyjne, wysokość naczepy i bazę kierowcy.", selector: '.fleet-form-grid' },
+        { key: "fleet-list", title: "Lista floty", text: "Tutaj przeglądasz aktywne zestawy. Zakres edycji, ukrywania i usuwania zależy od kategorii użytkownika.", selector: '.fleet-list' },
+      ];
+      if (topic === "ai") return [
+        { key: "ai-open", title: "Otwórz AI", text: "Kliknij AI, aby zaimportować zlecenie z PDF albo przeanalizować tekst wiadomości klienta.", selector: 'button.btn-ai-home', clickAdvance: true },
+        { key: "ai-target", title: "Wybierz miejsce docelowe", text: "Określ, czy przygotowana relacja ma trafić do Planowanych relacji, czy do Wolnych ładunków.", selector: '.pdf-import-modal .ai-import-target' },
+        { key: "ai-source", title: "PDF lub wiadomość", text: "Wybierz plik PDF albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem — zawsze zweryfikuj wynik.", selector: '.pdf-import-modal .ai-import-source-grid' },
+      ];
+      if (topic === "assistant") return [
+        { key: "assistant-main", title: "Asystent spedytora", text: "Ten moduł łączy historię relacji, wyszukiwanie klientów w rejonie, zapytania o ładunek oraz zarządzanie flotą.", selector: '#commercial-intelligence' },
+        { key: "assistant-tabs", title: "Wybierz moduł", text: "Zakładki przełączają między historią, klientami w rejonie, zapytaniami o ładunek oraz funkcjami dostępnymi dla Twojej kategorii.", selector: '#commercial-intelligence .commercial-tabs' },
+        { key: "assistant-body", title: "Obszar roboczy", text: "W tym miejscu pojawiają się filtry, wyniki i przyciski wybranego modułu Asystenta spedytora.", selector: '#commercial-intelligence [data-role="commercial-body"]' },
+      ];
+      if (topic === "nearest") return [
+        { key: "nearest-main", title: "Najbliższy pojazd", text: "Wyszukiwarka porównuje dostępne pojazdy z miejscem i dniem planowanego załadunku.", selector: '#nearest-vehicle-section' },
+        { key: "nearest-query", title: "Miejsce załadunku", text: "Wpisz kod pocztowy, adres albo miasto i wybierz właściwą podpowiedź.", selector: '#nearest-vehicle-section .nearest-search-wrap .input' },
+        { key: "nearest-requirements", title: "Wymagania", text: "Opcjonalnie podaj wysokość ładunku i zaznacz wymóg polskiego kierowcy.", selector: '#nearest-load-height' },
+        { key: "nearest-check", title: "Uruchom wyszukiwanie", text: "Kliknij Sprawdź. Wyniki pokażą pojazdy uporządkowane według odległości i dostępności.", selector: '[data-tutorial="nearest-check"]' },
+      ];
       const steps = [
         { key: "plan", title: "Plan kierowców", text: `To główny ekran pracy dla roli ${roleName}. Kliknij podświetlony przycisk, aby przejść do planu tras.`, selector: '[data-app-view-nav="plan"]', clickAdvance: true },
       ];
       const canCreateRelation = ["spedytor", "kierownik", "admin"].includes(role) || ["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""));
       if (canCreateRelation) {
         steps.push(
-          { key: "relation-add", title: "Utwórz relację — krok 1", text: "W planie kliknij znak „+” przy wybranym kierowcy i dniu. Otworzy się formularz nowej relacji. Kliknięcie jest bezpieczne — samouczek nie zapisuje danych.", selector: 'button[title="Dodaj relację"]', clickAdvance: true, allowDemoOpen: true },
-          { key: "relation-driver", title: "Utwórz relację — kierowca", text: "Kierowca wynika z komórki planu, którą kliknąłeś. Sprawdź zestaw i datę przed wpisaniem miejscowości.", selector: '.modal-backdrop form.modal .readonly-box' },
-          { key: "relation-load", title: "Utwórz relację — załadunek", text: "Wpisz miejscowość lub kod pocztowy załadunku. Podpowiedź lokalizacji pojawi się pod polem.", selector: '#new-load' },
-          { key: "relation-unload", title: "Utwórz relację — rozładunek", text: "Wpisz miejsce rozładunku. Aplikacja wykorzysta je do planowania kilometrów i kolejności trasy.", selector: '#new-unload' },
-          { key: "relation-client", title: "Utwórz relację — klient", text: "Wybierz istniejącego klienta z podpowiedzi albo wpisz nazwę nowego. Opiekun i uprawnienia zależą od Twojej roli.", selector: '#new-client' },
-          { key: "relation-km", title: "Utwórz relację — kilometry", text: "Pole Kilometry oznacza długość odcinka z ładunkiem. Dolot wpisuje się osobno, a aplikacja sumuje oba odcinki w kalkulatorze.", selector: '#new-loaded' },
-          { key: "relation-rate", title: "Utwórz relację — stawka", text: "Wpisz uzgodnioną z klientem łączną stawkę za przewóz w PLN. Kalkulator przeliczy stawkę na kilometr.", selector: '#new-rate' },
-          { key: "relation-oversize", title: "Utwórz relację — kwota za gabaryt", text: "Jeżeli transport jest ponadgabarytowy, wpisz tutaj dodatkowy koszt. Dla zwykłej relacji pozostaw zero.", selector: '#new-oversized-cost' },
-          { key: "relation-cost", title: "Utwórz relację — koszt przewoźnika", text: "Koszt przewoźnika jest obliczany automatycznie na podstawie kilometrów i dodatkowej kwoty za gabaryt. Pole ma charakter informacyjny.", selector: '#new-cost' },
-          { key: "relation-close", title: "Utwórz relację — bezpieczne zakończenie", text: "W prawdziwej pracy przycisk zapisuje relację. W samouczku zamknij formularz bez zapisu, aby przejść dalej.", selector: '.modal-backdrop form.modal .modal-head .btn', clickAdvance: true },
+          { key: "relation-add", title: "Utwórz relację", text: "Kliknij znak „+” przy wybranym kierowcy i dniu, aby otworzyć formularz nowej relacji.", selector: 'button[title="Dodaj relację"]', targetMode: "current-day-plus", clickAdvance: true, allowDemoOpen: true },
+          { key: "relation-load", title: "Załadunek — miejscowość", text: "Wpisz miejscowość lub kod pocztowy załadunku. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-load', advanceOnInput: "text" },
+          { key: "relation-unload", title: "Rozładunek — miejscowość", text: "Wpisz miejsce rozładunku. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-unload', advanceOnInput: "text" },
+          { key: "relation-client", title: "Klient", text: "Wybierz klienta z podpowiedzi albo wpisz nazwę. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-client', advanceOnInput: "text" },
+          { key: "relation-km", title: "Kilometry", text: "Wpisz długość odcinka z ładunkiem. Dolot jest liczony osobno.", selector: '#new-loaded', advanceOnInput: "positive" },
+          { key: "relation-rate", title: "Stawka PLN", text: "Wpisz uzgodnioną z klientem łączną stawkę za przewóz.", selector: '#new-rate', advanceOnInput: "positive" },
+          { key: "relation-oversize", title: "Kwota za gabaryt", text: "Dla transportu ponadgabarytowego wpisz dodatkowy koszt. Dla zwykłej relacji możesz pozostawić zero i użyć Dalej.", selector: '#new-oversized-cost', advanceOnInput: "number" },
+          { key: "relation-cost", title: "Koszt przewoźnika", text: "Koszt przewoźnika jest obliczany automatycznie na podstawie kilometrów i gabarytu.", selector: '#new-cost', advanceOnInput: "positive", autoAdvanceIfFilled: true },
+          { key: "relation-save", title: "Zapisz relację", text: "Po sprawdzeniu danych kliknij Zapisz trasę. Samouczek tylko podświetla przycisk i nie zapisuje przykładowej relacji.", selector: '.modal-backdrop form.modal .modal-foot .btn-dark' },
         );
       } else {
         steps.push({ key: "relation-unavailable", title: "Relacje operacyjne", text: "Ta kategoria nie tworzy relacji operacyjnych. Możesz je przeglądać zgodnie ze swoim zakresem, a zapisy wykonuje spedytor, kierownik lub administrator.", selector: '[data-app-view-nav="plan"]' });
       }
-      steps.push(
-        { key: "clients", title: "Baza klientów", text: "Kliknij podświetloną zakładkę, aby wyszukiwać klientów, sprawdzać opiekunów, historię kontaktu i dane geograficzne.", selector: '[data-app-view-nav="clients"]', clickAdvance: true },
-      );
-      if (role === "admin") steps.push({ key: "admin-import", title: "Import i administracja", text: "Administrator ma przyciski Administracja oraz Import / eksport. Import Excel i AI najpierw pokazują podgląd, a potem potwierdzają zapis.", selector: 'button[title="Importuj lub eksportuj relacje, klientów i pojazdy"]' });
-      if (role === "spedytor" || role === "dispatcher") steps.push({ key: "ai", title: "Analiza AI", text: "Przycisk AI służy do analizy zleceń z PDF lub tekstu i przygotowania relacji do sprawdzenia przed zapisem.", selector: 'button.btn-ai-home' });
-      if (role === "kierownik" || role === "branch_manager") steps.push({ key: "fleet", title: "Flota oddziału", text: "Przycisk + Kierowca / pojazd otwiera zarządzanie flotą w zakresie Twojego oddziału.", selector: 'button[title="Dodaj kierowcę, ciągnik lub naczepę"]' });
-      if (role === "rozliczenia" || role === "accounting") steps.push({ key: "accounting", title: "Rozliczenia", text: "W widoku rozliczeń sprawdzisz stawki, koszty, marżę i statusy. Operacyjne dane pozostają tylko do odczytu.", selector: '[data-tutorial="accounting-report"]' });
       return steps;
     }
 
     function tutorialTargetForStep(step) {
       if (!step?.selector) return null;
       try {
-        return document.querySelector(step.selector);
+        const candidates = Array.from(document.querySelectorAll(step.selector));
+        if (step.targetMode === "current-day-plus") {
+          const usable = candidates.filter(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && !element.closest(".route-add-covered");
+          });
+          return usable.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || usable[0] || candidates[0] || null;
+        }
+        return candidates[0] || null;
       } catch (error) {
         return null;
       }
+    }
+
+    function tutorialFieldIsFilled(target, mode) {
+      const raw = String(target?.value ?? "").trim();
+      if (mode === "text") return raw.length >= 3;
+      if (mode === "positive") return Number(raw.replace(",", ".")) > 0;
+      if (mode === "number") return raw !== "" && Number.isFinite(Number(raw.replace(",", ".")));
+      return false;
     }
 
     function renderTutorialModal() {
@@ -71913,19 +71981,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const relationDemoButton = step.key === "relation-add" && targetMissing
         ? `<button type="button" class="btn btn-dark" onclick="tutorialOpenRelationDemo()">Pokaż formularz relacji</button>`
         : "";
-      const closeDemoButton = step.key === "relation-close" && !targetMissing
+      const closeDemoButton = step.key === "relation-save" && !targetMissing
         ? `<button type="button" class="btn" onclick="tutorialCloseRelationDemo()">Zamknij bez zapisu</button>`
         : "";
       return `
         <div class="tutorial-backdrop" onclick="closeTutorialOnBackdrop(event)">
           <section class="tutorial-modal" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" onclick="event.stopPropagation()">
             <header class="tutorial-head">
-              <div><h2 id="tutorial-title">Samouczek Top Dragon</h2><div class="tutorial-progress">Krok ${index + 1} z ${steps.length}</div></div>
+              <div><h2 id="tutorial-title">${esc(tutorialTopicLabel())}</h2><div class="tutorial-progress">Krok ${index + 1} z ${steps.length}</div></div>
               <button type="button" class="btn" onclick="closeTutorial()" aria-label="Zamknij samouczek">Zamknij</button>
             </header>
             <div class="tutorial-body">
               <article class="tutorial-step"><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p></article>
-              ${targetMissing ? '<div class="tutorial-target-missing">Element tego kroku nie jest obecnie dostępny. Wykonaj poprzednie kroki albo przejdź dalej.</div>' : '<div class="tutorial-progress">Podświetlony element znajduje się poza oknem opisu. Kliknij go, jeżeli krok to wskazuje, albo użyj przycisku „Dalej”.</div>'}
+              ${targetMissing ? '<div class="tutorial-target-missing">Element tego kroku nie jest obecnie dostępny. Wykonaj poprzednie kroki albo przejdź dalej.</div>' : ''}
               ${relationDemoButton || closeDemoButton ? `<div class="tutorial-actions">${relationDemoButton}${closeDemoButton}</div>` : ""}
             </div>
             <footer class="tutorial-foot">
@@ -71955,12 +72023,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!target) return;
       const targetChanged = tutorialSpotlightTarget !== target;
       const stepChanged = tutorialSpotlightIndex !== index;
-      if (targetChanged) clearTutorialSpotlightTarget();
+      if (targetChanged || stepChanged) clearTutorialSpotlightTarget();
       if (targetChanged || stepChanged) {
-        if (!targetChanged && tutorialSpotlightTarget && tutorialTargetClickHandler) {
-          tutorialSpotlightTarget.removeEventListener("click", tutorialTargetClickHandler, true);
-          tutorialTargetClickHandler = null;
-        }
         tutorialSpotlightTarget = target;
         tutorialSpotlightIndex = index;
         target.classList.add("tutorial-highlighted");
@@ -71971,7 +72035,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }, 180);
           target.addEventListener("click", tutorialTargetClickHandler, true);
         } else tutorialTargetClickHandler = null;
+        if (step.advanceOnInput) {
+          tutorialTargetInputHandler = () => {
+            if (tutorialTargetInputTimer) clearTimeout(tutorialTargetInputTimer);
+            if (!tutorialFieldIsFilled(target, step.advanceOnInput)) return;
+            tutorialTargetInputTimer = setTimeout(() => {
+              if (!state.tutorialOpen || state.tutorialStep !== index) return;
+              nextTutorialStep();
+            }, step.autoAdvanceIfFilled ? 1200 : step.advanceOnInput === "text" ? 900 : 650);
+          };
+          target.addEventListener("input", tutorialTargetInputHandler, true);
+          target.addEventListener("change", tutorialTargetInputHandler, true);
+          if (step.autoAdvanceIfFilled) tutorialTargetInputHandler();
+        }
         target.scrollIntoView?.({ behavior: "auto", block: "center", inline: "center" });
+        setTimeout(scheduleTutorialSpotlightSync, 180);
       }
       const targetHost = target.closest(".modal-backdrop");
       if (targetHost && tutorialSpotlightHost !== targetHost) {
@@ -72008,11 +72086,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       addPanel({ left: `${right}px`, top: `${top}px`, width: `${Math.max(0, window.innerWidth - right)}px`, height: `${Math.max(0, bottom - top)}px` });
     }
 
-    function openTutorial() {
+    function scheduleTutorialSpotlightSync() {
+      if (!state.tutorialOpen || tutorialSpotlightSyncFrame) return;
+      tutorialSpotlightSyncFrame = requestAnimationFrame(() => {
+        tutorialSpotlightSyncFrame = 0;
+        syncTutorialSpotlight();
+      });
+    }
+
+    window.addEventListener("scroll", scheduleTutorialSpotlightSync, true);
+    window.addEventListener("resize", scheduleTutorialSpotlightSync);
+
+    function openTutorial(topic = "relations", event = null) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
       if (!state.user) return;
+      const allowed = new Set(["relations", "clients", "fleet", "ai", "assistant", "nearest"]);
+      state.tutorialTopic = allowed.has(topic) ? topic : "relations";
+      if (["relations", "fleet", "ai", "assistant", "nearest"].includes(state.tutorialTopic)) state.appView = "plan";
+      if (state.tutorialTopic === "assistant") state.commercialPanelOpen = true;
+      if (state.tutorialTopic === "nearest") state.nearestPanelOpen = true;
       state.tutorialOpen = true;
       state.tutorialStep = 0;
-      tutorialSpotlightTarget = null;
+      clearTutorialSpotlightTarget();
       render();
     }
 
@@ -72021,22 +72117,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.tutorialStep = 0;
       clearTutorialSpotlightTarget();
       removePortaledTutorialModal();
-      render();
+      document.querySelectorAll(".tutorial-backdrop, .tutorial-dim-panel").forEach(element => element.remove());
     }
 
     function closeTutorialOnBackdrop(event) {
       if (event?.target === event?.currentTarget) closeTutorial();
     }
 
+    function refreshTutorialUi() {
+      clearTutorialSpotlightTarget();
+      removePortaledTutorialModal();
+      replaceTransientElement(".tutorial-backdrop", renderTutorialModal());
+      requestAnimationFrame(syncTutorialSpotlight);
+    }
+
     function nextTutorialStep() {
       const last = tutorialStepsForCurrentRole().length - 1;
       state.tutorialStep = Math.min(last, Number(state.tutorialStep || 0) + 1);
-      render();
+      refreshTutorialUi();
     }
 
     function previousTutorialStep() {
       state.tutorialStep = Math.max(0, Number(state.tutorialStep || 0) - 1);
-      render();
+      refreshTutorialUi();
     }
 
     function tutorialOpenRelationDemo() {
@@ -72048,16 +72151,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       state.appView = "plan";
       openAdd(driver.id, currentAppDate());
-      const index = tutorialStepsForCurrentRole().findIndex(step => step.key === "relation-driver");
+      const index = tutorialStepsForCurrentRole().findIndex(step => step.key === "relation-load");
       if (index >= 0) state.tutorialStep = index;
       render();
     }
 
     function tutorialCloseRelationDemo() {
       closeAdd();
-      const index = tutorialStepsForCurrentRole().findIndex(step => step.key === "clients");
-      if (index >= 0) state.tutorialStep = index;
-      render();
+      closeTutorial();
     }
 
     function renderApp() {
@@ -72081,10 +72182,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
               <div class="header-actions">
                 <div class="header-view-nav" aria-label="Widok aplikacji">
-                  <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
-                  <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
-                  ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
-                  ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
+                  <span class="tutorial-nav-item"><button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button><button type="button" class="tutorial-help-btn" onclick="openTutorial('relations',event)" title="Samouczek: tworzenie relacji" aria-label="Samouczek tworzenia relacji">?</button></span>
+                  <span class="tutorial-nav-item"><button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button><button type="button" class="tutorial-help-btn" onclick="openTutorial('clients',event)" title="Samouczek: Baza klientów" aria-label="Samouczek Bazy klientów">?</button></span>
+                  ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<span class="tutorial-nav-item"><button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button><button type="button" class="tutorial-help-btn" onclick="openTutorial('fleet',event)" title="Samouczek: Kierowcy i pojazdy" aria-label="Samouczek kierowców i pojazdów">?</button></span>` : ""}
+                  ${(state.user.actualSupabaseRole || state.user.supabaseRole) === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                   ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdminDataTransfer()" title="Importuj lub eksportuj relacje, klientów i pojazdy">Import / eksport</button>` : ""}
                 </div>
                 <div class="badge" style="gap:8px;">
@@ -72093,9 +72194,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   </span>
                   <span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span>
                 </div>
-                ${["rozliczenia","admin"].includes(state.user.role) ? `<span class="theme-pill">${state.user.role === "rozliczenia" ? "Widok rozliczeń" : "Pełny dostęp"}</span><button class="btn" data-tutorial="accounting-report" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
-                ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
-                <button class="btn" type="button" onclick="openTutorial()" title="Uruchom samouczek Top Dragon">Samouczek</button>
+                ${state.user.role === "rozliczenia" ? `<span class="theme-pill">Widok rozliczeń</span>` : ""}
+                ${["rozliczenia","admin"].includes(state.user.role) ? `<button class="btn" data-tutorial="accounting-report" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
+                ${state.user.role === "spedytor" ? `<span class="tutorial-nav-item"><button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button><button type="button" class="tutorial-help-btn" onclick="openTutorial('ai',event)" title="Samouczek: AI" aria-label="Samouczek AI">?</button></span>` : ""}
                 <button class="btn" data-action="dark-mode" onclick="toggleDarkMode()">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
                 <button class="btn" onclick="logout()">Wyloguj</button>
               </div>
@@ -74387,7 +74488,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderCommercialIntelligence() {
       const tabs = [["rates", "Historia"], ["region", "Klienci w rejonie"], ["requests", "Zapytania o ładunek"]];
       if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-      return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+      return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div class="tutorial-nav-item"><h3>Asystent spedytora</h3><button type="button" class="tutorial-help-btn" onclick="openTutorial('assistant',event)" title="Samouczek: Asystent spedytora" aria-label="Samouczek Asystenta spedytora">?</button></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
     }
 
 
@@ -74677,7 +74778,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <section class="card" id="nearest-vehicle-section">
           <div class="tool-card-head">
             <div>
-              <h2>Najbliższy pojazd</h2>
+              <div class="tutorial-nav-item"><h2>Najbliższy pojazd</h2><button type="button" class="tutorial-help-btn" onclick="openTutorial('nearest',event)" title="Samouczek: Najbliższy pojazd" aria-label="Samouczek wyszukiwarki najbliższego pojazdu">?</button></div>
             </div>
             <button type="button" class="btn ${state.nearestPanelOpen ? "btn-dark" : ""}" onclick="toggleNearestVehiclePanel()">${state.nearestPanelOpen ? "Ukryj" : "Pokaż"}</button>
           </div>
@@ -74692,7 +74793,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <div><label class="field-label">Dzień</label>${renderDateStepper(state.nearestDate || currentAppDate(), "shiftNearestDate(-1)", "shiftNearestDate(1)", "Dzień dla najbliższego pojazdu")}</div>
                 <div><label class="field-label">Wysokość ładunku</label><input id="nearest-load-height" class="input compact-height-input" type="number" step="0.1" min="0" placeholder="opcjonalnie" value="${attr(state.nearestLoadHeight || "")}" oninput="handleNearestRequirementChange()" /></div>
                 <label class="field-label" style="margin-top:0;align-self:end;"><span style="display:block;margin-bottom:5px;">Kierowca PL</span><label class="flag-toggle" title="Kierowca PL"><input id="nearest-require-polish" type="checkbox" ${state.nearestRequirePolishDriver ? "checked" : ""} onchange="handleNearestRequirementChange()" /><span>PL</span></label></label>
-                <button class="btn btn-dark" onclick="findNearestVehiclesFromInput()">Sprawdź</button>
+                <button class="btn btn-dark" data-tutorial="nearest-check" onclick="findNearestVehiclesFromInput()">Sprawdź</button>
               </div>
               <div id="nearest-results-host">${renderNearestVehicleResults()}</div>
             </div>
@@ -86318,7 +86419,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.openAdministrationPanel = function() {
-        if (!state.user || state.user.supabaseRole !== "admin") return;
+        if (!state.user || (state.user.actualSupabaseRole || state.user.supabaseRole) !== "admin") return;
         window.parent?.postMessage(
           { type: "top-dragon-open-admin" },
           window.location.origin
@@ -88241,7 +88342,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (["spedytor","kierownik","admin"].includes(state.user?.role)) tabs.push(["fleet","Kierowcy i pojazdy"]);
         if (isAdminUser()) tabs.push(["audit","Historia operacji"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-        return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div><h3>Asystent spedytora</h3></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+        return `<div class="commercial-intelligence" id="commercial-intelligence"><div class="commercial-head"><div class="tutorial-nav-item"><h3>Asystent spedytora</h3><button type="button" class="tutorial-help-btn" onclick="openTutorial('assistant',event)" title="Samouczek: Asystent spedytora" aria-label="Samouczek Asystenta spedytora">?</button></div><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
       };
 
       const originalSetCommercialView = setCommercialView;
