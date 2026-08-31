@@ -67,19 +67,19 @@ function isActualAdmin() {
 }
 
 function currentActorId() {
-  return String(adminPreview?.actorId || currentUser?.id || '').trim()
+  return String(currentUser?.id || '').trim()
 }
 
 function currentActorLogin() {
-  return String(adminPreview?.login || normalizedTmsLogin(currentProfile) || '').trim()
+  return String(normalizedTmsLogin(currentProfile) || '').trim()
 }
 
 function currentActorDisplayName() {
-  return String(adminPreview?.displayName || currentProfile?.display_name || currentUser?.email || '').trim()
+  return String(currentProfile?.display_name || currentUser?.email || '').trim()
 }
 
 function currentActorBranchName() {
-  return String(adminPreview?.branchName || firstRelated(currentProfile?.branch)?.name || currentProfile?.branch_name || '').trim()
+  return String(firstRelated(currentProfile?.branch)?.name || currentProfile?.branch_name || '').trim()
 }
 
 function hasRole(...roles) {
@@ -87,7 +87,7 @@ function hasRole(...roles) {
 }
 
 function currentBranchId() {
-  return String(adminPreview?.branchId || currentProfile?.branch_id || '').trim()
+  return String(currentProfile?.branch_id || '').trim()
 }
 
 function isBranchScopedRole() {
@@ -3454,36 +3454,14 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
   }
 }
 
-function adminPreviewBranchOptions(profiles = []) {
-  const branches = new Map()
-  profiles.forEach((profile) => {
-    const id = String(profile?.branchId || '').trim()
-    if (!id) return
-    const name = String(profile?.branch || '').trim() || `Oddział ${id.slice(0, 8)}`
-    if (!branches.has(id)) branches.set(id, name)
-  })
-  return [...branches.entries()]
-    .sort((left, right) => left[1].localeCompare(right[1], 'pl'))
-    .map(([id, name]) => `<option value="branch:${escapeHtml(id)}">${escapeHtml(name)}</option>`)
-    .join('')
-}
-
-function adminPreviewDispatcherOptions(profiles = []) {
-  return profiles
-    .filter((profile) => profile?.role === 'dispatcher' && profile?.id)
-    .sort((left, right) => String(left.displayName || left.login).localeCompare(String(right.displayName || right.login), 'pl'))
-    .map((profile) => `<option value="dispatcher:${escapeHtml(profile.id)}">${escapeHtml(profile.displayName || profile.login)}${profile.branch ? ` · ${escapeHtml(profile.branch)}` : ''}</option>`)
-    .join('')
-}
-
-function renderAdminPreviewBar(profiles = []) {
+function renderAdminPreviewBar() {
   if (!isActualAdmin()) return ''
   const activeLabel = adminPreview
-    ? `Aktywny podgląd: ${roleLabel(adminPreview.role)}${adminPreview.branchName ? ` · ${adminPreview.branchName}` : ''}${adminPreview.displayName && adminPreview.role === 'dispatcher' ? ` · ${adminPreview.displayName}` : ''}`
+    ? `Aktywny podgląd funkcji: ${roleLabel(adminPreview.role)}`
     : 'Aktywny kontekst: Administrator'
   return `
-    <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 1px 3px rgba(15,23,42,.08);">
-      <div style="flex:1 1 240px;min-width:220px;"><strong>Podgląd uprawnień</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Konto administratora i token pozostają bez zmian.</div></div>
+    <section id="admin-role-preview" style="position:sticky;top:0;z-index:10000;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:0 0 12px 12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.12);">
+      <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Podgląd nie wybiera ani nie zastępuje konkretnego pracownika; konto administratora i token pozostają bez zmian.</div></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;">Kategoria
         <select id="admin-preview-role" style="min-width:150px;">
           <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
@@ -3492,67 +3470,64 @@ function renderAdminPreviewBar(profiles = []) {
           <option value="branch_manager" ${adminPreview?.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
         </select>
       </label>
-      <label id="admin-preview-scope-wrap" style="display:flex;align-items:center;gap:6px;font-size:12px;">Zakres
-        <select id="admin-preview-scope" style="min-width:190px;">
-          <option value="none">Wszystkie dane roli</option>
-          ${adminPreviewDispatcherOptions(profiles)}
-          ${adminPreviewBranchOptions(profiles)}
-        </select>
-      </label>
-      <button id="admin-preview-apply" type="button" class="primary compact-primary">Przełącz</button>
+      <button id="admin-preview-apply" type="button" class="primary compact-primary">Pokaż funkcje</button>
       ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary">Wróć do Administratora</button>' : ''}
     </section>
   `
 }
 
-function wireAdminPreviewControls(profiles = []) {
+function buildTmsAuthMessage(user = currentUser, profile = currentProfile) {
+  const role = String(adminPreview?.role || profile?.role || '')
+  const previewActive = Boolean(adminPreview)
+  const userName = profile?.display_name || user?.email || 'Administrator'
+  const branchName = firstRelated(profile?.branch)?.name || profile?.branch_name || ''
+  const previewLogin = normalizedTmsLogin({
+    role,
+    display_name: previewActive ? `PODGLĄD ${roleLabel(role)}` : userName,
+  })
+  return {
+    type: 'top-dragon-auth',
+    user: {
+      id: user?.id || '',
+      email: user?.email || '',
+      displayName: previewActive ? `Podgląd funkcji: ${roleLabel(role)}` : userName,
+      login: previewLogin,
+      role,
+      supabaseRole: role,
+      actualSupabaseRole: profile?.role || '',
+      permissionPreview: previewActive,
+      actualUserId: user?.id || '',
+      branchId: profile?.branch_id || '',
+      uiColor: profile?.ui_color || '#E2E8F0',
+      branch: role === 'accounting' ? 'Wszystkie oddziały' : (previewActive ? 'Podgląd kategorii' : branchName),
+    },
+  }
+}
+
+function refreshAdminPreviewBar() {
+  const currentBar = document.querySelector('#admin-role-preview')
+  if (!currentBar) return
+  currentBar.outerHTML = renderAdminPreviewBar()
+  wireAdminPreviewControls()
+}
+
+function applyAdminCategoryPreview(role) {
+  adminPreview = role === 'admin' ? null : { role }
+  activeAuthMessage = buildTmsAuthMessage()
+  activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+  refreshAdminPreviewBar()
+  window.scrollTo({ top: 0, behavior: 'auto' })
+}
+
+function wireAdminPreviewControls() {
   if (!isActualAdmin()) return
   const roleSelect = document.querySelector('#admin-preview-role')
-  const scopeSelect = document.querySelector('#admin-preview-scope')
-  const scopeWrap = document.querySelector('#admin-preview-scope-wrap')
-  const syncScope = () => {
+  document.querySelector('#admin-preview-apply')?.addEventListener('click', () => {
     const role = String(roleSelect?.value || 'admin')
-    if (scopeWrap) scopeWrap.style.display = ['dispatcher', 'branch_manager'].includes(role) ? 'flex' : 'none'
-    if (!scopeSelect) return
-    const prefix = role === 'dispatcher' ? 'dispatcher:' : role === 'branch_manager' ? 'branch:' : 'none'
-    const options = [...scopeSelect.options]
-    options.forEach((option) => { option.hidden = option.value !== 'none' && !option.value.startsWith(prefix) })
-    const firstVisible = options.find((option) => !option.hidden)
-    if (firstVisible && (scopeSelect.selectedOptions[0]?.hidden || !scopeSelect.value.startsWith(prefix))) scopeSelect.value = firstVisible.value
-  }
-  roleSelect?.addEventListener('change', syncScope)
-  syncScope()
-  document.querySelector('#admin-preview-apply')?.addEventListener('click', async () => {
-    const role = String(roleSelect?.value || 'admin')
-    const scope = String(scopeSelect?.value || 'none')
-    let nextPreview = null
-    if (role === 'accounting') nextPreview = { role }
-    if (role === 'dispatcher') {
-      const profile = profiles.find((item) => `dispatcher:${item.id}` === scope && item.role === 'dispatcher')
-      if (!profile) {
-        showDashboardInlineMessage('Wybierz aktywnego spedytora do podglądu.', 'error')
-        return
-      }
-      nextPreview = { role, actorId: profile.id, login: profile.login, displayName: profile.displayName, branchId: profile.branchId, branchName: profile.branch }
-    }
-    if (role === 'branch_manager') {
-      const branchId = scope.startsWith('branch:') ? scope.slice('branch:'.length) : ''
-      const branchProfile = profiles.find((item) => item.role === 'branch_manager' && String(item.branchId || '') === branchId)
-      const branch = profiles.find((item) => String(item.branchId || '') === branchId)
-      if (!branchId) {
-        showDashboardInlineMessage('Wybierz oddział do podglądu kierownika.', 'error')
-        return
-      }
-      nextPreview = { role, actorId: branchProfile?.id || currentUser?.id, login: branchProfile?.login || 'KIEROWNIK', displayName: branchProfile?.displayName || 'Kierownik oddziału', branchId, branchName: branch?.branch || '' }
-    }
-    adminPreview = nextPreview
-    suspendTmsRuntimeForAdminPanel()
-    await renderDashboard(currentUser)
+    applyAdminCategoryPreview(role)
   })
-  document.querySelector('#admin-preview-clear')?.addEventListener('click', async () => {
-    adminPreview = null
-    suspendTmsRuntimeForAdminPanel()
-    await renderDashboard(currentUser)
+  document.querySelector('#admin-preview-clear')?.addEventListener('click', () => {
+    applyAdminCategoryPreview('admin')
   })
 }
 
@@ -3589,25 +3564,9 @@ async function renderDashboard(user) {
   currentUser = user
   currentProfile = profile
 
-  let previewProfiles = []
-  if (isActualAdmin()) {
-    try { previewProfiles = await loadVisibleUserDirectory() } catch (error) { console.warn('Nie udało się pobrać listy do podglądu ról:', error) }
-  }
-
-  const userName = profile.display_name || user.email
-  const branchName = profile.branch?.name || 'Brak oddziału'
-  const effective = adminPreview || {}
-  const effectiveRoleValue = String(effective.role || profile.role || '')
-  const effectiveProfile = {
-    displayName: effective.displayName || userName,
-    login: effective.login || normalizedTmsLogin(profile),
-    branchId: effective.branchId || profile.branch_id || '',
-    branchName: effective.branchName || branchName,
-  }
-
   app.innerHTML = `
     <main class="workspace">
-      ${renderAdminPreviewBar(previewProfiles)}
+      ${renderAdminPreviewBar()}
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <img src="/top-dragon-logo.jpg" alt="Top Dragon" />
         <span>Uruchamianie panelu…</span>
@@ -3615,7 +3574,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v86-imports-role-preview-tutorial-spotlight"
+        src="/tms.html?embedded=1&build=request-workflow-v87-category-preview-tutorial-fields"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3623,25 +3582,7 @@ async function renderDashboard(user) {
 
   const frame = document.querySelector('#tms-frame')
   activeTmsFrame = frame
-  activeAuthMessage = {
-    type: 'top-dragon-auth',
-    user: {
-      id: effective.actorId || user.id,
-      email: user.email || '',
-      displayName: effectiveProfile.displayName,
-      login: effectiveProfile.login,
-      role: effectiveRoleValue,
-      supabaseRole: effectiveRoleValue,
-      actualSupabaseRole: profile.role,
-      permissionPreview: Boolean(adminPreview),
-      actualUserId: user.id,
-      branchId: effectiveProfile.branchId,
-      uiColor: profile.ui_color || '#E2E8F0',
-      branch: effectiveRoleValue === 'accounting'
-        ? 'Wszystkie oddziały'
-        : (effectiveProfile.branchName === 'Brak oddziału' ? '' : effectiveProfile.branchName),
-    },
-  }
+  activeAuthMessage = buildTmsAuthMessage(user, profile)
 
   const sendIdentityToTms = () => {
     activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
@@ -3649,7 +3590,7 @@ async function renderDashboard(user) {
 
   frame?.addEventListener('load', sendIdentityToTms)
   sendIdentityToTms()
-  wireAdminPreviewControls(previewProfiles)
+  wireAdminPreviewControls()
 
   syncUserDirectoryToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
