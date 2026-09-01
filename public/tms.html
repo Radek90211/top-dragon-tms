@@ -3052,6 +3052,14 @@
     .admin-ai-import-table { width:100%; border-collapse:collapse; min-width:760px; font-size:11px; }
     .admin-ai-import-table th,.admin-ai-import-table td { padding:7px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
     .admin-ai-import-table th { position:sticky; top:0; z-index:1; background:#f1f5f9; color:#475569; }
+    .admin-ai-correction { border:1px solid #f59e0b; border-radius:12px; overflow:hidden; background:#fffbeb; }
+    .admin-ai-correction-head { padding:10px 12px; color:#92400e; }
+    .admin-ai-correction-preview { overflow:auto; max-height:320px; border-top:1px solid #f59e0b; }
+    .admin-ai-correction-table { width:100%; min-width:980px; border-collapse:collapse; font-size:11px; }
+    .admin-ai-correction-table th,.admin-ai-correction-table td { padding:7px; border-bottom:1px solid #fde68a; text-align:left; vertical-align:top; }
+    .admin-ai-correction-table th { position:sticky; top:0; z-index:1; background:#fef3c7; color:#92400e; }
+    .admin-ai-correction-table input { width:100%; min-width:115px; box-sizing:border-box; padding:7px 8px; border:1px solid #f59e0b; border-radius:8px; background:#fff; color:#111827; font:inherit; }
+    .admin-ai-correction-reason { min-width:150px; color:#991b1b; font-weight:700; }
     .admin-ai-confidence-low { background:#fff7ed; }
     .admin-ai-warning { border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:10px; padding:9px 10px; font-size:11px; }
     .admin-ai-import-status { border-radius:10px; padding:9px 10px; background:#eff6ff; color:#1e3a8a; font-size:11px; font-weight:750; }
@@ -3062,6 +3070,11 @@
     .app.dark-mode .admin-ai-import-source,.app.dark-mode .admin-ai-import-table th { background:#0f172a; border-color:#334155; color:#e5e7eb; }
     .app.dark-mode .admin-ai-import-table th,.app.dark-mode .admin-ai-import-table td { border-color:#334155; }
     .app.dark-mode .admin-ai-warning { background:#451a03; color:#fde68a; border-color:#92400e; }
+    .app.dark-mode .admin-ai-correction { background:#451a03; border-color:#92400e; }
+    .app.dark-mode .admin-ai-correction-head { color:#fde68a; }
+    .app.dark-mode .admin-ai-correction-table th { background:#78350f; color:#fef3c7; }
+    .app.dark-mode .admin-ai-correction-table td { border-color:#92400e; }
+    .app.dark-mode .admin-ai-correction-table input { background:#111827; color:#f8fafc; border-color:#b45309; }
     @media (max-width:760px) { .admin-ai-import-grid { grid-template-columns:1fr; } }
 
     .copy-ok {
@@ -6225,6 +6238,13 @@
     .driver-actions-button:disabled { opacity:.48; cursor:not-allowed; }
     .driver-actions-note { margin:2px 0 0; color:var(--muted); font-size:10px; line-height:1.45; }
     .app.dark-mode .driver-actions-button:hover:not(:disabled) { background:#451a03; }
+    .driver-hidden-restore-backdrop { position:fixed; inset:0; z-index:2147483542; display:grid; place-items:center; padding:18px; background:rgba(15,23,42,.48); }
+    .driver-hidden-restore-popup { width:min(680px,96vw); max-height:calc(100vh - 36px); overflow:auto; border:1px solid var(--border); border-radius:16px; background:var(--card); color:var(--text); box-shadow:var(--shadow); }
+    .driver-hidden-restore-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; padding:12px 16px; border-bottom:1px solid var(--border); }
+    .driver-hidden-restore-list { display:grid; gap:8px; padding:14px 16px 16px; }
+    .driver-hidden-restore-row { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(120px,.8fr) auto; gap:10px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:11px; background:var(--soft); }
+    .driver-hidden-restore-row small { display:block; margin-top:3px; color:var(--muted); }
+    @media (max-width:680px) { .driver-hidden-restore-toolbar,.driver-hidden-restore-row { grid-template-columns:1fr; } }
     .driver-sms-btn,
     .driver-phone-btn {
       width:18px;
@@ -69412,6 +69432,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       driverInfoPopupId: null,
       driverTransferPopupId: null,
       driverActionsMenuId: null,
+      hiddenDriversRestoreOpen: false,
+      hiddenDriversDispatcherFilter: "",
       driverTransferBusy: false,
       loadLinesVisibleByDispatcher: {},
       appMessage: null,
@@ -69642,11 +69664,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function carrierRatePerKmForCarrier(carrierId, dateValue = currentAppDate()) {
       const date = String(dateValue || currentAppDate()).slice(0, 10);
-      const history = carrierRateHistoryForCarrier(carrierId).filter(item =>
+      const history = Array.from(CARRIER_RATE_HISTORY_BY_ID.values()).flat().filter(item =>
         /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) &&
         String(item.effectiveFrom) <= date &&
         Number(item.ratePerKm) > 0
-      );
+      ).sort((a, b) => String(a.effectiveFrom || "").localeCompare(String(b.effectiveFrom || "")) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
       const current = history[history.length - 1];
       return current ? Number(current.ratePerKm) : CARRIER_RATE_PER_KM;
     }
@@ -72344,6 +72366,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${state.addOpen ? renderAddModal() : ""}
           ${renderDriverInfoPopup()}
           ${renderDriverActionsMenu()}
+          ${renderHiddenDriversRestoreModal()}
           ${renderDriverTransferPopup()}
           ${renderDeleteConfirm()}
           ${renderAttentionToast()}
@@ -72974,6 +72997,76 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return ["spedytor", "kierownik", "admin"].includes(String(state.user?.role || ""));
     }
 
+    function hiddenDriverLeadDispatcher(driver) {
+      return String(driver?.homeDispatcher || DRIVER_HOME_DISPATCHERS.get(driver?.id) || driver?.dispatcher || "").trim();
+    }
+
+    function hiddenDriverDispatcherScope(driver) {
+      return Array.from(new Set([String(driver?.dispatcher || "").trim(), hiddenDriverLeadDispatcher(driver)].filter(Boolean)));
+    }
+
+    function hiddenDriversAvailableForRestore() {
+      return DRIVERS.filter(driver => driver?.supabaseFleet && driver?.fleetHidden && canManageDriverFleetActions(driver))
+        .sort((a, b) => hiddenDriverLeadDispatcher(a).localeCompare(hiddenDriverLeadDispatcher(b), "pl") || String(a.driver || "").localeCompare(String(b.driver || ""), "pl"));
+    }
+
+    function syncHiddenDriversRestoreModal() {
+      replaceTransientElement(".driver-hidden-restore-backdrop", renderHiddenDriversRestoreModal());
+    }
+
+    function openHiddenDriversRestore(event = null, dispatcher = "") {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (!driverSettingsAvailable()) return;
+      const requested = String(dispatcher || "").trim();
+      if (requested) state.hiddenDriversDispatcherFilter = requested;
+      else if (state.user?.role === "spedytor") state.hiddenDriversDispatcherFilter = String(state.user.login || "");
+      state.hiddenDriversRestoreOpen = true;
+      closeDriverActionsMenu();
+      syncHiddenDriversRestoreModal();
+    }
+
+    function closeHiddenDriversRestore(event = null) {
+      if (event?.target && event.target !== event.currentTarget) return;
+      state.hiddenDriversRestoreOpen = false;
+      document.querySelector(".driver-hidden-restore-backdrop")?.remove();
+    }
+
+    function setHiddenDriversDispatcherFilter(value) {
+      state.hiddenDriversDispatcherFilter = String(value || "");
+      syncHiddenDriversRestoreModal();
+    }
+
+    function restoreHiddenDriver(driverId) {
+      const driver = driverById(String(driverId || ""));
+      if (!driver || !driver.fleetHidden || !canManageDriverFleetActions(driver)) {
+        showAppMessage("Brak uprawnień", "Kierowcę może przywrócić jego prowadzący spedytor, kierownik oddziału albo administrator.", "error");
+        return;
+      }
+      window.setFleetDriverHidden?.(driver.id, false);
+      syncHiddenDriversRestoreModal();
+    }
+
+    function renderHiddenDriversRestoreModal() {
+      if (!state.hiddenDriversRestoreOpen || !driverSettingsAvailable()) return "";
+      const allRows = hiddenDriversAvailableForRestore();
+      const dispatchers = Array.from(new Set(allRows.flatMap(hiddenDriverDispatcherScope))).sort((a, b) => a.localeCompare(b, "pl"));
+      let selected = String(state.hiddenDriversDispatcherFilter || "").trim();
+      if (!dispatchers.includes(selected)) selected = state.user?.role === "spedytor" && dispatchers.includes(String(state.user.login || "")) ? String(state.user.login || "") : (dispatchers[0] || "");
+      state.hiddenDriversDispatcherFilter = selected;
+      const rows = selected ? allRows.filter(driver => hiddenDriverDispatcherScope(driver).includes(selected)) : allRows;
+      const selector = ["kierownik", "admin"].includes(String(state.user?.role || ""))
+        ? `<label class="field"><span>Spedytor prowadzący</span><select class="select" onchange="setHiddenDriversDispatcherFilter(this.value)">${dispatchers.map(dispatcher => `<option value="${attr(dispatcher)}" ${dispatcher === selected ? "selected" : ""}>${esc(dispatcher)}</option>`).join("")}</select></label>`
+        : `<div><div class="field-label" style="margin-top:0;">Spedytor prowadzący</div><span class="dispatcher-map-badge ${dispatcherBadgeClass(selected)}">${esc(selected || state.user?.login || "—")}</span></div>`;
+      return `<div class="driver-hidden-restore-backdrop" onclick="closeHiddenDriversRestore(event)">
+        <section class="driver-hidden-restore-popup" role="dialog" aria-modal="true" aria-labelledby="hidden-drivers-title" onclick="event.stopPropagation()">
+          <header class="driver-actions-head"><div><h2 id="hidden-drivers-title">Ukryci kierowcy</h2><div class="small">Pełna lista ukrytych kierowców wybranego spedytora. Przywrócenie pokaże kierowcę ponownie w planie, na mapie i w dopasowaniach.</div></div><button class="btn" type="button" onclick="closeHiddenDriversRestore()">Zamknij</button></header>
+          <div class="driver-hidden-restore-toolbar">${selector}<span class="theme-pill">${rows.length} ukrytych</span></div>
+          <div class="driver-hidden-restore-list">${rows.length ? rows.map(driver => `<div class="driver-hidden-restore-row"><div><b>${esc(driver.driver)}</b><small>${esc(driver.carrier)} · ${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "brak danych pojazdu")}</small></div><span class="dispatcher-map-badge ${dispatcherBadgeClass(hiddenDriverLeadDispatcher(driver))}">${esc(hiddenDriverLeadDispatcher(driver))}</span><button class="btn btn-dark" type="button" ${FLEET_OPERATION_BUSY ? "disabled" : ""} onclick="restoreHiddenDriver('${attr(driver.id)}')">Przywróć</button></div>`).join("") : `<div class="commercial-empty">Ten spedytor nie ma ukrytych kierowców dostępnych do przywrócenia.</div>`}</div>
+        </section>
+      </div>`;
+    }
+
     function openDriverActionsMenu(event, driverId) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -73008,6 +73101,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canColor = canSetDriverPrivateColor(driver);
       const canTransfer = canTransferDriver(driver);
       const canManage = canManageDriverFleetActions(driver);
+      const hiddenCount = hiddenDriversAvailableForRestore().filter(item => hiddenDriverDispatcherScope(item).includes(hiddenDriverLeadDispatcher(driver))).length;
       const disabled = value => value ? "" : "disabled";
       return `<div class="driver-actions-backdrop" onclick="closeDriverActionsMenu(event)">
         <section class="driver-actions-popup" role="dialog" aria-modal="true" aria-labelledby="driver-actions-title" onclick="event.stopPropagation()">
@@ -73017,7 +73111,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <button class="driver-actions-button" type="button" ${disabled(canTransfer)} onclick="runDriverAction('transfer','${attr(driver.id)}')"><span>Przypisz na czas urlopu</span><span>›</span></button>
             <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('edit','${attr(driver.id)}')"><span>Edytuj dane kierowcy i pojazdu</span><span>›</span></button>
             <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('hide','${attr(driver.id)}')"><span>Ukryj kierowcę</span><span>›</span></button>
-            ${canManage ? `<p class="driver-actions-note">Ukrycie usuwa kierowcę z planu, mapy i dopasowań, ale nie kasuje historii. Ponowne pokazanie jest dostępne w module Kierowcy i pojazdy.</p>` : `<p class="driver-actions-note">Możesz prywatnie oznaczyć kolorem kierowcę z Twojego oddziału. Przypisanie, edycję i ukrywanie wykonuje jego obecny lub macierzysty spedytor.</p>`}
+            <button class="driver-actions-button" type="button" onclick="openHiddenDriversRestore(event,'${attr(hiddenDriverLeadDispatcher(driver))}')"><span>Przywróć ukrytych kierowców${hiddenCount ? ` (${hiddenCount})` : ""}</span><span>›</span></button>
+            ${canManage ? `<p class="driver-actions-note">Ukrycie usuwa kierowcę z planu, mapy i dopasowań, ale nie kasuje historii. Lista przywracania obejmuje wszystkich ukrytych kierowców prowadzącego spedytora.</p>` : `<p class="driver-actions-note">Możesz prywatnie oznaczyć kolorem kierowcę z Twojego oddziału. Przypisanie, edycję i ukrywanie wykonuje jego obecny lub macierzysty spedytor.</p>`}
           </div>
         </section>
       </div>`;
@@ -87414,6 +87509,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         sourceName: "",
         sourceText: "",
         items: [],
+        rejectedItems: [],
         warnings: [],
         selected: new Set(),
         busy: false,
@@ -87485,6 +87581,56 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `<div class="admin-ai-import-status${level}">${esc(text)}</div>`;
       }
 
+      function adminAiCorrectionWarning(count) {
+        const value = Math.max(0, Number(count || 0));
+        if (!value) return "";
+        const ending = value === 1 ? "wiersz wymagający" : value >= 2 && value <= 4 ? "wiersze wymagające" : "wierszy wymagających";
+        return `Wykryto ${value} ${ending} sprawdzenia i uzupełnienia przed importem.`;
+      }
+
+      function adminAiRefreshCorrectionWarning() {
+        const count = Array.isArray(ADMIN_AI_IMPORT_STATE.rejectedItems) ? ADMIN_AI_IMPORT_STATE.rejectedItems.length : 0;
+        const warnings = (ADMIN_AI_IMPORT_STATE.warnings || []).filter(item => !/^Wykryto \d+ wiersz/i.test(String(item || "")));
+        const correctionWarning = adminAiCorrectionWarning(count);
+        ADMIN_AI_IMPORT_STATE.warnings = correctionWarning ? [correctionWarning, ...warnings] : warnings;
+      }
+
+      window.adminAiUpdateRejectedItem = function(index, field, value) {
+        const item = ADMIN_AI_IMPORT_STATE.rejectedItems?.[Number(index)];
+        if (!item || !["name","city","postalCode","address","cargoTypes"].includes(field)) return;
+        item[field] = String(value || "");
+        if (field === "cargoTypes") item.businessType = String(value || "");
+      };
+
+      window.adminAiAcceptRejectedItem = function(index) {
+        const itemIndex = Number(index);
+        const source = ADMIN_AI_IMPORT_STATE.rejectedItems?.[itemIndex];
+        if (!source) return;
+        const name = String(source.name || "").trim();
+        const city = String(source.city || "").trim();
+        const postalCode = String(source.postalCode || "").trim();
+        const address = String(source.address || "").trim() || [postalCode, city].filter(Boolean).join(" ");
+        if (!name || !address) {
+          ADMIN_AI_IMPORT_STATE.status = !name ? "Uzupełnij nazwę klienta w poprawianym wierszu." : "Uzupełnij miejscowość, kod pocztowy albo adres w poprawianym wierszu.";
+          ADMIN_AI_IMPORT_STATE.statusLevel = "error";
+          syncAdminAiImportModal();
+          return;
+        }
+        const item = adminAiEnrichClientItem({
+          id:"", name, address, postalCode, city, nip:String(source.nip || "").trim(),
+          cargoTypes:String(source.cargoTypes || "").trim(), businessType:String(source.businessType || source.cargoTypes || "").trim(),
+          dispatcher:"", lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30,
+          cooperationNotes:"", lastContactAt:"", confidence:1
+        });
+        ADMIN_AI_IMPORT_STATE.items.push(item);
+        ADMIN_AI_IMPORT_STATE.selected.add(ADMIN_AI_IMPORT_STATE.items.length - 1);
+        ADMIN_AI_IMPORT_STATE.rejectedItems.splice(itemIndex, 1);
+        adminAiRefreshCorrectionWarning();
+        ADMIN_AI_IMPORT_STATE.status = `Poprawiony klient „${name}” został dodany do podglądu importu.`;
+        ADMIN_AI_IMPORT_STATE.statusLevel = "success";
+        syncAdminAiImportModal();
+      };
+
       function renderAdminAiImportModal() {
         if (!ADMIN_AI_IMPORT_STATE.open || !canUseAdminDataTransfer()) return "";
         const kind = ADMIN_AI_IMPORT_STATE.kind;
@@ -87494,6 +87640,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!ADMIN_AI_IMPORT_STATE.defaultDispatcher && dispatchers[0]?.login) ADMIN_AI_IMPORT_STATE.defaultDispatcher = dispatchers[0].login;
         const columns = adminAiPreviewColumns(kind);
         const items = Array.isArray(ADMIN_AI_IMPORT_STATE.items) ? ADMIN_AI_IMPORT_STATE.items : [];
+        const rejectedItems = Array.isArray(ADMIN_AI_IMPORT_STATE.rejectedItems) ? ADMIN_AI_IMPORT_STATE.rejectedItems : [];
         const selectedCount = items.filter((_, index) => ADMIN_AI_IMPORT_STATE.selected.has(index)).length;
         const warnings = Array.isArray(ADMIN_AI_IMPORT_STATE.warnings) ? ADMIN_AI_IMPORT_STATE.warnings : [];
         return `
@@ -87535,6 +87682,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 </div>
                 ${adminAiImportStatusHtml()}
                 ${warnings.length ? `<div class="admin-ai-warning"><b>Uwagi AI:</b><br>${warnings.map(item => `• ${esc(item)}`).join("<br>")}</div>` : ""}
+                ${kind === "clients" && rejectedItems.length ? `
+                  <section class="admin-ai-correction">
+                    <div class="admin-ai-correction-head"><b>Wiersze do sprawdzenia i poprawienia (${rejectedItems.length})</b><div class="small">Uzupełnij brakującą nazwę klienta albo miejscowość/adres. Dopiero przycisk „Dodaj do importu” przeniesie poprawiony wiersz do podglądu.</div></div>
+                    <div class="admin-ai-correction-preview"><table class="admin-ai-correction-table"><thead><tr><th>Wiersz</th><th>Klient</th><th>Miejscowość</th><th>Kod pocztowy</th><th>Adres</th><th>Rodzaj</th><th>Powód</th><th></th></tr></thead><tbody>
+                      ${rejectedItems.map((item,index) => `<tr><td>${esc(item?.sourceRow || index + 1)}</td><td><input value="${attr(item?.name || "")}" oninput="adminAiUpdateRejectedItem(${index},'name',this.value)" placeholder="nazwa klienta" /></td><td><input value="${attr(item?.city || "")}" oninput="adminAiUpdateRejectedItem(${index},'city',this.value)" placeholder="miejscowość" /></td><td><input value="${attr(item?.postalCode || "")}" oninput="adminAiUpdateRejectedItem(${index},'postalCode',this.value)" placeholder="00-000" /></td><td><input value="${attr(item?.address || "")}" oninput="adminAiUpdateRejectedItem(${index},'address',this.value)" placeholder="opcjonalny pełny adres" /></td><td><input value="${attr(item?.cargoTypes || "")}" oninput="adminAiUpdateRejectedItem(${index},'cargoTypes',this.value)" placeholder="rodzaj / ładunki" /></td><td class="admin-ai-correction-reason">${esc(item?.reason || "Niekompletne dane")}</td><td><button type="button" class="btn btn-dark" onclick="adminAiAcceptRejectedItem(${index})">Dodaj do importu</button></td></tr>`).join("")}
+                    </tbody></table></div>
+                  </section>` : ""}
                 ${items.length ? `
                   <div><b>Podgląd przed importem</b><div class="small">${selectedCount} z ${items.length} rekordów zaznaczonych do zapisania.</div></div>
                   <div class="admin-ai-import-preview">
@@ -87573,6 +87727,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ADMIN_AI_IMPORT_STATE.sourceName = "";
         ADMIN_AI_IMPORT_STATE.sourceText = "";
         ADMIN_AI_IMPORT_STATE.items = [];
+        ADMIN_AI_IMPORT_STATE.rejectedItems = [];
         ADMIN_AI_IMPORT_STATE.warnings = [];
         ADMIN_AI_IMPORT_STATE.selected = new Set();
         ADMIN_AI_IMPORT_STATE.busy = false;
@@ -87671,6 +87826,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ADMIN_AI_IMPORT_STATE.sourceName = String(file.name || "plik");
           ADMIN_AI_IMPORT_STATE.sourceText = text;
           ADMIN_AI_IMPORT_STATE.items = [];
+          ADMIN_AI_IMPORT_STATE.rejectedItems = [];
           ADMIN_AI_IMPORT_STATE.selected = new Set();
           ADMIN_AI_IMPORT_STATE.status = "Plik jest gotowy. Kliknij „Analizuj przez AI”.";
           syncAdminAiImportModal();
@@ -87732,8 +87888,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         if (headerIndex < 0 || !indexes) return null;
         const items = [];
-        let skipped = 0;
-        lines.slice(headerIndex + 1).forEach(line => {
+        const rejectedItems = [];
+        lines.slice(headerIndex + 1).forEach((line, rowOffset) => {
           if (!String(line || "").trim()) return;
           if (adminAiTableDelimiter(line) !== delimiter && delimiter !== "\t") return;
           const cells = adminAiSplitTableLine(line, delimiter);
@@ -87745,13 +87901,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const address = get(indexes.address) || [postalCode,city].filter(Boolean).join(" ");
           const kind = get(indexes.kind);
           if (!name || !address) {
-            if (cells.some(Boolean)) skipped += 1;
+            if (cells.some(Boolean)) rejectedItems.push({
+              sourceRow:headerIndex + rowOffset + 2,
+              name,
+              address:get(indexes.address),
+              postalCode,
+              city,
+              nip:get(indexes.nip),
+              cargoTypes:kind,
+              businessType:kind,
+              reason:!name && !address ? "Brak nazwy klienta oraz miejscowości/adresu." : !name ? "Brak nazwy klienta." : "Brak miejscowości lub adresu."
+            });
             return;
           }
           items.push({ id:"", name, address, postalCode, city, nip:get(indexes.nip), cargoTypes:kind, businessType:kind, dispatcher:"", lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30, cooperationNotes:"", lastContactAt:"", confidence:1 });
         });
-        if (!items.length) return null;
-        return { items, warnings:skipped ? [`Pominięto ${skipped} wierszy bez nazwy klienta albo miejscowości/adresu.`] : [], model:"parser-tabeli-klientow", structured:true, elapsedMs:0 };
+        if (!items.length && !rejectedItems.length) return null;
+        return { items, rejectedItems, warnings:rejectedItems.length ? [adminAiCorrectionWarning(rejectedItems.length)] : [], model:"parser-tabeli-klientow", structured:true, elapsedMs:0 };
       }
       window.__parseStructuredClientTableForTest = adminParseStructuredClientTable;
 
@@ -87806,16 +87972,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           let items = Array.isArray(result?.items) ? result.items : [];
           if (ADMIN_AI_IMPORT_STATE.kind === "clients") items = items.map(adminAiEnrichClientItem);
           ADMIN_AI_IMPORT_STATE.items = items;
+          ADMIN_AI_IMPORT_STATE.rejectedItems = ADMIN_AI_IMPORT_STATE.kind === "clients" && Array.isArray(result?.rejectedItems) ? result.rejectedItems.map(item => ({ ...(item || {}) })) : [];
           ADMIN_AI_IMPORT_STATE.warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+          adminAiRefreshCorrectionWarning();
           ADMIN_AI_IMPORT_STATE.selected = new Set(items.map((_, index) => index));
           ADMIN_AI_IMPORT_STATE.model = String(result?.model || "");
           ADMIN_AI_IMPORT_STATE.elapsedMs = Number(result?.elapsedMs || 0);
-          ADMIN_AI_IMPORT_STATE.status = items.length
-            ? `${result?.structured ? "Tabela została rozpoznana" : "AI rozpoznało dane"}: ${items.length} rekordów. Sprawdź podgląd i zatwierdź import.`
+          ADMIN_AI_IMPORT_STATE.status = items.length || ADMIN_AI_IMPORT_STATE.rejectedItems.length
+            ? `${result?.structured ? "Tabela została rozpoznana" : "AI rozpoznało dane"}: ${items.length} gotowych rekordów${ADMIN_AI_IMPORT_STATE.rejectedItems.length ? `, ${ADMIN_AI_IMPORT_STATE.rejectedItems.length} do poprawienia` : ""}. Sprawdź dane przed importem.`
             : "AI nie znalazło rekordów możliwych do importu.";
-          ADMIN_AI_IMPORT_STATE.statusLevel = items.length ? "success" : "error";
+          ADMIN_AI_IMPORT_STATE.statusLevel = items.length || ADMIN_AI_IMPORT_STATE.rejectedItems.length ? "success" : "error";
         } catch (error) {
           ADMIN_AI_IMPORT_STATE.items = [];
+          ADMIN_AI_IMPORT_STATE.rejectedItems = [];
           ADMIN_AI_IMPORT_STATE.selected = new Set();
           ADMIN_AI_IMPORT_STATE.status = String(error?.message || "Nie udało się przeanalizować danych przez AI.");
           ADMIN_AI_IMPORT_STATE.statusLevel = "error";
@@ -88209,6 +88378,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           syncBoardOnly();
           syncUnloadMapCard();
         }
+        if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
       };
 
       window.handleFleetOperationResult = function(message) {
@@ -88235,6 +88405,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
       };
 
       invalidateFleetCaches();
@@ -88334,49 +88505,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
       };
 
-      function carrierRateAt3L54(carrierId, dateValue = currentAppDate()) {
-        const history = carrierRateHistoryForCarrier(carrierId).filter(item => String(item.effectiveFrom || "") <= String(dateValue || currentAppDate()));
-        return history.length ? history[history.length - 1] : null;
-      }
-
-      function renderCarrierRateManagement3L54(rows) {
-        if (!isAdminUser()) return "";
-        const carriers = new Map();
-        (rows || []).forEach(driver => {
-          const id = String(driver.carrierEntityId || "");
-          if (id && !carriers.has(id)) carriers.set(id, { id, name:String(driver.carrier || "Przewoźnik") });
-        });
-        const today = currentAppDate();
-        const list = Array.from(carriers.values()).sort((a,b) => a.name.localeCompare(b.name,"pl"));
-        return `<div class="fleet-form-card carrier-rate-card-3l54"><div class="carrier-rate-head-3l54"><div><b>Stawka przewoźnika za 1 kilometr</b><div class="small">Administrator może ustawić stawkę od dzisiaj lub z datą przyszłą. Stawki historyczne są niezmienne.</div></div><span class="theme-pill">Historia stawek</span></div><div class="carrier-rate-list-3l54">${list.length ? list.map(carrier => {
-          const current = carrierRateAt3L54(carrier.id, today);
-          const history = carrierRateHistoryForCarrier(carrier.id);
-          const future = history.filter(item => String(item.effectiveFrom || "") > today);
-          const currentValue = Number(current?.ratePerKm || CARRIER_RATE_PER_KM);
-          const busy = String(state.carrierRateBusyId || "") === carrier.id;
-          const previous = history.filter(item => String(item.effectiveFrom || "") < today).slice(-3).reverse();
-          return `<div class="carrier-rate-row-3l54"><div class="carrier-rate-name-3l54"><b>${esc(carrier.name)}</b><small>Aktualnie: <strong>${currentValue.toFixed(2).replace(".",",")} PLN/km</strong>${current?.effectiveFrom ? ` · od ${esc(formatDateForInput(current.effectiveFrom))}` : " · stawka domyślna"}</small>${future.length ? `<small>Zaplanowane: ${future.map(item => `${Number(item.ratePerKm).toFixed(2).replace(".",",")} od ${formatDateForInput(item.effectiveFrom)}`).join(" · ")}</small>` : ""}${previous.length ? `<small class="carrier-rate-history-3l54">Historia: ${previous.map(item => `${Number(item.ratePerKm).toFixed(2).replace(".",",")} od ${formatDateForInput(item.effectiveFrom)}`).join(" · ")}</small>` : ""}</div><label><span>Nowa stawka PLN/km</span><input id="carrier-rate-value-${attr(carrier.id)}" class="input" type="number" min="0.01" step="0.01" value="${attr(currentValue.toFixed(2))}" /></label><label><span>Obowiązuje od</span><input id="carrier-rate-date-${attr(carrier.id)}" class="input" type="date" min="${attr(today)}" value="${attr(today)}" /></label><button type="button" class="btn btn-dark" ${busy ? "disabled" : ""} onclick="setCarrierRate3L54('${attr(carrier.id)}')">${busy ? "Zapisywanie…" : "Zapisz stawkę"}</button></div>`;
-        }).join("") : `<div class="commercial-empty">Dodaj najpierw przewoźnika do floty.</div>`}</div></div>`;
-      }
-
-      window.setCarrierRate3L54 = function(carrierId) {
-        if (!isAdminUser()) { showAppMessage("Brak uprawnień", "Tylko administrator może zmieniać stawki przewoźników.", "error"); return; }
-        if (state.carrierRateBusyId) return;
-        const today = currentAppDate();
-        const rate = Number(String(document.getElementById(`carrier-rate-value-${carrierId}`)?.value || "").replace(",","."));
-        const effectiveFrom = String(document.getElementById(`carrier-rate-date-${carrierId}`)?.value || today).slice(0,10);
-        if (!Number.isFinite(rate) || rate <= 0) { showAppMessage("Nieprawidłowa stawka", "Podaj stawkę większą od zera.", "error"); return; }
-        if (effectiveFrom < today) { showAppMessage("Historia jest chroniona", "Nie można zmieniać stawki obowiązującej w przeszłości.", "error"); return; }
-        state.carrierRateBusyId = carrierId;
-        const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
-        window.parent?.postMessage({
-          type:"top-dragon-carrier-rate-set",
-          requestId:`carrier-rate-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-          carrierId, ratePerKm:rate, effectiveFrom
-        }, window.location.origin);
-      };
-
       window.renderFleetManagement = function() {
         if (!state.user || !["spedytor","kierownik","admin"].includes(state.user.role)) return `<div class="commercial-empty">Brak uprawnień do zarządzania flotą.</div>`;
         const dispatcher = currentFleetDispatcher();
@@ -88400,7 +88528,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="fleet-form-actions wide">${isAdminUser() ? `<button type="button" class="btn" onclick="exportFleetVehiclesExcel()">Eksport Excel</button><button type="button" class="btn" onclick="chooseFleetExcelImport()">Import Excel</button>` : ""}<button type="submit" class="btn btn-dark" ${FLEET_OPERATION_BUSY ? "disabled" : ""}>${FLEET_OPERATION_BUSY ? "Zapisywanie…" : "Dodaj kierowcę"}</button></div>
             </form>
           </div>
-          ${isAdminUser() ? renderCarrierRateManagement3L54(rows) : ""}
           <div class="fleet-form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:9px;"><b>Flota (${rows.length})</b><span class="small">${isAdminUser() ? "Wszystkie przypisania" : isBranchManagerUser() ? `Oddział ${esc(state.user.branch || "")}` : `Spedytor ${esc(state.user.login)}`}</span></div>
             <div class="fleet-list">${rows.length ? rows.map(driver => {
@@ -88476,6 +88603,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         FLEET_OPERATION_BUSY = true;
+        if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
         const requestId = `fleet-visibility-${Date.now()}`;
         window.parent?.postMessage({
           type: "top-dragon-fleet-visibility",
@@ -89133,7 +89261,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const originalRenderBoard3L19 = renderBoard;
       renderBoard = function(...args) {
         let html = originalRenderBoard3L19.apply(this, args);
-        const heading = `<div class="board-heading-stack"><div class="board-heading-line"><h2>Plan kierowców</h2><button type="button" class="btn board-tools-toggle ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools()">${state.boardToolsOpen ? "Ukryj" : "Pokaż"}</button></div>${state.boardToolsOpen ? boardMetricControlsHtml() : ""}</div>`;
+        const heading = `<div class="board-heading-stack"><div class="board-heading-line"><h2>Plan kierowców</h2><div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;">${driverSettingsAvailable() ? `<button type="button" class="btn" onclick="openHiddenDriversRestore(event)" title="Pokaż i przywróć ukrytych kierowców">⚙ Ustawienia kierowcy</button>` : ""}<button type="button" class="btn board-tools-toggle ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools()">${state.boardToolsOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.boardToolsOpen ? boardMetricControlsHtml() : ""}</div>`;
         html = html.replace('<h2>Plan kierowców</h2>', heading);
         if (!state.boardToolsOpen) html = html.replace('<div class="board-controls">', '<div class="board-controls board-controls-hidden">');
         return html;
