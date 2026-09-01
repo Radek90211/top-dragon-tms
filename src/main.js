@@ -904,11 +904,6 @@ async function loadFleetData() {
     .eq('active', true)
     .order('created_at', { ascending: true })
 
-  if (isBranchScopedRole()) {
-    if (!currentBranchId()) return []
-    assignmentsQuery = assignmentsQuery.eq('branch_id', currentBranchId())
-  }
-
   const { data: assignments, error: assignmentsError } = await assignmentsQuery
 
   if (assignmentsError) {
@@ -1078,11 +1073,6 @@ async function loadCentralRelations() {
     .select('branch_id, relation_ref, payload, updated_at')
     .eq('active', true)
     .order('updated_at', { ascending: true })
-
-  if (!['admin', 'accounting'].includes(currentRole())) {
-    if (!currentBranchId()) return []
-    query = query.eq('branch_id', currentBranchId())
-  }
 
   const { data, error } = await query
   if (error) {
@@ -1499,6 +1489,16 @@ async function bulkUpsertCentralClientsFromTms(message) {
       message: String(messageText || ''),
     }, window.location.origin)
   }
+  const sendProgress = (processed = 0, imported = 0, failed = 0) => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-client-bulk-operation-progress',
+      requestId,
+      processed: Number(processed || 0),
+      total: clients.length,
+      imported: Number(imported || 0),
+      failed: Number(failed || 0),
+    }, window.location.origin)
+  }
 
   if (!isActualAdmin()) {
     send(false, 0, clients.length, [], 'Masowy import klientów jest dostępny wyłącznie dla rzeczywistego administratora.')
@@ -1533,6 +1533,7 @@ async function bulkUpsertCentralClientsFromTms(message) {
   for (let offset = 0; offset < clients.length; offset += 8) {
     const results = await Promise.all(clients.slice(offset, offset + 8).map(saveOne))
     results.forEach((result) => { if (result.ok) imported += 1; else errors.push({ clientId: result.clientId, message: result.message }) })
+    sendProgress(Math.min(clients.length, offset + results.length), imported, errors.length)
   }
 
   let refreshError = ''
@@ -3625,7 +3626,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v90-driver-settings-shared-plan"
+        src="/tms.html?embedded=1&build=request-workflow-v91-ai-client-import-shared-view"
         title="Top Dragon TMS"
       ></iframe>
     </main>
