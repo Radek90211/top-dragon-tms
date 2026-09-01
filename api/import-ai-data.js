@@ -89,8 +89,8 @@ function parseStructuredClientTable(sourceText) {
   if (headerIndex < 0 || !indexes) return null
 
   const items = []
-  let skipped = 0
-  for (const line of lines.slice(headerIndex + 1)) {
+  const rejectedItems = []
+  for (const [rowOffset, line] of lines.slice(headerIndex + 1).entries()) {
     if (!String(line || '').trim()) continue
     if (tableDelimiter(line) !== delimiter && delimiter !== '\t') continue
     const cells = splitTableLine(line, delimiter)
@@ -103,7 +103,23 @@ function parseStructuredClientTable(sourceText) {
     const address = explicitAddress || [postalCode, city].filter(Boolean).join(' ')
     const kind = get(indexes.kind)
     if (!name || !address) {
-      if (cells.some(Boolean)) skipped += 1
+      if (cells.some(Boolean)) {
+        rejectedItems.push({
+          sourceRow: headerIndex + rowOffset + 2,
+          name,
+          address: explicitAddress,
+          postalCode,
+          city,
+          nip: get(indexes.nip),
+          cargoTypes: kind,
+          businessType: kind,
+          reason: !name && !address
+            ? 'Brak nazwy klienta oraz miejscowości/adresu.'
+            : !name
+              ? 'Brak nazwy klienta.'
+              : 'Brak miejscowości lub adresu.',
+        })
+      }
       continue
     }
     items.push({
@@ -113,9 +129,16 @@ function parseStructuredClientTable(sourceText) {
       cooperationNotes: '', lastContactAt: '', confidence: 1,
     })
   }
-  if (!items.length) return null
-  const warnings = skipped ? [`Pominięto ${skipped} wierszy bez nazwy klienta albo miejscowości/adresu.`] : []
-  return { items, warnings, detectedColumns: headers.length }
+  if (!items.length && !rejectedItems.length) return null
+  const correctionEnding = rejectedItems.length === 1
+    ? 'wiersz wymagający'
+    : rejectedItems.length >= 2 && rejectedItems.length <= 4
+      ? 'wiersze wymagające'
+      : 'wierszy wymagających'
+  const warnings = rejectedItems.length
+    ? [`Wykryto ${rejectedItems.length} ${correctionEnding} sprawdzenia i uzupełnienia przed importem.`]
+    : []
+  return { items, rejectedItems, warnings, detectedColumns: headers.length }
 }
 
 async function authenticateAdmin(req) {
@@ -204,11 +227,12 @@ export default async function handler(req, res) {
     if (sourceText.length > MAX_SOURCE_LENGTH) return json(res, 413, { ok: false, message: `Dane źródłowe są za długie. Maksimum to ${MAX_SOURCE_LENGTH} znaków.` })
 
     const structuredClients = kind === 'clients' ? parseStructuredClientTable(sourceText) : null
-    if (structuredClients?.items?.length) {
+    if (structuredClients && (structuredClients.items.length || structuredClients.rejectedItems.length)) {
       return json(res, 200, {
         ok: true,
         kind,
         items: normalizeItems(kind, structuredClients.items),
+        rejectedItems: structuredClients.rejectedItems,
         warnings: structuredClients.warnings,
         model: 'parser-tabeli-klientow',
         structured: true,
