@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase.js'
 const app = document.querySelector('#app')
 let activeTmsFrame = null
 let activeAuthMessage = null
+let openAdminDataTransferAfterAuth = false
 let activeUserDirectoryMessage = null
 let activeFleetMessage = null
 let activeRelationsMessage = null
@@ -522,7 +523,7 @@ function showAdminMessage(message = '', messageType = 'success') {
 function setAdminBusy(busy) {
   adminPanelBusy = busy
   document.querySelectorAll(
-    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-refresh'
+    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-data-transfer, #admin-refresh'
   ).forEach((button) => {
     button.disabled = busy || button.dataset.locked === 'true'
   })
@@ -551,6 +552,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           <p class="muted">Zalogowany: ${escapeHtml(currentProfile.display_name || currentUser.email)}</p>
         </div>
         <div class="admin-header-actions">
+          <button id="admin-data-transfer" class="secondary">Import / eksport</button>
           <button id="admin-refresh" class="secondary">Odśwież dane</button>
           <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
         </div>
@@ -667,6 +669,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         <div class="user-list">
           ${users.length ? users.map((item) => {
             const lockedAdmin = item.role === 'admin'
+            const userColor = lockedAdmin ? '#EF4444' : (item.ui_color || '#E2E8F0')
             return `
               <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
                 <div class="user-identity">
@@ -691,7 +694,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   </select>
                 </label>
                 <label>Kolor
-                  <span class="user-color-field"><input class="user-ui-color" type="color" value="${escapeHtml(item.ui_color || '#E2E8F0')}" ${lockedAdmin ? 'disabled' : ''} /><span>${escapeHtml(item.ui_color || '#E2E8F0')}</span></span>
+                  <span class="user-color-field"><input class="user-ui-color" type="color" value="${escapeHtml(userColor)}" ${lockedAdmin ? 'disabled' : ''} /><span>${escapeHtml(userColor)}</span></span>
                 </label>
                 <label class="active-check">
                   <span>Aktywny</span>
@@ -707,6 +710,12 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   `
 
   document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
+  document.querySelector('#admin-data-transfer')?.addEventListener('click', async () => {
+    if (adminPanelBusy) return
+    adminPreview = null
+    openAdminDataTransferAfterAuth = true
+    await renderDashboard(currentUser)
+  })
   wireAdminPreviewControls()
 
   document.querySelector('#admin-refresh')?.addEventListener('click', async () => {
@@ -987,7 +996,7 @@ async function loadVisibleUserDirectory() {
     branchId: profile.branch_id || '',
     branch: profile.branch_name || '',
     login: normalizedTmsLogin(profile),
-    uiColor: profile.ui_color || '#E2E8F0',
+    uiColor: profile.role === 'admin' ? '#EF4444' : (profile.ui_color || '#E2E8F0'),
   }))
 }
 
@@ -1541,6 +1550,49 @@ function sendClientOperationResult(requestId, ok, action, clientId, branchId, me
   }, window.location.origin)
 }
 
+async function fallbackClientStorageBranchId(client = null) {
+  const explicit = String(client?.branchId || client?.branch_id || '').trim()
+  if (isValidUuid(explicit)) return explicit
+  if (isValidUuid(currentBranchId())) return currentBranchId()
+
+  const owner = String(client?.dispatcher || '').trim()
+  const profiles = Array.isArray(activeUserDirectoryMessage?.profiles) ? activeUserDirectoryMessage.profiles : []
+  const ownerProfile = owner ? profiles.find((profile) => sameName(profile?.login, owner) && isValidUuid(profile?.branchId)) : null
+  if (ownerProfile) return String(ownerProfile.branchId)
+  const directoryBranch = profiles.find((profile) => isValidUuid(profile?.branchId))?.branchId
+  if (directoryBranch) return String(directoryBranch)
+
+  const { data, error } = await supabase
+    .from('branches')
+    .select('id')
+    .eq('active', true)
+    .order('name', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return isValidUuid(data?.id) ? String(data.id) : ''
+}
+
+async function existingClientBranchMap(clientIds = []) {
+  const ids = Array.from(new Set((clientIds || []).map((id) => String(id || '').trim()).filter(Boolean)))
+  const result = new Map()
+  for (let offset = 0; offset < ids.length; offset += 150) {
+    const { data, error } = await supabase
+      .from('tms_clients_central')
+      .select('client_ref,branch_id,updated_at')
+      .in('client_ref', ids.slice(offset, offset + 150))
+      .eq('active', true)
+      .order('updated_at', { ascending: false })
+    if (error) throw error
+    for (const row of data || []) {
+      const key = String(row?.client_ref || '').trim()
+      const branchId = String(row?.branch_id || '').trim()
+      if (key && isValidUuid(branchId) && !result.has(key)) result.set(key, branchId)
+    }
+  }
+  return result
+}
+
 async function upsertCentralClientFromTms(message) {
   const requestId = String(message?.requestId || '')
   const client = message?.client
@@ -1556,16 +1608,16 @@ async function upsertCentralClientFromTms(message) {
   }
 
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('tms_clients_central')
+      .select('branch_id,payload')
+      .eq('client_ref', clientId)
+      .eq('active', true)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (existingError) throw existingError
     if (hasRole('dispatcher', 'branch_manager')) {
-      const { data: existing, error: existingError } = await supabase
-        .from('tms_clients_central')
-        .select('payload')
-        .eq('client_ref', clientId)
-        .eq('active', true)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (existingError) throw existingError
       const oldOwner = String(existing?.payload?.dispatcher || '').trim()
       const newOwner = String(client?.dispatcher || '').trim()
       if (hasRole('dispatcher') && oldOwner !== newOwner) {
@@ -1585,8 +1637,10 @@ async function upsertCentralClientFromTms(message) {
         }
       }
     }
+    const storageBranchId = isValidUuid(existing?.branch_id) ? String(existing.branch_id) : await fallbackClientStorageBranchId(client)
+    if (!storageBranchId) throw new Error('Brak aktywnego oddziału technicznego do zapisania klienta.')
     const { error } = await supabase.rpc('upsert_tms_client', {
-      p_branch_id: null,
+      p_branch_id: storageBranchId,
       p_client: client,
     })
     if (error) throw error
@@ -1641,13 +1695,28 @@ async function bulkUpsertCentralClientsFromTms(message) {
 
   let imported = 0
   const errors = []
+  let existingBranches
+  let fallbackBranchId
+  try {
+    existingBranches = await existingClientBranchMap(clients.map((client) => client?.id))
+    fallbackBranchId = await fallbackClientStorageBranchId()
+  } catch (error) {
+    send(false, 0, clients.length, [], `Nie udało się ustalić oddziału zapisu klientów: ${String(error?.message || error)}`)
+    return
+  }
+  if (!fallbackBranchId && !existingBranches.size) {
+    send(false, 0, clients.length, [], 'Brak aktywnego oddziału technicznego do zapisania klientów.')
+    return
+  }
   const saveOne = async (client) => {
     const clientId = String(client?.id || '').trim()
     if (!clientId || typeof client !== 'object' || !String(client?.name || '').trim() || !String(client?.address || '').trim()) {
       return { ok: false, clientId, message: 'Brak identyfikatora, nazwy lub adresu klienta.' }
     }
     try {
-      const { error } = await supabase.rpc('upsert_tms_client', { p_branch_id: null, p_client: client })
+      const storageBranchId = existingBranches.get(clientId) || fallbackBranchId || await fallbackClientStorageBranchId(client)
+      if (!storageBranchId) throw new Error('Brak aktywnego oddziału technicznego do zapisania klienta.')
+      const { error } = await supabase.rpc('upsert_tms_client', { p_branch_id: storageBranchId, p_client: client })
       if (error) throw error
       return { ok: true, clientId }
     } catch (error) {
@@ -1687,11 +1756,29 @@ async function archiveCentralClientFromTms(message) {
   }
 
   try {
-    const { error } = await supabase.rpc('archive_tms_client', {
-      p_branch_id: null,
-      p_client_ref: clientId,
-    })
-    if (error) throw error
+    const { data: existingRows, error: existingError } = await supabase
+      .from('tms_clients_central')
+      .select('branch_id')
+      .eq('client_ref', clientId)
+      .eq('active', true)
+    if (existingError) throw existingError
+
+    const branchIds = Array.from(new Set((existingRows || [])
+      .map((row) => String(row?.branch_id || '').trim())
+      .filter(isValidUuid)))
+    if (!branchIds.length) {
+      const fallbackBranchId = await fallbackClientStorageBranchId()
+      if (fallbackBranchId) branchIds.push(fallbackBranchId)
+    }
+    if (!branchIds.length) throw new Error('Brak aktywnego oddziału technicznego do usunięcia klienta.')
+
+    for (const branchId of branchIds) {
+      const { error } = await supabase.rpc('archive_tms_client', {
+        p_branch_id: branchId,
+        p_client_ref: clientId,
+      })
+      if (error) throw error
+    }
 
     sendClientOperationResult(requestId, true, 'archive', clientId, '', 'Klient został usunięty z aktywnej globalnej bazy.')
     await syncCentralClientsToTms()
@@ -3672,7 +3759,7 @@ function buildTmsAuthMessage(user = currentUser, profile = currentProfile) {
       permissionPreview: previewActive,
       actualUserId: user?.id || '',
       branchId: profile?.branch_id || '',
-      uiColor: profile?.ui_color || '#E2E8F0',
+      uiColor: profile?.role === 'admin' ? '#EF4444' : (profile?.ui_color || '#E2E8F0'),
       branch: role === 'accounting' ? 'Wszystkie oddziały' : (previewActive ? 'Podgląd kategorii' : branchName),
     },
   }
@@ -3752,7 +3839,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v92-admin-rate-hidden-restore-ai-corrections"
+        src="/tms.html?embedded=1&build=request-workflow-v93-client-write-navigation-map-export"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3887,6 +3974,10 @@ async function bootstrap() {
     if (event.data?.type === 'top-dragon-auth-applied') {
       document.querySelector('#tms-frame')?.classList.remove('is-loading')
       document.querySelector('#tms-loading')?.remove()
+      if (openAdminDataTransferAfterAuth && isActualAdmin()) {
+        openAdminDataTransferAfterAuth = false
+        activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-open-admin-data-transfer' }, window.location.origin)
+      }
       return
     }
 
