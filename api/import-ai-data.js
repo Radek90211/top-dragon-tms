@@ -22,6 +22,102 @@ function errorMessage(value, fallback) {
   return fallback
 }
 
+function plainTableCell(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?\s*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#x20;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tableHeaderKey(value) {
+  return plainTableCell(value)
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+function tableDelimiter(line) {
+  const text = String(line || '')
+  if ((text.match(/\|/g) || []).length >= 2) return '|'
+  if (text.includes('\t')) return '\t'
+  if ((text.match(/;/g) || []).length >= 2) return ';'
+  return ''
+}
+
+function splitTableLine(line, delimiter) {
+  let text = String(line || '').trim()
+  if (delimiter === '|') text = text.replace(/^\|/, '').replace(/\|$/, '')
+  return text.split(delimiter).map(plainTableCell)
+}
+
+function parseStructuredClientTable(sourceText) {
+  const lines = String(sourceText || '').replace(/\r/g, '').split('\n')
+  const aliases = {
+    name: new Set(['klient', 'nazwa', 'nazwaklienta', 'client', 'customer', 'name']),
+    city: new Set(['miejscowosc', 'miasto', 'city', 'lokalizacja', 'location']),
+    address: new Set(['adres', 'address']),
+    postalCode: new Set(['kodpocztowy', 'kod', 'postalcode', 'postcode']),
+    kind: new Set(['rodzaj', 'typ', 'branza', 'branża', 'ladunki', 'typyladunkow', 'cargotypes', 'businesstype']),
+    nip: new Set(['nip', 'taxid']),
+  }
+  let headerIndex = -1
+  let delimiter = ''
+  let headers = []
+  let indexes = null
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const candidateDelimiter = tableDelimiter(lines[index])
+    if (!candidateDelimiter) continue
+    const candidateHeaders = splitTableLine(lines[index], candidateDelimiter).map(tableHeaderKey)
+    const indexFor = (key) => candidateHeaders.findIndex((header) => aliases[key].has(header))
+    const candidate = {
+      name: indexFor('name'), city: indexFor('city'), address: indexFor('address'),
+      postalCode: indexFor('postalCode'), kind: indexFor('kind'), nip: indexFor('nip'),
+    }
+    if (candidate.name >= 0 && [candidate.city, candidate.address, candidate.postalCode].some((value) => value >= 0)) {
+      headerIndex = index
+      delimiter = candidateDelimiter
+      headers = candidateHeaders
+      indexes = candidate
+      break
+    }
+  }
+  if (headerIndex < 0 || !indexes) return null
+
+  const items = []
+  let skipped = 0
+  for (const line of lines.slice(headerIndex + 1)) {
+    if (!String(line || '').trim()) continue
+    if (tableDelimiter(line) !== delimiter && delimiter !== '\t') continue
+    const cells = splitTableLine(line, delimiter)
+    if (cells.every((cell) => !cell || /^:?-{3,}:?$/.test(cell))) continue
+    const get = (index) => index >= 0 ? plainTableCell(cells[index]) : ''
+    const name = get(indexes.name)
+    const city = get(indexes.city)
+    const postalCode = get(indexes.postalCode)
+    const explicitAddress = get(indexes.address)
+    const address = explicitAddress || [postalCode, city].filter(Boolean).join(' ')
+    const kind = get(indexes.kind)
+    if (!name || !address) {
+      if (cells.some(Boolean)) skipped += 1
+      continue
+    }
+    items.push({
+      id: '', name, address, postalCode, city, nip: get(indexes.nip),
+      cargoTypes: kind, businessType: kind, dispatcher: '', lat: 0, lng: 0,
+      approximate: true, qualityRating: 3, paymentDays: 30,
+      cooperationNotes: '', lastContactAt: '', confidence: 1,
+    })
+  }
+  if (!items.length) return null
+  const warnings = skipped ? [`Pominięto ${skipped} wierszy bez nazwy klienta albo miejscowości/adresu.`] : []
+  return { items, warnings, detectedColumns: headers.length }
+}
+
 async function authenticateAdmin(req) {
   const authorization = String(req.headers?.authorization || '')
   const match = authorization.match(/^Bearer\s+(.+)$/i)
@@ -107,20 +203,45 @@ export default async function handler(req, res) {
     if (sourceText.length < 3) return json(res, 400, { ok: false, message: 'Brak danych źródłowych do analizy AI.' })
     if (sourceText.length > MAX_SOURCE_LENGTH) return json(res, 413, { ok: false, message: `Dane źródłowe są za długie. Maksimum to ${MAX_SOURCE_LENGTH} znaków.` })
 
+    const structuredClients = kind === 'clients' ? parseStructuredClientTable(sourceText) : null
+    if (structuredClients?.items?.length) {
+      return json(res, 200, {
+        ok: true,
+        kind,
+        items: normalizeItems(kind, structuredClients.items),
+        warnings: structuredClients.warnings,
+        model: 'parser-tabeli-klientow',
+        structured: true,
+        elapsedMs: Date.now() - startedAt,
+      })
+    }
+
     const openAiKey = env('OPENAI_API_KEY')
     if (!openAiKey) return json(res, 503, { ok: false, message: 'Brak OPENAI_API_KEY w konfiguracji wdrożenia. Import AI jest chwilowo niedostępny.' })
 
-    const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiKey}` },
-      body: JSON.stringify({
-        model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
-        store: false,
-        instructions: instructionsForKind(kind),
-        input: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}`,
-        text: { format: { type: 'json_object' } },
-      }),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 75000)
+    let openAiResponse
+    try {
+      openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiKey}` },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
+          store: false,
+          instructions: instructionsForKind(kind),
+          input: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}`,
+          max_output_tokens: kind === 'clients' ? 24000 : 12000,
+          text: { format: { type: 'json_object' } },
+        }),
+      })
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('Analiza AI trwała zbyt długo. Spróbuj ponownie lub podziel dane na mniejsze części.')
+      throw error
+    } finally {
+      clearTimeout(timeout)
+    }
     const openAiData = await openAiResponse.json().catch(() => ({}))
     if (!openAiResponse.ok) {
       const providerMessage = errorMessage(openAiData?.error, `OpenAI zwróciło HTTP ${openAiResponse.status}.`)
