@@ -1119,7 +1119,7 @@
       display: flex;
       gap: 8px;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       flex-wrap: wrap;
       flex: 1 1 auto;
       min-width: 0;
@@ -1133,6 +1133,8 @@
       flex-wrap: wrap;
       margin-left: auto;
     }
+
+    .tutorial-launch-button { width:38px; min-width:38px; height:38px; padding:0; border-radius:50%; font-size:17px; font-weight:950; }
 
     .badge {
       display: inline-flex;
@@ -4048,7 +4050,8 @@
     }
 
     .driver-privacy-btn,
-    .driver-transfer-btn {
+    .driver-transfer-btn,
+    .driver-settings-btn {
       width: 18px;
       height: 18px;
       display: inline-grid;
@@ -4065,12 +4068,14 @@
     }
 
     .driver-privacy-btn:hover,
-    .driver-transfer-btn:hover {
+    .driver-transfer-btn:hover,
+    .driver-settings-btn:hover {
       background: #f1f5f9;
     }
 
     .app.dark-mode .driver-privacy-btn,
-    .app.dark-mode .driver-transfer-btn {
+    .app.dark-mode .driver-transfer-btn,
+    .app.dark-mode .driver-settings-btn {
       background: #1f2937;
       color: #e5e7eb;
       border-color: #475569;
@@ -4078,7 +4083,8 @@
 
     .driver-copy-btn svg,
     .driver-privacy-btn svg,
-    .driver-transfer-btn svg {
+    .driver-transfer-btn svg,
+    .driver-settings-btn svg {
       width: 12px;
       height: 12px;
       display: block;
@@ -4697,7 +4703,7 @@
       .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
       .header-inner { align-items: stretch; }
       .header-actions { width: 100%; }
-      .header-account-actions { width:100%; margin-left:0; justify-content:flex-start; }
+      .header-account-actions { width:100%; margin-left:0; justify-content:flex-end; }
       .tutorial-picker-grid { grid-template-columns:1fr; }
       .btn { flex: 1; }
     }
@@ -5951,7 +5957,7 @@
     @media (max-width:900px) {
       .client-directory-toolbar,.commercial-relation-filters { grid-template-columns:1fr; }
       .client-quick-add { grid-template-columns:1fr; }
-      .header-view-nav { width:100%;order:4; }
+      .header-view-nav { width:auto;order:initial; }
     }
 
 
@@ -6209,6 +6215,16 @@
       gap: 3px;
     }
     .driver-action-placeholder { width:18px; height:18px; display:block; }
+    .driver-actions-backdrop { position:fixed; inset:0; z-index:2147483540; display:grid; place-items:center; padding:18px; background:rgba(15,23,42,.38); }
+    .driver-actions-popup { width:min(480px,96vw); border:1px solid var(--border); border-radius:16px; background:var(--card); color:var(--text); box-shadow:var(--shadow); overflow:hidden; }
+    .driver-actions-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:14px 16px; border-bottom:1px solid var(--border); }
+    .driver-actions-head h2 { margin:0; font-size:17px; }
+    .driver-actions-body { display:grid; gap:8px; padding:14px 16px 16px; }
+    .driver-actions-button { width:100%; min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 11px; border:1px solid var(--border); border-radius:10px; background:var(--card); color:var(--text); font:inherit; font-weight:850; text-align:left; cursor:pointer; }
+    .driver-actions-button:hover:not(:disabled) { border-color:#f59e0b; background:#fffbeb; }
+    .driver-actions-button:disabled { opacity:.48; cursor:not-allowed; }
+    .driver-actions-note { margin:2px 0 0; color:var(--muted); font-size:10px; line-height:1.45; }
+    .app.dark-mode .driver-actions-button:hover:not(:disabled) { background:#451a03; }
     .driver-sms-btn,
     .driver-phone-btn {
       width:18px;
@@ -69395,6 +69411,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       driverSensitiveVisible: {},
       driverInfoPopupId: null,
       driverTransferPopupId: null,
+      driverActionsMenuId: null,
+      driverTransferBusy: false,
       loadLinesVisibleByDispatcher: {},
       appMessage: null,
       appMessageTimer: null,
@@ -70491,10 +70509,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function visibleDriversForCurrentUser() {
-      const drivers = operationalDrivers();
-      return state.user?.role === "rozliczenia" || !state.onlyMine
-        ? drivers
-        : drivers.filter(driver => driver.dispatcher === state.user.login);
+      return operationalDrivers();
     }
 
     function routeStatusGlobalMoment(route) {
@@ -72285,19 +72300,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </div>
 
               <div class="header-actions">
-                <div class="header-view-nav" aria-label="Widok aplikacji">
-                  <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
-                  <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
-                  ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
-                  ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
-                </div>
                 <div class="header-account-actions">
+                  <div class="header-view-nav" aria-label="Widok aplikacji">
+                    <button type="button" data-app-view-nav="plan" class="btn ${state.appView === "plan" ? "active" : ""}" onclick="setAppView('plan')">Plan kierowców</button>
+                    <button type="button" data-app-view-nav="clients" class="btn ${state.appView === "clients" ? "active" : ""}" onclick="setAppView('clients')">Baza klientów</button>
+                    ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<button type="button" class="btn btn-dark" onclick="openFleetManagement()" title="Dodaj kierowcę, ciągnik lub naczepę">+ Kierowca / pojazd</button>` : ""}
+                    ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
+                  </div>
                   ${(state.user.actualSupabaseRole || state.user.supabaseRole) === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                   ${state.user.supabaseRole === "admin" ? `<button type="button" class="btn" onclick="openAdminDataTransfer()" title="Importuj lub eksportuj relacje, klientów i pojazdy">Import / eksport</button>` : ""}
                   <div class="badge" style="gap:8px;"><span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">${esc(state.user.login)}</span><span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span></div>
                   ${state.user.role === "rozliczenia" ? `<span class="theme-pill">Widok rozliczeń</span>` : ""}
                   ${["rozliczenia","admin"].includes(state.user.role) ? `<button class="btn" data-tutorial="accounting-report" onclick="exportAccountingReport()">Eksport raportu</button>` : ""}
-                  <button class="btn" type="button" onclick="openTutorialMenu(event)">Pomoc</button>
+                  <button class="btn tutorial-launch-button" type="button" onclick="openTutorialMenu(event)" title="Otwórz samouczki" aria-label="Otwórz samouczki">?</button>
                   <button class="btn" data-action="dark-mode" onclick="toggleDarkMode()">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
                   <button class="btn" onclick="logout()">Wyloguj</button>
                 </div>
@@ -72327,6 +72342,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${renderRouteContextMenu()}
           ${state.addOpen ? renderAddModal() : ""}
           ${renderDriverInfoPopup()}
+          ${renderDriverActionsMenu()}
           ${renderDriverTransferPopup()}
           ${renderDeleteConfirm()}
           ${renderAttentionToast()}
@@ -72843,6 +72859,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10"></path><path d="M14 4l3 3-3 3"></path><path d="M17 17H7"></path><path d="M10 14l-3 3 3 3"></path></svg>`;
     }
 
+    function driverSettingsIconSvg() {
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"></path></svg>`;
+    }
+
     const DRIVER_PRIVATE_COLOR_OPTIONS = [
       { value:"", label:"Brak oznaczenia" },
       { value:"yellow", label:"Żółty" },
@@ -72859,7 +72879,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         driver?.supabaseFleet &&
         driver?.driverEntityId &&
         state.user?.role === "spedytor" &&
-        String(driver.dispatcher || "") === String(state.user.login || "")
+        (!state.user.branchId || !driver.branchId || String(driver.branchId) === String(state.user.branchId))
       );
     }
 
@@ -72939,6 +72959,69 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.7 3.8l2.5-.8 2.2 5-1.8 1.4a14.6 14.6 0 0 0 5 5l1.4-1.8 5 2.2-.8 2.5c-.4 1.4-1.7 2.3-3.1 2.2C9.9 18.8 5.2 14.1 4.5 6.9c-.1-1.4.8-2.7 2.2-3.1z"></path></svg>`;
     }
 
+    function canManageDriverFleetActions(driver) {
+      if (!driver?.supabaseFleet || !state.user) return false;
+      if (state.user.role === "admin") return true;
+      if (state.user.role === "kierownik") return !state.user.branchId || !driver.branchId || String(driver.branchId) === String(state.user.branchId);
+      if (state.user.role !== "spedytor") return false;
+      const login = String(state.user.login || "");
+      const home = String(driver.homeDispatcher || DRIVER_HOME_DISPATCHERS.get(driver.id) || "");
+      return String(driver.dispatcher || "") === login || home === login;
+    }
+
+    function driverSettingsAvailable() {
+      return ["spedytor", "kierownik", "admin"].includes(String(state.user?.role || ""));
+    }
+
+    function openDriverActionsMenu(event, driverId) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (!driverSettingsAvailable()) return;
+      state.driverActionsMenuId = String(driverId || "");
+      replaceTransientElement(".driver-actions-backdrop", renderDriverActionsMenu());
+    }
+
+    function closeDriverActionsMenu(event = null) {
+      if (event?.target && event.target !== event.currentTarget) return;
+      state.driverActionsMenuId = null;
+      document.querySelector(".driver-actions-backdrop")?.remove();
+    }
+
+    function runDriverAction(action, driverId) {
+      const driver = driverById(driverId);
+      if (!driver) return;
+      const canManage = canManageDriverFleetActions(driver);
+      if (action === "color" && !canSetDriverPrivateColor(driver)) return;
+      if (action === "transfer" && !canTransferDriver(driver)) return;
+      if (["edit", "hide"].includes(action) && !canManage) return;
+      closeDriverActionsMenu();
+      if (action === "color") openDriverColorPicker(null, driverId);
+      if (action === "transfer") openDriverTransferPopup(driverId);
+      if (action === "edit") window.openFleetEdit?.(driverId);
+      if (action === "hide") window.setFleetDriverHidden?.(driverId, true);
+    }
+
+    function renderDriverActionsMenu() {
+      const driver = state.driverActionsMenuId ? driverById(state.driverActionsMenuId) : null;
+      if (!driver || !driverSettingsAvailable()) return "";
+      const canColor = canSetDriverPrivateColor(driver);
+      const canTransfer = canTransferDriver(driver);
+      const canManage = canManageDriverFleetActions(driver);
+      const disabled = value => value ? "" : "disabled";
+      return `<div class="driver-actions-backdrop" onclick="closeDriverActionsMenu(event)">
+        <section class="driver-actions-popup" role="dialog" aria-modal="true" aria-labelledby="driver-actions-title" onclick="event.stopPropagation()">
+          <header class="driver-actions-head"><div><h2 id="driver-actions-title">Ustawienia kierowcy</h2><div class="small">${esc(driver.driver)} · <span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span></div></div><button class="btn" type="button" onclick="closeDriverActionsMenu()">Zamknij</button></header>
+          <div class="driver-actions-body">
+            <button class="driver-actions-button" type="button" ${disabled(canColor)} onclick="runDriverAction('color','${attr(driver.id)}')"><span>Zmień kolor wiersza</span><span>›</span></button>
+            <button class="driver-actions-button" type="button" ${disabled(canTransfer)} onclick="runDriverAction('transfer','${attr(driver.id)}')"><span>Przypisz na czas urlopu</span><span>›</span></button>
+            <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('edit','${attr(driver.id)}')"><span>Edytuj dane kierowcy i pojazdu</span><span>›</span></button>
+            <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('hide','${attr(driver.id)}')"><span>Ukryj kierowcę</span><span>›</span></button>
+            ${canManage ? `<p class="driver-actions-note">Ukrycie usuwa kierowcę z planu, mapy i dopasowań, ale nie kasuje historii. Ponowne pokazanie jest dostępne w module Kierowcy i pojazdy.</p>` : `<p class="driver-actions-note">Możesz prywatnie oznaczyć kolorem kierowcę z Twojego oddziału. Przypisanie, edycję i ukrywanie wykonuje jego obecny lub macierzysty spedytor.</p>`}
+          </div>
+        </section>
+      </div>`;
+    }
+
     function canTransferDriver(driver) {
       if (!driver || state.user?.role !== "spedytor") return false;
       const login = state.user.login;
@@ -72994,8 +73077,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   ${dispatchers.map(dispatcher => `<option value="${attr(dispatcher)}" ${dispatcher === driver.dispatcher ? "selected" : ""}>${esc(dispatcher)}${dispatcher === homeDispatcher ? " · macierzysty" : ""}</option>`).join("")}
                 </select>
               </label>
-              <div class="small">Zmiana dotyczy pojedynczego kierowcy. Relacje przypisane do niego przechodzą do nowego spedytora operacyjnego; przy skonfigurowanej bazie online przypisanie jest synchronizowane dla całego zespołu.</div>
-              <button class="btn btn-dark" type="button" onclick="confirmDriverTransfer('${attr(driver.id)}')">Zapisz przypisanie</button>
+              <div class="small">Zmiana dotyczy pojedynczego kierowcy i służy m.in. zastępstwu urlopowemu. Wspólny plan oraz relacje pozostają widoczne dla spedytorów z oddziału.</div>
+              <button class="btn btn-dark" type="button" ${state.driverTransferBusy ? "disabled" : ""} onclick="confirmDriverTransfer('${attr(driver.id)}')">${state.driverTransferBusy ? "Zapisywanie…" : "Zapisz przypisanie"}</button>
             </div>
           </div>
         </div>
@@ -73013,6 +73096,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const allowed = new Set(eligibleDriverTransferDispatchers(driver));
       if (!allowed.has(target)) {
         showAppMessage("Nieprawidłowy spedytor", "Wybierz spedytora z listy.");
+        return;
+      }
+      const targetUser = USERS.find(user => user?.role === "spedytor" && String(user.login || "") === target);
+      if (EMBEDDED_MODE && driver.dbAssignmentId && targetUser?.supabaseId) {
+        if (state.driverTransferBusy) return;
+        state.driverTransferBusy = true;
+        syncDriverTransferPopup();
+        window.parent?.postMessage({
+          type: "top-dragon-fleet-reassign",
+          requestId: `fleet-reassign-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          assignmentId: String(driver.dbAssignmentId),
+          toDispatcherId: String(targetUser.supabaseId)
+        }, window.location.origin);
         return;
       }
       const previous = driver.dispatcher;
@@ -73095,7 +73191,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <span class="driver-private-actions">
           <button class="driver-privacy-btn" type="button" title="Pokaż dane kierowcy" aria-label="Pokaż dane kierowcy" onclick="openDriverInfoPopup('${attr(driver.id)}');event.stopPropagation();">${driverPrivacyIconSvg(false)}</button>
-          ${canTransferDriver(driver) ? `<button class="driver-transfer-btn" type="button" title="Przepisz kierowcę do innego spedytora" aria-label="Przepisz kierowcę" onclick="openDriverTransferPopup('${attr(driver.id)}');event.stopPropagation();">${driverTransferIconSvg()}</button>` : `<span class="driver-action-placeholder" aria-hidden="true"></span>`}
+          ${driverSettingsAvailable() ? `<button class="driver-settings-btn" type="button" title="Ustawienia kierowcy" aria-label="Ustawienia kierowcy" onclick="openDriverActionsMenu(event,'${attr(driver.id)}')">${driverSettingsIconSvg()}</button>` : `<span class="driver-action-placeholder" aria-hidden="true"></span>`}
           <a class="driver-sms-btn ${disabled ? "disabled" : ""}" href="${attr(smsHref)}" title="Wyślij SMS do kierowcy" aria-label="Wyślij SMS do kierowcy" onclick="event.stopPropagation();${disabled ? "event.preventDefault();showAppMessage('Brak numeru telefonu','Uzupełnij numer telefonu kierowcy.');" : ""}">${driverSmsIconSvg()}</a>
           <a class="driver-phone-btn ${disabled ? "disabled" : ""}" href="${attr(phoneHref)}" title="Zadzwoń do kierowcy" aria-label="Zadzwoń do kierowcy" onclick="event.stopPropagation();${disabled ? "event.preventDefault();showAppMessage('Brak numeru telefonu','Uzupełnij numer telefonu kierowcy.');" : ""}">${driverPhoneIconSvg()}</a>
         </span>
@@ -85231,6 +85327,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     window.openDriverTransferPopup = openDriverTransferPopup;
     window.closeDriverTransferPopup = closeDriverTransferPopup;
     window.confirmDriverTransfer = confirmDriverTransfer;
+    window.openDriverActionsMenu = openDriverActionsMenu;
+    window.closeDriverActionsMenu = closeDriverActionsMenu;
+    window.runDriverAction = runDriverAction;
     window.updateRouteOversizeFlag = updateRouteOversizeFlag;
     window.copyFutureGroupDriverData = copyFutureGroupDriverData;
     window.takeFutureGroup = takeFutureGroup;
@@ -87954,6 +88053,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const dispatcherUser = userBySupabaseId(row.assignedDispatcherId);
           const creatorUser = userBySupabaseId(row.createdBy);
           const dispatcher = String(dispatcherUser?.login || dispatcherUser?.displayName || "").toUpperCase();
+          const creatorDispatcher = creatorUser?.role === "spedytor" ? String(creatorUser?.login || creatorUser?.displayName || "").toUpperCase() : "";
           if (!dispatcher) return;
 
           const normalized = {
@@ -87964,7 +88064,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             trailerEntityId: String(row.trailer?.id || ""),
             carrierEntityId: String(row.carrier?.id || ""),
             dispatcher,
-            homeDispatcher: dispatcher,
+            homeDispatcher: creatorDispatcher || dispatcher,
             carrier: String(row.carrier?.name || ""),
             carrierRateHistory: carrierRateHistoryForCarrier(String(row.carrier?.id || "")),
             driver: String(row.driver?.fullName || ""),
@@ -88007,13 +88107,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
         if (action === "color") state.driverColorOperationBusy = false;
+        if (action === "reassign") {
+          state.driverTransferBusy = false;
+          if (ok) {
+            state.driverTransferPopupId = null;
+            document.querySelector(".driver-transfer-backdrop")?.remove();
+          } else {
+            syncDriverTransferPopup();
+          }
+        }
         if (action === "update") {
           state.fleetEditBusy = false;
           if (ok) window.closeFleetEdit?.();
         }
         if (action === "carrier-rate") state.carrierRateBusyId = "";
         const text = String(message?.message || (ok ? "Operacja zakończona." : "Operacja nie powiodła się."));
-        const successTitle = action === "delete" ? "Zarchiwizowano zestaw" : action === "carrier-rate" ? "Stawka przewoźnika zapisana" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "import" ? "Import floty zakończony" : action === "update" ? "Dane floty uzupełnione" : "Zapisano zestaw";
+        const successTitle = action === "delete" ? "Zarchiwizowano zestaw" : action === "carrier-rate" ? "Stawka przewoźnika zapisana" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "reassign" ? "Przypisanie kierowcy zmienione" : action === "import" ? "Import floty zakończony" : action === "update" ? "Dane floty uzupełnione" : "Zapisano zestaw";
         showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
@@ -88162,7 +88271,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.renderFleetManagement = function() {
         if (!state.user || !["spedytor","kierownik","admin"].includes(state.user.role)) return `<div class="commercial-empty">Brak uprawnień do zarządzania flotą.</div>`;
         const dispatcher = currentFleetDispatcher();
-        const rows = DRIVERS.filter(driver => isAdminUser() || (isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : driver.dispatcher === state.user.login))
+        const rows = DRIVERS.filter(driver => isAdminUser() || (isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || ""))))
           .slice().sort((a,b) => String(a.dispatcher).localeCompare(String(b.dispatcher),"pl") || String(a.driver).localeCompare(String(b.driver),"pl"));
         return `<div class="fleet-management">
           <div class="fleet-form-card">
@@ -88190,7 +88299,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               const deleteControl = driver.supabaseFleet && isAdminUser()
                 ? `<button type="button" class="btn-mini danger" onclick="removeFleetDriver('${attr(driver.id)}')" title="Usuń z aktywnej floty i zachowaj pełną historię w archiwum">Usuń</button>`
                 : "";
-              const canChangeVisibility = Boolean(driver.supabaseFleet && (isAdminUser() || (isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : driver.dispatcher === state.user.login)));
+              const canChangeVisibility = Boolean(driver.supabaseFleet && (isAdminUser() || (isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || "")))));
               const visibilityControl = canChangeVisibility
                 ? `<button type="button" class="btn-mini" onclick="setFleetDriverHidden('${attr(driver.id)}', ${driver.fleetHidden ? "false" : "true"})" title="${driver.fleetHidden ? "Przywróć pojazd do planu, mapy i dopasowań" : "Ukryj nieaktywny pojazd z planu, mapy i dopasowań"}">${driver.fleetHidden ? "Pokaż" : "Ukryj"}</button>`
                 : "";
@@ -88253,7 +88362,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.setFleetDriverHidden = function(driverId, hidden) {
         const driver = driverById(driverId);
         if (!driver?.supabaseFleet || FLEET_OPERATION_BUSY) return;
-        if (!isAdminUser() && !(isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : state.user?.role === "spedytor" && driver.dispatcher === state.user.login)) {
+        if (!isAdminUser() && !(isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : state.user?.role === "spedytor" && [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || "")))) {
           showAppMessage("Brak uprawnień", "Możesz ukrywać wyłącznie własne pojazdy.", "error");
           return;
         }
@@ -88506,10 +88615,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       visibleDriversForCurrentUser = function() {
-        const drivers = operationalDrivers();
-        return isAdminUser() || isBranchManagerUser() || state.user?.role === "rozliczenia" || !state.onlyMine
-          ? drivers
-          : drivers.filter(driver => driver.dispatcher === state.user.login);
+        return operationalDrivers();
       };
       canEditAccountingFields = function(route) {
         return Boolean(route && (state.user?.role === "rozliczenia" || String(state.user?.supabaseRole || "") === "admin"));
@@ -89384,7 +89490,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (typeof isBranchManagerUser === "function" && isBranchManagerUser()) {
           return typeof itemBelongsToCurrentBranch === "function" && itemBelongsToCurrentBranch(driver.branchId || state.user.branchId);
         }
-        return state.user.role === "spedytor" && String(driver.dispatcher || "") === String(state.user.login || "");
+        return state.user.role === "spedytor" && [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || ""));
       }
 
       window.closeFleetEdit = function() {
@@ -93264,11 +93370,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       renderDriverSensitiveBlock = function(driver) {
         let base = String(renderDriverSensitiveBlockBefore3L52.apply(this, arguments) || '');
         base = base.replace(/<button[^>]*class="driver-finance-btn"[\s\S]*?<\/button>/g, '');
-        const alreadyHasColorButton = /class=["'][^"']*driver-color-btn/.test(base);
-        const colorButton = canSetDriverPrivateColor(driver) && !alreadyHasColorButton
-          ? `<button type="button" class="driver-color-btn color-restored-3l52" title="Zmień kolor samochodu / wiersza" aria-label="Zmień kolor samochodu" onclick="openDriverColorPicker(event,'${attr(driver.id)}')">${driverColorIconSvg()}</button>`
-          : '';
-        return `${colorButton}${base}`;
+        return base;
       };
 
       /* ------------------------------------------------------------------
