@@ -105,7 +105,7 @@ function sameName(left, right) {
 async function loadFleetAssignmentScope(assignmentId) {
   const { data, error } = await supabase
     .from('fleet_assignments')
-    .select('id,branch_id,assigned_dispatcher_id,active')
+    .select('id,branch_id,assigned_dispatcher_id,created_by,active')
     .eq('id', assignmentId)
     .maybeSingle()
   if (error) throw error
@@ -116,7 +116,10 @@ function canModifyFleetAssignment(assignment) {
   if (!assignment) return false
   if (hasRole('admin')) return true
   if (hasRole('branch_manager')) return Boolean(currentBranchId() && String(assignment.branch_id || '') === currentBranchId())
-  if (hasRole('dispatcher')) return Boolean(currentActorId() && String(assignment.assigned_dispatcher_id || '') === currentActorId())
+  if (hasRole('dispatcher')) {
+    const actorId = currentActorId()
+    return Boolean(actorId && [assignment.assigned_dispatcher_id, assignment.created_by].some((id) => String(id || '') === actorId))
+  }
   return false
 }
 
@@ -904,10 +907,6 @@ async function loadFleetData() {
   if (isBranchScopedRole()) {
     if (!currentBranchId()) return []
     assignmentsQuery = assignmentsQuery.eq('branch_id', currentBranchId())
-    if (hasRole('dispatcher')) {
-      if (!currentActorId()) return []
-      assignmentsQuery = assignmentsQuery.eq('assigned_dispatcher_id', currentActorId())
-    }
   }
 
   const { data: assignments, error: assignmentsError } = await assignmentsQuery
@@ -1092,7 +1091,6 @@ async function loadCentralRelations() {
 
   return (data || [])
     .filter((row) => row?.payload && row?.relation_ref)
-    .filter((row) => !hasRole('dispatcher') || sameName(row?.payload?.ownerDispatcher || row?.payload?.createdBy, currentActorLogin()))
     .map((row) => ({
       id: String(row.relation_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -2507,6 +2505,52 @@ async function setFleetVisibilityFromTms(message) {
   }
 }
 
+async function reassignFleetSetFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const assignmentId = String(message?.assignmentId || '').trim()
+  const toDispatcherId = String(message?.toDispatcherId || '').trim()
+
+  if (!assignmentId || !isValidUuid(toDispatcherId)) {
+    sendFleetOperationResult(requestId, false, 'reassign', 'Brak zestawu lub prawidłowego spedytora docelowego.')
+    return
+  }
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
+    sendFleetOperationResult(requestId, false, 'reassign', 'Twoja rola nie może zmieniać przypisania kierowcy.')
+    return
+  }
+
+  try {
+    const assignment = await loadFleetAssignmentScope(assignmentId)
+    if (!canModifyFleetAssignment(assignment)) throw new Error('Kierowcę może przepisać jego obecny, macierzysty lub uprawniony przełożony.')
+
+    const { data: target, error: targetError } = await supabase
+      .from('profiles')
+      .select('id,branch_id,display_name')
+      .eq('id', toDispatcherId)
+      .eq('branch_id', String(assignment?.branch_id || ''))
+      .eq('role', 'dispatcher')
+      .eq('active', true)
+      .maybeSingle()
+    if (targetError) throw targetError
+    if (!target) throw new Error('Spedytor docelowy nie jest aktywny albo należy do innego oddziału.')
+
+    const { data: updated, error: updateError } = await supabase
+      .from('fleet_assignments')
+      .update({ assigned_dispatcher_id: toDispatcherId })
+      .eq('id', assignmentId)
+      .eq('active', true)
+      .select('id')
+      .maybeSingle()
+    if (updateError) throw updateError
+    if (!updated) throw new Error('Przypisanie nie zostało zmienione. Sprawdź uprawnienia bazy danych.')
+
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'reassign', `Kierowca został tymczasowo przypisany do: ${target.display_name || 'wybrany spedytor'}.`)
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'reassign', error?.message || 'Nie udało się zmienić przypisania kierowcy.')
+  }
+}
+
 async function setDriverRowColorFromTms(message) {
   const requestId = String(message?.requestId || '')
   const driverId = String(message?.driverId || '').trim()
@@ -2514,7 +2558,7 @@ async function setDriverRowColorFromTms(message) {
   const allowedColors = new Set(['', 'yellow', 'green', 'blue', 'pink', 'purple', 'orange', 'gray'])
 
   if (currentRole() !== 'dispatcher' || !currentActorId()) {
-    sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić wyłącznie prowadzący spedytor.')
+    sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić wyłącznie spedytor.')
     return
   }
   if (!driverId || !allowedColors.has(color)) {
@@ -2523,15 +2567,15 @@ async function setDriverRowColorFromTms(message) {
   }
 
   try {
-    const { data: ownedAssignments, error: ownershipError } = await supabase
+    const { data: visibleAssignments, error: ownershipError } = await supabase
       .from('fleet_assignments')
       .select('id')
       .eq('driver_id', driverId)
-      .eq('assigned_dispatcher_id', currentActorId())
+      .eq('branch_id', currentBranchId())
       .eq('active', true)
       .limit(1)
     if (ownershipError) throw ownershipError
-    if (!ownedAssignments?.length) throw new Error('Możesz oznaczać kolorem tylko kierowców, których prowadzisz.')
+    if (!visibleAssignments?.length) throw new Error('Możesz oznaczać kolorem tylko kierowców widocznych w Twoim oddziale.')
 
     if (!color) {
       const { error } = await supabase
@@ -3581,7 +3625,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v89-help-fleet-header"
+        src="/tms.html?embedded=1&build=request-workflow-v90-driver-settings-shared-plan"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -3758,6 +3802,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-fleet-visibility') {
       await setFleetVisibilityFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-reassign') {
+      await reassignFleetSetFromTms(event.data)
       return
     }
 
