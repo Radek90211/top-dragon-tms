@@ -405,15 +405,72 @@ async function adminApi(path, options = {}) {
   return data
 }
 
+function adminLocalDateIso() {
+  const now = new Date()
+  const offset = now.getTimezoneOffset() * 60000
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10)
+}
+
+function adminCommonCarrierRateAt(rateHistory = [], dateValue = adminLocalDateIso()) {
+  const date = String(dateValue || adminLocalDateIso()).slice(0, 10)
+  return (Array.isArray(rateHistory) ? rateHistory : [])
+    .filter((item) => String(item?.effectiveFrom || '') <= date && Number(item?.ratePerKm) > 0)
+    .sort((a, b) => String(a.effectiveFrom || '').localeCompare(String(b.effectiveFrom || '')) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
+    .at(-1) || null
+}
+
+async function loadAdminCarrierRateData() {
+  const assignmentsResult = await supabase
+    .from('fleet_assignments')
+    .select('carrier_id,carrier:carriers!fleet_assignments_carrier_id_fkey(id,name)')
+    .eq('active', true)
+
+  if (assignmentsResult.error) {
+    return { carriers: [], rateHistory: [], schemaAvailable: false, error: assignmentsResult.error.message }
+  }
+
+  const carriers = new Map()
+  for (const row of assignmentsResult.data || []) {
+    const carrier = firstRelated(row.carrier)
+    const id = String(carrier?.id || row?.carrier_id || '').trim()
+    if (id) carriers.set(id, { id, name: String(carrier?.name || 'Przewoźnik').trim() || 'Przewoźnik' })
+  }
+
+  const ratesResult = await supabase
+    .from('tms_carrier_rate_history')
+    .select('id,carrier_id,rate_per_km,effective_from,created_at')
+    .order('effective_from', { ascending: true })
+    .order('created_at', { ascending: true })
+
+  if (ratesResult.error) {
+    return { carriers: Array.from(carriers.values()), rateHistory: [], schemaAvailable: false, error: ratesResult.error.message }
+  }
+
+  return {
+    carriers: Array.from(carriers.values()).sort((a, b) => a.name.localeCompare(b.name, 'pl')),
+    rateHistory: (ratesResult.data || []).map((row) => ({
+      id: String(row.id || ''),
+      carrierId: String(row.carrier_id || ''),
+      ratePerKm: Number(row.rate_per_km || 0),
+      effectiveFrom: String(row.effective_from || '').slice(0, 10),
+      createdAt: String(row.created_at || ''),
+    })).filter((row) => row.carrierId && row.ratePerKm > 0 && /^\d{4}-\d{2}-\d{2}$/.test(row.effectiveFrom)),
+    schemaAvailable: true,
+    error: '',
+  }
+}
+
 async function loadAdminData() {
-  const [branchesResult, usersResult] = await Promise.all([
+  const [branchesResult, usersResult, carrierRates] = await Promise.all([
     adminApi('/api/admin/branches'),
     adminApi('/api/admin/users'),
+    loadAdminCarrierRateData(),
   ])
 
   return {
     branches: branchesResult.branches || [],
     users: usersResult.users || [],
+    carrierRates,
   }
 }
 
@@ -465,7 +522,7 @@ function showAdminMessage(message = '', messageType = 'success') {
 function setAdminBusy(busy) {
   adminPanelBusy = busy
   document.querySelectorAll(
-    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, .user-save, #admin-refresh'
+    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-refresh'
   ).forEach((button) => {
     button.disabled = busy || button.dataset.locked === 'true'
   })
@@ -477,6 +534,13 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   const branches = adminCache.branches || []
   const users = adminCache.users || []
   const activeBranches = branches.filter((branch) => branch.active)
+  const carrierRates = adminCache.carrierRates || { carriers: [], rateHistory: [], schemaAvailable: false }
+  const carrierRateToday = adminLocalDateIso()
+  const currentCommonCarrierRate = adminCommonCarrierRateAt(carrierRates.rateHistory, carrierRateToday)
+  const commonCarrierRateValue = Number(currentCommonCarrierRate?.ratePerKm || 5)
+  const commonRateHistory = Array.from(new Map(
+    (carrierRates.rateHistory || []).slice().reverse().map((item) => [`${item.effectiveFrom}|${item.ratePerKm}`, item])
+  ).values()).slice(0, 5)
 
   app.innerHTML = `
     <main class="admin-shell">
@@ -567,6 +631,29 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           ${activeBranches.length ? '' : '<div class="warning">Najpierw utwórz aktywny oddział.</div>'}
         </section>
       </div>
+
+      <section class="admin-card users-card">
+        <div class="section-heading">
+          <div>
+            <h2>Wspólna stawka przewoźników</h2>
+            <p class="muted">Jedna stawka PLN/km obowiązuje wszystkich aktywnych przewoźników. Zapis ujednolici ją dla ${carrierRates.carriers.length} ${carrierRates.carriers.length === 1 ? 'przewoźnika' : 'przewoźników'} i nie zmieni kosztów już zapisanych relacji.</p>
+          </div>
+          <span class="count-pill">${commonCarrierRateValue.toFixed(2).replace('.', ',')} PLN/km</span>
+        </div>
+        ${carrierRates.schemaAvailable ? `
+          <form id="common-carrier-rate-form" class="compact-form two-columns">
+            <label>Nowa wspólna stawka PLN/km
+              <input id="common-carrier-rate-value" type="number" min="0.01" step="0.01" value="${escapeHtml(commonCarrierRateValue.toFixed(2))}" required />
+            </label>
+            <label>Obowiązuje od
+              <input id="common-carrier-rate-date" type="date" min="${escapeHtml(carrierRateToday)}" value="${escapeHtml(carrierRateToday)}" required />
+            </label>
+            <button class="primary compact-primary wide" type="submit" ${carrierRates.carriers.length ? '' : 'disabled'}>Zapisz wspólną stawkę</button>
+          </form>
+          ${commonRateHistory.length ? `<p class="muted">Ostatnie wartości: ${commonRateHistory.map((item) => `${Number(item.ratePerKm).toFixed(2).replace('.', ',')} PLN/km od ${escapeHtml(item.effectiveFrom)}`).join(' · ')}</p>` : '<p class="muted">Brak zapisanej historii — używana jest stawka domyślna 5,00 PLN/km.</p>'}
+          ${carrierRates.carriers.length ? '' : '<div class="warning">Dodaj najpierw co najmniej jednego przewoźnika.</div>'}
+        ` : `<div class="warning">Nie udało się odczytać tabeli stawek. ${escapeHtml(carrierRates.error || 'Sprawdź, czy migracja stawek została wdrożona.')}</div>`}
+      </section>
 
       <section class="admin-card users-card">
         <div class="section-heading">
@@ -743,6 +830,45 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       showAdminMessage(error.message, 'error')
       setAdminBusy(false)
       if (button) button.textContent = 'Wyślij zaproszenie'
+    }
+  })
+
+  document.querySelector('#common-carrier-rate-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    if (adminPanelBusy) return
+    const ratePerKm = Number(String(document.querySelector('#common-carrier-rate-value')?.value || '').replace(',', '.'))
+    const effectiveFrom = String(document.querySelector('#common-carrier-rate-date')?.value || '').slice(0, 10)
+    const carrierIds = (carrierRates.carriers || []).map((carrier) => String(carrier.id || '')).filter(Boolean)
+    if (!Number.isFinite(ratePerKm) || ratePerKm <= 0) {
+      showAdminMessage('Stawka za kilometr musi być większa od zera.', 'error')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) || effectiveFrom < carrierRateToday) {
+      showAdminMessage('Data obowiązywania nie może być wcześniejsza niż dzisiaj.', 'error')
+      return
+    }
+    if (!carrierIds.length) {
+      showAdminMessage('Brak aktywnych przewoźników, dla których można zapisać stawkę.', 'error')
+      return
+    }
+
+    setAdminBusy(true)
+    try {
+      for (let index = 0; index < carrierIds.length; index += 12) {
+        const batch = carrierIds.slice(index, index + 12)
+        const results = await Promise.all(batch.map((carrierId) => supabase.rpc('set_tms_carrier_rate', {
+          p_carrier_id: carrierId,
+          p_rate_per_km: ratePerKm,
+          p_effective_from: effectiveFrom,
+        })))
+        const failed = results.find((result) => result.error)
+        if (failed?.error) throw failed.error
+      }
+      adminCache.carrierRates = await loadAdminCarrierRateData()
+      renderAdminPanelFromCache(`Wspólna stawka ${ratePerKm.toFixed(2).replace('.', ',')} PLN/km została zapisana dla ${carrierIds.length} przewoźników.`)
+    } catch (error) {
+      showAdminMessage(error?.message || 'Nie udało się zapisać wspólnej stawki przewoźników.', 'error')
+      setAdminBusy(false)
     }
   })
 
@@ -3626,7 +3752,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v91-ai-client-import-shared-view"
+        src="/tms.html?embedded=1&build=request-workflow-v92-admin-rate-hidden-restore-ai-corrections"
         title="Top Dragon TMS"
       ></iframe>
     </main>
