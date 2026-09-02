@@ -2973,6 +2973,22 @@
       background: #e2e8f0;
     }
 
+    .route-order-word-preview {
+      min-height: 0;
+      flex: 1 1 auto;
+      display: grid;
+      place-items: center;
+      gap: 12px;
+      align-content: center;
+      padding: 28px;
+      background: #eef4ff;
+      color: #1e3a8a;
+      text-align: center;
+    }
+    .route-order-word-preview-icon { font-size: 54px; line-height: 1; }
+    .route-order-word-preview b { font-size: 15px; overflow-wrap: anywhere; }
+    .route-order-word-preview .small { max-width: 460px; line-height: 1.5; }
+
     .app.dark-mode .route-order-dropzone { background:#0f172a; color:#e2e8f0; border-color:#475569; }
     .app.dark-mode .route-order-dropzone.is-dragover { background:#172554; border-color:#60a5fa; }
     .app.dark-mode .route-order-dropzone.is-busy { background:#451a03; border-color:#f59e0b; }
@@ -2983,6 +2999,7 @@
     .app.dark-mode .route-order-extracted-copy { color:#fde68a; }
     .app.dark-mode .route-order-field { background:#422006; color:#fef3c7; border-color:#d97706; }
     .app.dark-mode .route-order-field.active { background:#854d0e; border-color:#facc15; }
+    .app.dark-mode .route-order-word-preview { background:#172554; color:#bfdbfe; }
 
     @media (max-width: 860px) {
       .side-panel.has-order-preview { overflow-y: auto; }
@@ -6376,13 +6393,14 @@
     .app.dark-mode .client-history-table td { border-color:#334155; }
 
     .dispatcher-filter-picker { position:relative;width:100%;min-width:0; }
-    .dispatcher-filter-trigger { width:100%;height:46px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;border:1px solid #94a3b8;border-radius:10px;background:#fff;color:#0f172a;font-weight:800;cursor:pointer; }
+    .dispatcher-filter-trigger { width:100%;height:38px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#0f172a;font-weight:800;cursor:pointer; }
     .dispatcher-filter-trigger::after { content:'▾';font-size:12px;color:#64748b; }
     .dispatcher-filter-menu { position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:1200;background:#fff;border:1px solid #cbd5e1;border-radius:11px;box-shadow:0 16px 38px rgba(15,23,42,.18);padding:6px;display:grid;gap:4px;max-height:310px;overflow:auto; }
     .dispatcher-filter-menu[hidden] { display:none!important; }
     .dispatcher-filter-option { width:100%;display:flex;align-items:center;justify-content:flex-start;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:left; }
     .dispatcher-filter-option:hover,.dispatcher-filter-option.active { background:#f1f5f9; }
     .app.dark-mode .dispatcher-filter-trigger,.app.dark-mode .dispatcher-filter-menu { background:#111827;color:#f8fafc;border-color:#475569; }
+    .commercial-rate-filters .input,.commercial-rate-filters .dispatcher-filter-trigger { height:38px;min-height:38px; }
     .app.dark-mode .dispatcher-filter-option:hover,.app.dark-mode .dispatcher-filter-option.active { background:#1e293b; }
     [data-rate-row][hidden], [data-commercial-search-empty][hidden] { display:none!important; }
 
@@ -67558,7 +67576,10 @@
     const POSTAL_EXACT_COORD_OVERRIDES = {
       // Dokładne nadpisania PNA, gdy baza wejściowa ma punkt zastępczy centrum miasta.
       // 00-011 Warszawa obejmuje rejon ul. Gabriela Piotra Boduena; bez override Google linkował punkt centrum miasta jako inny PNA.
+      "00-001": [52.231944, 21.006667],
       "00-011": [52.233884, 21.013091],
+      // Rejon Ursusa. Bazowy rekord 02-495 wskazywał środek Warszawy i dawał 0 km do 00-001.
+      "02-495": [52.1954, 20.8916],
       "02-716": [52.182663, 21.027565]
     };
 
@@ -67707,11 +67728,11 @@
       const lng = Number(parts[2]);
       const lat = Number(parts[3]);
       if (!/^\d{2}-\d{3}$/.test(code) || !city || !postalGeoCoordsWithinPolandBounds(lat, lng)) return null;
-      return {
+      return correctedPostalGeoRow({
         code, city, lat, lng, coords:[lat,lng], label:`${city} ${code}`,
         digits:code.replace(/\D/g,""), normCity:removePolishChars(city),
         normLabel:removePolishChars(`${city} ${code}`), exact:true
-      };
+      });
     }
 
     function postalPackedFastRows(query = "", maxResults = 1) {
@@ -67796,6 +67817,18 @@
       if (POSTAL_DIRECT_LOOKUP_CACHE.has(directKey)) return POSTAL_DIRECT_LOOKUP_CACHE.get(directKey);
       const postal = postalCodeFromText(raw);
       const baseCity = locationBaseCityFromText(raw);
+      const exactOverride = postalExactOverrideCoords(postal);
+      if (postal && exactOverride) {
+        const city = baseCity || ADDRESS_POSTAL_CODE_LOOKUP[postal] || "";
+        const row = {
+          code:postal, city, lat:exactOverride[0], lng:exactOverride[1], coords:[...exactOverride],
+          label:`${city} ${postal}`.trim(), digits:postal.replace(/\D/g,""),
+          normCity:removePolishChars(city), normLabel:removePolishChars(`${city} ${postal}`),
+          exact:true, generatedPostalCentroid:true, postalExactOverride:true
+        };
+        POSTAL_DIRECT_LOOKUP_CACHE.set(directKey, row);
+        return row;
+      }
       let rows = postalPackedFastRows(raw, 8);
       if (rows.length) {
         // Nawet „dokładna” para może oznaczać inną miejscowość o tej samej nazwie.
@@ -69655,7 +69688,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       pdfImportOpen: false,
       pdfImportFile: null,
       pdfImportFileName: "",
-      pdfImportStatus: "Wgraj PDF ze zleceniem, a następnie uruchom analizę. Po sprawdzeniu danych przeniesiesz je do formularza relacji.",
+      pdfImportStatus: "Wgraj PDF lub Word ze zleceniem, a następnie uruchom analizę. Po sprawdzeniu danych przeniesiesz je do formularza relacji.",
       pdfImportWarning: false,
       pdfImportData: null,
       textImportOpen: false,
@@ -72186,9 +72219,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         { key: "fleet-list", title: "Edycja i widoczność floty", text: "Spedytor może edytować i ukrywać własne pojazdy. Ukryty pojazd znika z planu i dopasowań, ale pozostaje na liście floty, skąd można go ponownie pokazać.", selector: '.fleet-list' },
       ];
       if (topic === "ai") return [
-        { key: "ai-open", title: "Otwórz AI", text: "Kliknij AI, aby zaimportować zlecenie z PDF albo przeanalizować tekst wiadomości klienta.", selector: 'button.btn-ai-home', clickAdvance: true },
+          { key: "ai-open", title: "Otwórz AI", text: "Kliknij AI, aby zaimportować zlecenie z PDF lub Word albo przeanalizować tekst wiadomości klienta.", selector: 'button.btn-ai-home', clickAdvance: true },
         { key: "ai-target", title: "Wybierz miejsce docelowe", text: "Określ, czy przygotowana relacja ma trafić do Planowanych relacji, czy do Wolnych ładunków.", selector: '.pdf-import-modal .ai-import-target' },
-        { key: "ai-source", title: "PDF lub wiadomość", text: "Wybierz plik PDF albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem — zawsze zweryfikuj wynik.", selector: '.pdf-import-modal .ai-import-source-grid' },
+          { key: "ai-source", title: "PDF, Word lub wiadomość", text: "Wybierz plik PDF lub Word albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem — zawsze zweryfikuj wynik.", selector: '.pdf-import-modal .ai-import-source-grid' },
       ];
       if (topic === "assistant") return [
         { key: "assistant-main", title: "Asystent spedytora", text: "Ten moduł łączy historię relacji, wyszukiwanie klientów w rejonie, zapytania o ładunek oraz zarządzanie flotą.", selector: '#commercial-intelligence' },
@@ -73554,7 +73587,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function clientCoords(client) {
       const lat = Number(client?.lat);
       const lng = Number(client?.lng);
-      return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+      const stored = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) > 0 && Math.abs(lng) > 0
+        ? [lat, lng]
+        : null;
+      const address = String(client?.address || "").trim();
+      if (client?.approximate && postalCodeFromText(address)) {
+        const resolved = postalGeoCoordsFromText(address)?.coords;
+        if (Array.isArray(resolved) && resolved.every(Number.isFinite)) {
+          const corrected = [Number(resolved[0]), Number(resolved[1])];
+          if (!stored || distanceKmBetweenCoords(stored, corrected) > 0.35) return corrected;
+        }
+      }
+      return stored;
     }
 
 
@@ -73681,7 +73725,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="client-alert-list">
             ${alerts.slice(0, 8).map(item => `
               <div class="client-alert-item">
-                <div><b>${esc(item.driver.driver)}</b><div class="small">${esc(item.driver.dispatcher)} · ${esc(item.position.label || "pozycja pojazdu")}</div></div>
+                <div><b>${esc(item.driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> · ${esc(item.position.label || "pozycja pojazdu")}</div></div>
                 <div><div class="client-owner-inline">${clientNameLink(item.client)}</div><div class="small">${esc(item.client.address)}</div></div>
                 <div class="client-alert-distance">ok. ${Math.round(item.distanceKm)} km</div>
               </div>
@@ -75335,7 +75379,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <span class="nearest-rank">${index + 1}</span>
                   <div>
                     <b>${esc(item.driver.driver)}</b>
-                    <div class="small">${esc(item.driver.dispatcher)} · ${esc(item.driver.carrier)} · naczepa ${driverTrailerHeight(item.driver).toFixed(2)} m · ${esc(driverNationality(item.driver))}</div>
+                    <div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> · ${esc(item.driver.carrier)} · naczepa ${driverTrailerHeight(item.driver).toFixed(2)} m · ${esc(driverNationality(item.driver))}</div>
                     ${renderCompatibilityMini(item.driver, { loadHeightM: state.nearestLoadHeight, requirePolishDriver: state.nearestRequirePolishDriver })}
                     <div class="small">Najbliższa znana pozycja: ${esc(item.positionLabel)}</div>
                     <div class="availability-line">
@@ -77200,7 +77244,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function confirmFutureRouteDistribution(route, targetDriver = null) {
       const label = `${displayLocationWithPostal(route.load) || "—"} → ${displayLocationWithPostal(route.unload) || "—"}`;
-      const target = targetDriver ? `${esc(targetDriver.driver)} · ${esc(targetDriver.carrier)} · ${esc(targetDriver.dispatcher)}` : "—";
+      const target = targetDriver ? `${esc(targetDriver.driver)} · ${esc(targetDriver.carrier)} · <span class="dispatcher-map-badge ${dispatcherBadgeClass(targetDriver.dispatcher)}">${esc(targetDriver.dispatcher)}</span>` : "—";
       return showStyledConfirm({
         title: "Oddać relację na tablicę?",
         text: "Relacja zostanie przeniesiona z zakładki „Planowane relacje” na plan wybranego kierowcy.",
@@ -77693,16 +77737,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return { ...pdfImportDefaults(), ...(state.pdfImportData || {}) };
     }
 
+    function orderDocumentFileType(file) {
+      if (!(file instanceof Blob)) return "";
+      const name = String(file.name || "").toLowerCase();
+      const mime = String(file.type || "").toLowerCase();
+      if (mime === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+      if (mime === "application/msword" || /\.doc$/i.test(name)) return "doc";
+      if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(name)) return "docx";
+      return "";
+    }
+
     function renderPdfImportModal() {
       const target = state.aiImportTarget === "proposed" ? "proposed" : "future";
       const aiBusy = Boolean(state.aiAnalyzerBusyKind);
-      const pdfBusy = state.aiAnalyzerBusyKind === "pdf";
+      const documentBusy = state.aiAnalyzerBusyKind === "document";
       const textBusy = state.aiAnalyzerBusyKind === "text";
       return `
         <div class="pdf-import-backdrop" onclick="closePdfImportOnBackdrop(event)">
           <section class="pdf-import-modal" onclick="event.stopPropagation()" aria-label="Asystent AI relacji">
             <div class="pdf-import-head">
-              <div><h2>AI</h2><div class="small">Importuj zlecenie albo przeanalizuj wiadomość klienta.</div></div>
+              <div><h2>AI</h2><div class="small">Importuj zlecenie PDF lub Word albo przeanalizuj wiadomość klienta.</div></div>
               <button class="btn" type="button" onclick="closePdfImport()">Zamknij</button>
             </div>
             <div class="pdf-import-body">
@@ -77713,10 +77767,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="ai-import-source-grid">
                 <section class="ai-import-source-card">
                   <h3>Import zlecenia</h3>
-                  <input id="pdf-import-file" type="file" accept="application/pdf,.pdf" hidden onchange="handlePdfImportFileChange(event)" />
+                  <input id="pdf-import-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx" hidden onchange="handlePdfImportFileChange(event)" />
                   <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
-                  <div class="pdf-import-status ${state.pdfImportWarning ? "warning" : ""}">${esc(state.pdfImportStatus || "Wybierz plik PDF ze zleceniem.")}</div>
-                  ${state.pdfImportFileName ? `<button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${pdfBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
+                  <div class="pdf-import-status ${state.pdfImportWarning ? "warning" : ""}">${esc(state.pdfImportStatus || "Wybierz plik PDF, DOC lub DOCX ze zleceniem.")}</div>
+                  ${state.pdfImportFileName ? `<button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${documentBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
                 </section>
                 <section class="ai-import-source-card">
                   <h3>Wiadomość od klienta</h3>
@@ -77753,7 +77807,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.pdfImportData) state.pdfImportData = pdfImportDefaults();
       state.pdfImportStatus = state.pdfImportFileName
         ? `Plik ${state.pdfImportFileName} jest gotowy do analizy.`
-        : "Wgraj PDF ze zleceniem, a następnie uruchom analizę.";
+        : "Wgraj PDF lub Word ze zleceniem, a następnie uruchom analizę.";
       state.pdfImportWarning = false;
       syncPdfImportUi();
     }
@@ -77772,19 +77826,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.pdfImportFile = null;
       state.pdfImportFileName = "";
       state.pdfImportData = pdfImportDefaults();
-      state.pdfImportStatus = "Wgraj PDF ze zleceniem, a następnie uruchom analizę.";
+      state.pdfImportStatus = "Wgraj PDF lub Word ze zleceniem, a następnie uruchom analizę.";
       state.pdfImportWarning = false;
       syncPdfImportUi();
     }
 
     function handlePdfImportFileChange(event) {
       const file = event?.target?.files?.[0] || null;
-      state.pdfImportFile = file;
-      state.pdfImportFileName = file?.name || "";
-      state.pdfImportStatus = file
+      const valid = orderDocumentFileType(file) !== "";
+      state.pdfImportFile = valid ? file : null;
+      state.pdfImportFileName = valid ? (file?.name || "") : "";
+      state.pdfImportStatus = valid
         ? `Plik ${file.name} został wgrany. Kliknij „Analizuj zlecenie”.`
-        : "Nie wybrano pliku PDF.";
-      state.pdfImportWarning = false;
+        : file
+          ? "Nieprawidłowy format. Wybierz zlecenie PDF, DOC lub DOCX."
+          : "Nie wybrano pliku.";
+      state.pdfImportWarning = Boolean(file && !valid);
       syncPdfImportUi();
     }
 
@@ -77848,7 +77905,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     async function analyzePdfOrder() {
       savePdfImportFormToState();
       if (!state.pdfImportFile) {
-        state.pdfImportStatus = "Najpierw wybierz plik PDF ze zleceniem.";
+        state.pdfImportStatus = "Najpierw wybierz plik PDF, DOC lub DOCX ze zleceniem.";
         state.pdfImportWarning = true;
         syncPdfImportUi();
         return;
@@ -77862,13 +77919,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (state.aiAnalyzerBusyKind) return;
 
-      state.pdfImportStatus = "Analizuję PDF przez AI…";
+      state.pdfImportStatus = "Analizuję dokument przez AI…";
       state.pdfImportWarning = false;
-      setAiAnalyzerBusy("pdf");
+      setAiAnalyzerBusy("document");
       const clientStartedAt = performance.now();
 
       try {
-        const payload = await requestAiAnalyzer("pdf", {
+        const payload = await requestAiAnalyzer("document", {
           file: state.pdfImportFile,
           fileName: state.pdfImportFileName || "zlecenie.pdf",
           referenceDate: state.reportDate || currentAppDate()
@@ -77883,7 +77940,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.pdfImportWarning = false;
         applyPdfImportToRouteForm();
       } catch (error) {
-        state.pdfImportStatus = `Nie udało się przeanalizować PDF: ${error?.message || error}.`;
+        state.pdfImportStatus = `Nie udało się przeanalizować dokumentu: ${error?.message || error}.`;
         state.pdfImportWarning = true;
       } finally {
         setAiAnalyzerBusy("");
@@ -77925,7 +77982,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           data.notes,
           data.reminders
         ].filter(Boolean).join("\n"),
-        client: data.client || "Zlecenie z PDF",
+        client: data.client || "Zlecenie z dokumentu",
         rate: (!data.currency || data.currency === "PLN") ? Number(data.rate || 0) : 0,
         visibilityScope: targetProposed ? "all" : "branch"
       };
@@ -78572,7 +78629,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="stats-drawer-head">
             <div>
               <h2>Statystyki</h2>
-              <div class="hint">Zakres: ${esc(dayLabelText)} · ${esc(stats.selectedDispatcherName)}. Dane liczone z planu kierowców i statusów rozliczeń.</div>
+              <div class="hint">Zakres: ${esc(dayLabelText)} · ${stats.selectedDispatcher === "all" ? esc(stats.selectedDispatcherName) : `<span class="dispatcher-map-badge ${dispatcherBadgeClass(stats.selectedDispatcher)}">${esc(stats.selectedDispatcherName)}</span>`}. Dane liczone z planu kierowców i statusów rozliczeń.</div>
             </div>
             <button class="btn" type="button" onclick="toggleStatsPanel(false)">Zamknij</button>
           </div>
@@ -80359,7 +80416,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderMapVehiclePopupRow(point) {
-      const dispatcherClass = DISPATCHER_CLASS[point.dispatcher] || "";
+      const dispatcherClass = dispatcherBadgeClass(point.dispatcher || "");
       const statusClass = point.statusKey === "has-next" ? "has-next" : point.statusKey === "waiting" ? "waiting-next" : "no-next";
 
       return `
@@ -81074,7 +81131,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rows = Array.isArray(search.rows) ? search.rows : [];
       const login = String(state.user?.login || "").toUpperCase();
       const body = search.status === "loading"
-        ? `<div class="route-context-empty">Liczymy trasy drogowe dla pojazdu kat. C do 150 km…</div>`
+        ? `<div class="route-context-empty">Wczytywanie</div>`
         : search.status === "error"
           ? `<div class="route-context-empty">${esc(search.error || "Nie udało się wyznaczyć odległości po drogach.")}<br><button type="button" onclick="loadTruckQuickClients(state.routes.find(item=>item.id==='${attr(route.id)}'))">Spróbuj ponownie</button></div>`
           : rows.length ? `
@@ -81311,9 +81368,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ondragover="routeOrderDragOver(event,'${attr(route.id)}')"
         ondragleave="routeOrderDragLeave(event)"
         ondrop="routeOrderDrop(event,'${attr(route.id)}')">
-        <input id="route-order-file-${attr(route.id)}" type="file" accept="application/pdf,.pdf" hidden onchange="routeOrderFileSelected(event,'${attr(route.id)}')" />
+        <input id="route-order-file-${attr(route.id)}" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx" hidden onchange="routeOrderFileSelected(event,'${attr(route.id)}')" />
         <div class="route-order-dropzone-head">
-          <b>${busy ? "AI analizuje zlecenie…" : entry?.fileName ? esc(entry.fileName) : "Upuść tutaj zlecenie PDF"}</b>
+          <b>${busy ? "AI analizuje zlecenie…" : entry?.fileName ? esc(entry.fileName) : "Upuść tutaj zlecenie PDF lub Word"}</b>
           <button class="btn btn-ai-action" type="button" ${busy ? "disabled" : ""} onclick="event.stopPropagation();document.getElementById('route-order-file-${attr(route.id)}')?.click()">${entry?.fileName ? "Zmień plik" : "Wybierz plik"}</button>
         </div>
         <div class="route-order-dropzone-copy">Po upuszczeniu AI automatycznie uzupełni rozpoznane dane tej relacji. Oryginalny dokument pozostanie obok do weryfikacji.</div>
@@ -81330,22 +81387,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderRouteOrderVerification(routeId, entry) {
       if (!entry?.previewUrl) return "";
       const fields = Array.isArray(entry.fields) ? entry.fields : [];
+      const documentType = String(entry.documentType || orderDocumentFileType(entry.file) || "pdf");
+      const isPdf = documentType === "pdf";
       return `<section class="route-order-verification" aria-label="Weryfikacja zlecenia">
         <div class="route-order-verification-head">
           <div><h3>Oryginalne zlecenie</h3><div class="small">${esc(entry.fileName || "zlecenie.pdf")}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
             ${entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
-            <a class="btn" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz PDF</a>
+            <a class="btn" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz dokument</a>
             <button class="btn" type="button" onclick="clearRouteOrderImport('${attr(routeId)}')">Usuń podgląd</button>
           </div>
         </div>
         <div class="route-order-extracted">
-          <div class="route-order-extracted-copy">Żółte pola to dane pobrane przez AI. Kliknij wartość, aby wyszukać ją w oryginalnym PDF.</div>
+          <div class="route-order-extracted-copy">Żółte pola to dane pobrane przez AI.${isPdf ? " Kliknij wartość, aby wyszukać ją w oryginalnym PDF." : " Porównaj je z otwartym dokumentem Word."}</div>
           <div class="route-order-field-list">
             ${fields.length ? fields.map((field, index) => `<button class="route-order-field ${Number(entry.activeField || 0) === index ? "active" : ""}" type="button" onclick="focusRouteOrderField('${attr(routeId)}',${index})"><b>${esc(field.label)}</b>${esc(field.value)}</button>`).join("") : `<span class="small">AI nie wskazało jeszcze żadnych danych.</span>`}
           </div>
         </div>
-        <iframe class="route-order-document" data-route-order-document="${attr(routeId)}" src="${attr(routeOrderPdfUrl(entry))}" title="Podgląd oryginalnego zlecenia PDF"></iframe>
+        ${isPdf
+          ? `<iframe class="route-order-document" data-route-order-document="${attr(routeId)}" src="${attr(routeOrderPdfUrl(entry))}" title="Podgląd oryginalnego zlecenia PDF"></iframe>`
+          : `<div class="route-order-word-preview"><div class="route-order-word-preview-icon" aria-hidden="true">W</div><b>${esc(entry.fileName || "zlecenie.docx")}</b><div class="small">Przeglądarka nie wyświetla dokumentów Word bezpośrednio. Użyj przycisku „Otwórz dokument”, a żółte pola obok pokazują wszystkie wartości rozpoznane przez AI.</div><a class="btn btn-ai-action" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz dokument Word</a></div>`}
       </section>`;
     }
 
@@ -81389,9 +81450,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         showAppMessage("Brak uprawnień", "Zlecenie może importować spedytor, który może edytować tę relację.", "error");
         return;
       }
-      const isPdf = file instanceof Blob && (String(file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(String(file.name || "")));
-      if (!isPdf) {
-        showAppMessage("Nieprawidłowy plik", "Upuść zlecenie zapisane jako PDF.", "error");
+      const documentType = orderDocumentFileType(file);
+      if (!documentType) {
+        showAppMessage("Nieprawidłowy plik", "Upuść zlecenie zapisane jako PDF, DOC lub DOCX.", "error");
         return;
       }
       if (!EMBEDDED_MODE) {
@@ -81403,7 +81464,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl);
       const entry = {
         file,
-        fileName: String(file.name || "zlecenie.pdf"),
+        fileName: String(file.name || `zlecenie.${documentType}`),
+        documentType,
         previewUrl: URL.createObjectURL(file),
         fields: [],
         activeField: 0,
@@ -81415,7 +81477,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncDetailsPanel();
       const startedAt = performance.now();
       try {
-        const payload = await requestAiAnalyzer("pdf", {
+        const payload = await requestAiAnalyzer("document", {
           file,
           fileName: entry.fileName,
           referenceDate: route.date || state.reportDate || currentAppDate()
@@ -81451,6 +81513,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!entry?.previewUrl || !entry.fields?.[index]) return;
       entry.activeField = Number(index) || 0;
       document.querySelectorAll(".route-order-field").forEach((button, buttonIndex) => button.classList.toggle("active", buttonIndex === entry.activeField));
+      if (String(entry.documentType || "pdf") !== "pdf") return;
       const frame = document.querySelector(`[data-route-order-document="${CSS.escape(String(routeId))}"]`);
       if (frame) frame.src = routeOrderPdfUrl(entry);
     }
@@ -81506,13 +81569,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <section class="section">
               <div class="field-label" style="margin-top:0;">Kierowca</div>
               <b>${esc(driver.driver)}</b>
-              <div class="small">${esc(driver.dispatcher)} · ${esc(driver.carrier)} · ${esc(driver.phone)}</div>
+              <div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.carrier)} · ${esc(driver.phone)}</div>
             </section>
 
             ${route.approvalStatus === "pending" ? `
               <section class="section" style="background:#fffbeb;border-color:#f59e0b;">
                 <b>Relacja oczekuje na akceptację</b>
-                <div class="small" style="color:#92400e;margin-top:5px;">Dodał: <b>${esc(route.createdBy)}</b>. Właściciel pojazdu: <b>${esc(route.ownerDispatcher)}</b>.</div>
+                <div class="small" style="color:#92400e;margin-top:5px;">Dodał: <span class="dispatcher-map-badge ${dispatcherBadgeClass(route.createdBy)}">${esc(route.createdBy)}</span>. Właściciel pojazdu: <span class="dispatcher-map-badge ${dispatcherBadgeClass(route.ownerDispatcher)}">${esc(route.ownerDispatcher)}</span>.</div>
                 ${canAccept ? `
                   <div style="display:flex;gap:8px;margin-top:10px;">
                     <button class="btn btn-green" onclick="approveRoute('${attr(route.id)}')">Akceptuj</button>
@@ -81706,7 +81769,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="modal-body">
               ${!proposedMode && !futureMode ? `
                 <label class="field-label" style="margin-top:0;">Kierowca</label>
-                <div class="readonly-box">${(() => { const d = driverById(prefill.driverId); return d ? `${esc(d.dispatcher)} · ${esc(d.driver)} · ${esc(d.carrier)}` : "Kierowca z klikniętej komórki"; })()}</div>
+                <div class="readonly-box">${(() => { const d = driverById(prefill.driverId); return d ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(d.dispatcher)}">${esc(d.dispatcher)}</span> · ${esc(d.driver)} · ${esc(d.carrier)}` : "Kierowca z klikniętej komórki"; })()}</div>
               ` : ""}
 
               <label class="field-label">Data relacji</label>
@@ -83471,7 +83534,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const resolvedCoords = resolvedPostal?.coords;
         if (Array.isArray(resolvedCoords) && resolvedCoords.every(Number.isFinite)) {
           const offsetKm = distanceKmBetweenCoords([point.lat, point.lng], resolvedCoords);
-          if (Number.isFinite(offsetKm) && offsetKm > OPERATIONAL_CANONICAL_CITY_MAX_OFFSET_KM) {
+          const explicitAddress = String(route?.[config.addressKey] || "").trim();
+          const location = String(route?.[config.locationKey] || "").trim();
+          const normalizeAddressParts = value => removePolishChars(value).split(/\s+/).filter(Boolean).sort().join(" ");
+          const hasDetailedAddress = Boolean(explicitAddress && normalizeAddressParts(explicitAddress) !== normalizeAddressParts(location));
+          const storedLooksLikeCityCenter = postalGeoLooksLikeCityCenter({
+            city: locationBaseCityFromText(rawLocation),
+            lat: point.lat,
+            lng: point.lng
+          });
+          const shouldRepairGeneratedPostalPoint = !hasDetailedAddress && storedLooksLikeCityCenter && offsetKm > 0.35;
+          const shouldRepairObviousMismatch = offsetKm > OPERATIONAL_CANONICAL_CITY_MAX_OFFSET_KM;
+          if (Number.isFinite(offsetKm) && (shouldRepairGeneratedPostalPoint || shouldRepairObviousMismatch)) {
             return {
               lat: Number(resolvedCoords[0]),
               lng: Number(resolvedCoords[1]),
@@ -90670,7 +90744,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const rows = [...(state.workflowClientAssignments || [])]
           .sort((a,b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")))
           .slice(0, 20);
-        return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3><div class="small">Przypisania opiekunów klientów. Status jest widoczny również po decyzji kierownika.</div></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => { const status=String(item.status || "pending"); return `<div class="workflow-row"><div><b>${esc(item.clientName || item.clientRef)}</b><div class="small">Wniosek: ${esc(item.requestedByName || "—")}</div></div><div><span class="workflow-status ${attr(status)}">${esc(workflowStatusLabel(status))}</span><div class="small" style="margin-top:4px;">Opiekun: <b>${esc(item.requestedDispatcherName || "—")}</b></div></div><div class="workflow-actions">${status === "pending" ? (workflowCanApproveClients() ? `<button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','accepted')">Zatwierdź</button><button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','rejected')">Odrzuć</button>` : `<span class="small">Oczekuje na kierownika</span>`) : `<span class="small">${item.respondedAt ? esc(new Date(item.respondedAt).toLocaleString("pl-PL")) : ""}</span>`}</div></div>`; }).join("")}</div>` : `<div class="small">Brak wniosków o przypisanie opiekuna.</div>`}</div>`;
+        return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3><div class="small">Przypisania opiekunów klientów. Status jest widoczny również po decyzji kierownika.</div></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => { const status=String(item.status || "pending"); const dispatcherName=String(item.requestedDispatcherName || "").trim(); return `<div class="workflow-row"><div><b>${esc(item.clientName || item.clientRef)}</b><div class="small">Wniosek: ${esc(item.requestedByName || "—")}</div></div><div><span class="workflow-status ${attr(status)}">${esc(workflowStatusLabel(status))}</span><div class="small" style="margin-top:4px;">Opiekun: ${dispatcherName ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcherName)}">${esc(dispatcherName)}</span>` : "—"}</div></div><div class="workflow-actions">${status === "pending" ? (workflowCanApproveClients() ? `<button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','accepted')">Zatwierdź</button><button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','rejected')">Odrzuć</button>` : `<span class="small">Oczekuje na kierownika</span>`) : `<span class="small">${item.respondedAt ? esc(new Date(item.respondedAt).toLocaleString("pl-PL")) : ""}</span>`}</div></div>`; }).join("")}</div>` : `<div class="small">Brak wniosków o przypisanie opiekuna.</div>`}</div>`;
       }
 
       const originalRenderClientDatabase3L31 = renderClientDatabase;
@@ -90687,7 +90761,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (meta < 0) return;
           const end = html.indexOf('</div>', meta + needle.length);
           if (end < 0) return;
-          html = html.slice(0,end+6) + `<div class="client-row-assignment"><span class="workflow-status pending">Do akceptacji</span> → ${esc(pending.requestedDispatcherName || "—")}</div>` + html.slice(end+6);
+          html = html.slice(0,end+6) + `<div class="client-row-assignment"><span class="workflow-status pending">Do akceptacji</span> → <span class="dispatcher-map-badge ${dispatcherBadgeClass(pending.requestedDispatcherName || "")}">${esc(pending.requestedDispatcherName || "—")}</span></div>` + html.slice(end+6);
         });
         return html;
       };
@@ -90809,9 +90883,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const incoming = pending.toDispatcherId === state.user.supabaseId;
           if (incoming) {
             const myDrivers = operationalDrivers().filter(driver => driver.dispatcher === state.user.login);
-            return `<section class="section relation-transfer-box"><b>Transfer relacji do Ciebie</b><div class="small">${esc(pending.fromDispatcherName || "Spedytor")} przekazuje: ${esc(pending.relationLabel || `${route.load} → ${route.unload}`)}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div><div class="relation-transfer-accept"><select id="relation-transfer-driver-${attr(route.id)}" class="select"><option value="">— wybierz własny pojazd —</option>${myDrivers.map(driver => `<option value="${attr(driver.dbAssignmentId || driver.id)}">${esc(driver.driver)} · ${esc(driver.carrier)} · ${esc(driver.tractorReg || "—")}</option>`).join("")}</select><button class="btn btn-green" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','accepted')">Akceptuj</button><button class="btn btn-red" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','rejected')">Odrzuć</button></div></section>`;
+            return `<section class="section relation-transfer-box"><b>Transfer relacji do Ciebie</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(pending.fromDispatcherName || "")}">${esc(pending.fromDispatcherName || "Spedytor")}</span> przekazuje: ${esc(pending.relationLabel || `${route.load} → ${route.unload}`)}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div><div class="relation-transfer-accept"><select id="relation-transfer-driver-${attr(route.id)}" class="select"><option value="">— wybierz własny pojazd —</option>${myDrivers.map(driver => `<option value="${attr(driver.dbAssignmentId || driver.id)}">${esc(driver.driver)} · ${esc(driver.carrier)} · ${esc(driver.tractorReg || "—")}</option>`).join("")}</select><button class="btn btn-green" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','accepted')">Akceptuj</button><button class="btn btn-red" onclick="respondRelationTransfer('${attr(pending.id)}','${attr(route.id)}','rejected')">Odrzuć</button></div></section>`;
           }
-          return `<section class="section relation-transfer-box"><b>Transfer oczekuje na akceptację</b><div class="small">Odbiorca: ${esc(pending.toDispatcherName || "—")}${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div></section>`;
+          return `<section class="section relation-transfer-box"><b>Transfer oczekuje na akceptację</b><div class="small">Odbiorca: <span class="dispatcher-map-badge ${dispatcherBadgeClass(pending.toDispatcherName || "")}">${esc(pending.toDispatcherName || "—")}</span>${pending.comment ? ` · ${esc(pending.comment)}` : ""}</div></section>`;
         }
         return "";
       }
