@@ -638,7 +638,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         <div class="section-heading">
           <div>
             <h2>Wspólna stawka przewoźników</h2>
-            <p class="muted">Jedna stawka PLN/km obowiązuje wszystkich aktywnych przewoźników. Zapis ujednolici ją dla ${carrierRates.carriers.length} ${carrierRates.carriers.length === 1 ? 'przewoźnika' : 'przewoźników'} i nie zmieni kosztów już zapisanych relacji.</p>
           </div>
           <span class="count-pill">${commonCarrierRateValue.toFixed(2).replace('.', ',')} PLN/km</span>
         </div>
@@ -650,7 +649,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
             <label>Obowiązuje od
               <input id="common-carrier-rate-date" type="date" min="${escapeHtml(carrierRateToday)}" value="${escapeHtml(carrierRateToday)}" required />
             </label>
-            <button class="primary compact-primary wide" type="submit" ${carrierRates.carriers.length ? '' : 'disabled'}>Zapisz wspólną stawkę</button>
+            <button class="primary compact-primary wide" type="submit" ${carrierRates.carriers.length ? '' : 'disabled'}>Zapisz</button>
           </form>
           ${commonRateHistory.length ? `<p class="muted">Ostatnie wartości: ${commonRateHistory.map((item) => `${Number(item.ratePerKm).toFixed(2).replace('.', ',')} PLN/km od ${escapeHtml(item.effectiveFrom)}`).join(' · ')}</p>` : '<p class="muted">Brak zapisanej historii — używana jest stawka domyślna 5,00 PLN/km.</p>'}
           ${carrierRates.carriers.length ? '' : '<div class="warning">Dodaj najpierw co najmniej jednego przewoźnika.</div>'}
@@ -3587,7 +3586,7 @@ async function handleAiAnalyzerRequestFromTms(message) {
     if (kind === 'admin-import' && !isActualAdmin()) {
       throw new Error('Import administracyjny AI jest dostępny wyłącznie dla administratora.')
     }
-    if (['pdf', 'text'].includes(kind) && !hasRole('dispatcher', 'admin')) {
+    if (['document', 'pdf', 'text'].includes(kind) && !hasRole('dispatcher', 'admin')) {
       throw new Error('Analiza zleceń AI jest dostępna wyłącznie dla spedytora.')
     }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
@@ -3598,11 +3597,11 @@ async function handleAiAnalyzerRequestFromTms(message) {
     const payload = message?.payload && typeof message.payload === 'object' ? message.payload : {}
     let response
 
-    if (kind === 'pdf') {
+    if (kind === 'document' || kind === 'pdf') {
       const file = payload.file
-      if (!(file instanceof Blob)) throw new Error('Nie przekazano prawidłowego pliku PDF.')
+      if (!(file instanceof Blob)) throw new Error('Nie przekazano prawidłowego pliku zlecenia.')
       const fileName = String(payload.fileName || file.name || 'zlecenie.pdf')
-      response = await fetch('/api/import-pdf', {
+      response = await fetch('/api/import-order-document', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -3717,22 +3716,19 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
 
 function renderAdminPreviewBar() {
   if (!isActualAdmin()) return ''
-  const activeLabel = adminPreview
-    ? `Aktywny podgląd funkcji: ${roleLabel(adminPreview.role)}`
-    : 'Aktywny kontekst: Administrator'
   return `
     <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
-      <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong><div class="muted" style="font-size:12px;">${escapeHtml(activeLabel)}. Podgląd nie wybiera ani nie zastępuje konkretnego pracownika; konto administratora i token pozostają bez zmian.</div></div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;">Kategoria
-        <select id="admin-preview-role" style="min-width:170px;height:40px;padding:0 38px 0 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
+      <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;line-height:1;">Kategoria
+        <select id="admin-preview-role" style="box-sizing:border-box;min-width:220px;height:44px;margin:0;padding:0 38px 0 14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
           <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
           <option value="accounting" ${adminPreview?.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
           <option value="dispatcher" ${adminPreview?.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
           <option value="branch_manager" ${adminPreview?.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
         </select>
       </label>
-      <button id="admin-preview-apply" type="button" class="primary compact-primary">Pokaż funkcje</button>
-      ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary">Wróć do Administratora</button>' : ''}
+      <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;padding:0 18px;align-self:center;">Pokaż funkcje</button>
+      ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;align-self:center;">Wróć do Administratora</button>' : ''}
     </section>
   `
 }
@@ -3839,7 +3835,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v94-route-order-drop-verification"
+        src="/tms.html?embedded=1&build=request-workflow-v96-admin-postal-distance-state"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4269,14 +4265,13 @@ async function bootstrap() {
     // odtwarzać iframe TMS, ponieważ wyczyściłoby to bieżący stan planu.
     if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return
 
-    const sameUserDashboardIsActive = Boolean(
+    const sameUserSessionIsActive = Boolean(
       event === 'SIGNED_IN' &&
       session?.user?.id &&
-      currentUser?.id === session.user.id &&
-      activeTmsFrame?.isConnected
+      currentUser?.id === session.user.id
     )
 
-    if (sameUserDashboardIsActive) return
+    if (sameUserSessionIsActive) return
 
     Promise.resolve(routeSession(session)).catch(renderFatalError)
   })
