@@ -2790,6 +2790,49 @@
       transition: transform 0.2s ease;
     }
 
+    .side-panel.has-order-preview {
+      width: min(1120px, 100vw);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .details-workspace.has-order-preview {
+      min-height: 0;
+      flex: 1 1 auto;
+      display: grid;
+      grid-template-columns: minmax(380px, 460px) minmax(420px, 1fr);
+    }
+
+    .side-panel.has-order-preview .panel-body {
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .side-panel.is-dragover::after {
+      content: "Upuść zlecenie PDF — AI rozpocznie analizę";
+      position: absolute;
+      inset: 12px;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      border: 3px dashed #2563eb;
+      border-radius: 18px;
+      background: rgba(239, 246, 255, .94);
+      color: #1d4ed8;
+      font-size: 16px;
+      font-weight: 950;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .app.dark-mode .side-panel.is-dragover::after {
+      background: rgba(23, 37, 84, .95);
+      color: #bfdbfe;
+      border-color: #60a5fa;
+    }
+
     .leaflet-container {
       z-index: 1;
     }
@@ -2816,6 +2859,137 @@
     }
 
     .panel-body { padding: 12px; }
+
+    .route-order-dropzone {
+      border: 2px dashed #94a3b8;
+      border-radius: 14px;
+      padding: 12px;
+      background: #f8fafc;
+      color: #334155;
+      transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+
+    .route-order-dropzone.is-dragover {
+      border-color: #2563eb;
+      background: #eff6ff;
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
+    }
+
+    .route-order-dropzone.is-busy {
+      border-style: solid;
+      border-color: #f59e0b;
+      background: #fffbeb;
+    }
+
+    .route-order-dropzone-head,
+    .route-order-status-line,
+    .route-order-verification-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 9px;
+    }
+
+    .route-order-dropzone-copy {
+      margin-top: 5px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #64748b;
+    }
+
+    .route-order-status-line {
+      margin-top: 8px;
+      justify-content: flex-start;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .route-order-status-line.warning { color: #b45309; }
+    .route-order-spinner {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 auto;
+      border: 2px solid #fde68a;
+      border-top-color: #d97706;
+      border-radius: 999px;
+      animation: route-order-spin .7s linear infinite;
+    }
+    @keyframes route-order-spin { to { transform: rotate(360deg); } }
+
+    .route-order-verification {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .route-order-verification-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+      align-items: flex-start;
+    }
+
+    .route-order-verification-head h3 { margin: 0; font-size: 15px; }
+    .route-order-verification-head .small { overflow-wrap: anywhere; }
+
+    .route-order-extracted {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: #fffdf0;
+    }
+
+    .route-order-extracted-copy {
+      margin-bottom: 7px;
+      color: #713f12;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .route-order-field-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .route-order-field {
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: #fef3c7;
+      color: #78350f;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      font-size: 10px;
+      line-height: 1.25;
+    }
+    .route-order-field b { display: block; margin-bottom: 2px; font-size: 9px; text-transform: uppercase; letter-spacing: .03em; }
+    .route-order-field.active { background: #fde047; border-color: #ca8a04; box-shadow: 0 0 0 2px rgba(202,138,4,.18); }
+
+    .route-order-document {
+      min-height: 0;
+      flex: 1 1 auto;
+      width: 100%;
+      border: 0;
+      background: #e2e8f0;
+    }
+
+    .app.dark-mode .route-order-dropzone { background:#0f172a; color:#e2e8f0; border-color:#475569; }
+    .app.dark-mode .route-order-dropzone.is-dragover { background:#172554; border-color:#60a5fa; }
+    .app.dark-mode .route-order-dropzone.is-busy { background:#451a03; border-color:#f59e0b; }
+    .app.dark-mode .route-order-dropzone-copy { color:#94a3b8; }
+    .app.dark-mode .route-order-verification { background:#0f172a; }
+    .app.dark-mode .route-order-verification-head { background:#111827; }
+    .app.dark-mode .route-order-extracted { background:#29230b; }
+    .app.dark-mode .route-order-extracted-copy { color:#fde68a; }
+    .app.dark-mode .route-order-field { background:#422006; color:#fef3c7; border-color:#d97706; }
+    .app.dark-mode .route-order-field.active { background:#854d0e; border-color:#facc15; }
+
+    @media (max-width: 860px) {
+      .side-panel.has-order-preview { overflow-y: auto; }
+      .details-workspace.has-order-preview { display: block; }
+      .side-panel.has-order-preview .panel-body { overflow: visible; }
+      .route-order-verification { min-height: 72vh; border-left: 0; border-top: 1px solid var(--border); }
+    }
 
     /* MODUŁ: domyślnie zwinięte elementy szczegółów. */
     .details-collapsible,
@@ -6496,16 +6670,34 @@
     .driver-base-popup-list { margin-top: 6px; display: grid; gap: 3px; max-height: 180px; overflow: auto; }
     .driver-base-popup-row { display: flex; align-items: center; gap: 5px; }
 
-    .btn-ai-home {
+    .btn-ai-home,
+    .btn-ai-action,
+    .text-ai-import-btn {
       min-width: 46px;
-      background: #0f172a;
+      background: linear-gradient(135deg, #7c3aed 0%, #2563eb 55%, #0891b2 100%);
       color: #fff;
-      border-color: #0f172a;
+      border-color: #4f46e5;
       font-weight: 950;
       letter-spacing: .02em;
+      box-shadow: 0 8px 22px rgba(79, 70, 229, .24);
     }
-    .btn-ai-home:hover { background: #1e293b; border-color: #1e293b; }
-    .app.dark-mode .btn-ai-home { background: #f8fafc; color: #0f172a; border-color: #f8fafc; }
+    .btn-ai-home:hover,
+    .btn-ai-action:hover,
+    .text-ai-import-btn:hover {
+      background: linear-gradient(135deg, #6d28d9 0%, #1d4ed8 55%, #0e7490 100%);
+      border-color: #4338ca;
+      color: #fff;
+    }
+    .btn-ai-home:disabled,
+    .btn-ai-action:disabled,
+    .text-ai-import-btn:disabled { opacity:.58; cursor:wait; }
+    .app.dark-mode .btn-ai-home,
+    .app.dark-mode .btn-ai-action,
+    .app.dark-mode .text-ai-import-btn {
+      background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 58%, #06b6d4 100%);
+      color: #fff;
+      border-color: #818cf8;
+    }
 
     @media (orientation: portrait) {
       .map-toggle-tab, .future-tab, .proposed-tab, .stats-tab {
@@ -69278,6 +69470,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // ETAP 3L.1: most iframe -> src/main.js -> chroniony endpoint AI.
     const AI_ANALYZER_PENDING = new Map();
+    // Pliki zleceń pozostają wyłącznie w pamięci bieżącej karty. Do Supabase
+    // zapisujemy odczytane pola relacji, nigdy całego dokumentu ani adresu blob:.
+    const ROUTE_ORDER_IMPORTS = new Map();
 
     function requestAiAnalyzer(kind, payload = {}, timeoutMs = 90000) {
       if (!EMBEDDED_MODE || !state.user) return Promise.reject(new Error("Analizator AI wymaga aktywnej sesji."));
@@ -69435,6 +69630,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       hiddenDriversRestoreOpen: false,
       hiddenDriversDispatcherFilter: "",
       driverTransferBusy: false,
+      fleetOperationBusy: false,
       loadLinesVisibleByDispatcher: {},
       appMessage: null,
       appMessageTimer: null,
@@ -70030,8 +70226,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeNeedsAcceptanceMark(route) {
-      const driver = driverById(route.driverId);
-      return route.approvalStatus === "pending" || Boolean(driver && route.createdBy && route.createdBy !== driver.dispatcher);
+      // Pochodzenie wolnego ładunku od innego spedytora nie jest statusem
+      // oczekiwania. Kreskowanie pokazujemy tylko przy realnej, niezakończonej
+      // akceptacji relacji na cudzym pojeździe.
+      return route.approvalStatus === "pending";
     }
 
 
@@ -72093,7 +72291,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       ];
       if (["spedytor","kierownik","admin"].includes(role)) topics.unshift({ key:"relations", title:"Tworzenie relacji", text:"Formularz relacji krok po kroku, aż do przycisku Zapisz trasę." });
       if (["spedytor","kierownik","admin"].includes(role)) topics.push({ key:"fleet", title:"Kierowcy i pojazdy", text:"Dodawanie kierowcy i przewoźnika, edycja oraz ukrywanie floty." });
-      if (role === "spedytor") topics.push({ key:"ai", title:"AI", text:"Import z PDF lub wiadomości i wybór miejsca docelowego." });
+      if (["spedytor", "admin"].includes(role)) topics.push({ key:"ai", title:"AI", text:"Import z PDF lub wiadomości i wybór miejsca docelowego." });
       topics.push(
         { key:"assistant", title:"Asystent spedytora", text:"Historia, klienci w rejonie, zapytania o ładunek i flota." },
         { key:"nearest", title:"Najbliższy pojazd", text:"Wyszukiwanie pojazdu według miejsca, dnia i wymagań." },
@@ -72325,7 +72523,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="header-actions">
                 <div class="header-account-actions">
                   <div class="header-view-nav" aria-label="Widok aplikacji">
-                    ${state.user.role === "spedytor" ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
+                    ${canUseOperationalAi() ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
                   </div>
                   ${(state.user.actualSupabaseRole || state.user.supabaseRole) === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                   <div class="badge" style="gap:8px;"><span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">${esc(state.user.login)}</span><span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span></div>
@@ -73057,7 +73255,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <section class="driver-hidden-restore-popup" role="dialog" aria-modal="true" aria-labelledby="hidden-drivers-title" onclick="event.stopPropagation()">
           <header class="driver-actions-head"><div><h2 id="hidden-drivers-title">Ukryci kierowcy</h2><div class="small">Pełna lista ukrytych kierowców wybranego spedytora. Przywrócenie pokaże kierowcę ponownie w planie, na mapie i w dopasowaniach.</div></div><button class="btn" type="button" onclick="closeHiddenDriversRestore()">Zamknij</button></header>
           <div class="driver-hidden-restore-toolbar">${selector}<span class="theme-pill">${rows.length} ukrytych</span></div>
-          <div class="driver-hidden-restore-list">${rows.length ? rows.map(driver => `<div class="driver-hidden-restore-row"><div><b>${esc(driver.driver)}</b><small>${esc(driver.carrier)} · ${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "brak danych pojazdu")}</small></div><span class="dispatcher-map-badge ${dispatcherBadgeClass(hiddenDriverLeadDispatcher(driver))}">${esc(hiddenDriverLeadDispatcher(driver))}</span><button class="btn btn-dark" type="button" ${FLEET_OPERATION_BUSY ? "disabled" : ""} onclick="restoreHiddenDriver('${attr(driver.id)}')">Przywróć</button></div>`).join("") : `<div class="commercial-empty">Ten spedytor nie ma ukrytych kierowców dostępnych do przywrócenia.</div>`}</div>
+          <div class="driver-hidden-restore-list">${rows.length ? rows.map(driver => `<div class="driver-hidden-restore-row"><div><b>${esc(driver.driver)}</b><small>${esc(driver.carrier)} · ${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "brak danych pojazdu")}</small></div><span class="dispatcher-map-badge ${dispatcherBadgeClass(hiddenDriverLeadDispatcher(driver))}">${esc(hiddenDriverLeadDispatcher(driver))}</span><button class="btn btn-dark" type="button" ${state.fleetOperationBusy ? "disabled" : ""} onclick="restoreHiddenDriver('${attr(driver.id)}')">Przywróć</button></div>`).join("") : `<div class="commercial-empty">Ten spedytor nie ma ukrytych kierowców dostępnych do przywrócenia.</div>`}</div>
         </section>
       </div>`;
     }
@@ -77454,8 +77652,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function canUseOperationalAi() {
+      return Boolean(state.user && ["spedytor", "admin"].includes(state.user.role));
+    }
+
     function renderPdfImportUi() {
-      if (!state.user || state.user.role !== "spedytor") return "";
+      if (!canUseOperationalAi()) return "";
       return state.pdfImportOpen ? renderPdfImportModal() : "";
     }
 
@@ -77512,14 +77714,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <section class="ai-import-source-card">
                   <h3>Import zlecenia</h3>
                   <input id="pdf-import-file" type="file" accept="application/pdf,.pdf" hidden onchange="handlePdfImportFileChange(event)" />
-                  <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
+                  <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
                   <div class="pdf-import-status ${state.pdfImportWarning ? "warning" : ""}">${esc(state.pdfImportStatus || "Wybierz plik PDF ze zleceniem.")}</div>
-                  ${state.pdfImportFileName ? `<button class="btn" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${pdfBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
+                  ${state.pdfImportFileName ? `<button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${pdfBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
                 </section>
                 <section class="ai-import-source-card">
                   <h3>Wiadomość od klienta</h3>
                   <textarea id="text-import-orders" class="textarea ai-import-textarea" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość z relacją…" oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
-                  <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj tekst"}</button>
+                  <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj tekst"}</button>
                 </section>
               </div>
             </div>
@@ -77544,7 +77746,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function openPdfImport(event, target = "future") {
       if (event) event.stopPropagation();
-      if (!state.user || state.user.role !== "spedytor") return;
+      if (!canUseOperationalAi()) return;
       state.aiImportTarget = target === "proposed" ? "proposed" : "future";
       state.aiImportMode = "combined";
       state.pdfImportOpen = true;
@@ -77737,7 +77939,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // TEXT_ORDER_AI_MODULE: analiza wiadomości tekstowych z wieloma relacjami i automatyczne tworzenie wolnych ładunków.
     function renderTextImportUi() {
-      if (!state.user || state.user.role !== "spedytor" || !state.textImportOpen) return "";
+      if (!canUseOperationalAi() || !state.textImportOpen) return "";
       return renderTextImportModal();
     }
 
@@ -77779,7 +77981,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="pdf-import-foot">
               <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                 <button class="btn" type="button" onclick="closeTextImport()">Anuluj</button>
-                <button class="btn btn-dark" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj i otwórz formularz"}</button>
+                <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj i otwórz formularz"}</button>
               </div>
             </div>
           </section>
@@ -77793,7 +77995,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function openTextImport(event, target = "future") {
       if (event) event.stopPropagation();
-      if (!state.user || state.user.role !== "spedytor") return;
+      if (!canUseOperationalAi()) return;
       state.aiImportTarget = target === "proposed" ? "proposed" : "future";
       state.textImportOpen = true;
       state.textImportStatus = state.textImportStatus || "Wklej wiadomość od klienta z relacjami do importu.";
@@ -80175,7 +80377,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
             <button class="btn-mini" onclick="goToDriverPlan('${attr(point.id)}')">Plan</button>
           </div>
-          ${point.inTransit ? `<div class="map-popup-vehicle-next"><b>W trasie</b><br>Planowany rozładunek: ${esc(formatDateForInput(point.unloadDate || state.reportDate))}</div>` : ""}
         </div>
       `;
     }
@@ -80958,6 +81159,309 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function routeOrderFirstValue(...values) {
+      return values.find(value => {
+        if (value == null) return false;
+        if (typeof value === "number") return Number.isFinite(value);
+        return String(value).trim() !== "";
+      });
+    }
+
+    function routeOrderSourceParts(payload = {}) {
+      const pickup = payload.pickup || payload.load || payload.loading || payload.zaladunek || {};
+      const delivery = payload.delivery || payload.unload || payload.unloading || payload.rozladunek || {};
+      return { pickup, delivery };
+    }
+
+    function routeOrderExtractedFields(payload = {}, data = {}) {
+      const { pickup, delivery } = routeOrderSourceParts(payload);
+      const fields = [];
+      const add = (key, label, sourceValue, displayValue = sourceValue) => {
+        if (sourceValue == null || String(sourceValue).trim() === "") return;
+        const shown = String(displayValue == null ? sourceValue : displayValue).trim();
+        if (!shown) return;
+        fields.push({ key, label, value: shown, searchValue: String(sourceValue).trim() || shown });
+      };
+
+      const pickupLocation = routeOrderFirstValue(
+        pickup.fullAddress,
+        [pickup.city, pickup.postalCode].filter(Boolean).join(" "),
+        pickup.place,
+        pickup.location,
+        payload.loadCity,
+        payload.loadLocation
+      );
+      const pickupAddress = routeOrderFirstValue(pickup.address, [pickup.street, pickup.number].filter(Boolean).join(" "), payload.loadAddress);
+      const deliveryLocation = routeOrderFirstValue(
+        delivery.fullAddress,
+        [delivery.city, delivery.postalCode].filter(Boolean).join(" "),
+        delivery.place,
+        delivery.location,
+        payload.unloadCity,
+        payload.unloadLocation
+      );
+      const deliveryAddress = routeOrderFirstValue(delivery.address, [delivery.street, delivery.number].filter(Boolean).join(" "), payload.unloadAddress);
+      const pickupDate = routeOrderFirstValue(pickup.date, payload.loadDate, payload.pickupDate);
+      const pickupTime = routeOrderFirstValue(pickup.time, pickup.hour, payload.loadTime, payload.pickupTime);
+      const deliveryDate = routeOrderFirstValue(delivery.date, payload.unloadDate, payload.deliveryDate);
+      const deliveryTime = routeOrderFirstValue(delivery.time, delivery.hour, payload.unloadTime, payload.deliveryTime);
+      const client = routeOrderFirstValue(payload.client, payload.customer, payload.customerName);
+      const reference = routeOrderFirstValue(payload.reference, payload.orderReference, payload.orderNumber);
+      const rate = routeOrderFirstValue(payload.rate, payload.price, payload.freightRate);
+      const currency = routeOrderFirstValue(payload.currency, payload.rateCurrency);
+      const loadedKm = routeOrderFirstValue(payload.loadedKm, payload.distanceKm, payload.kilometers, payload.kilometry);
+      const carrierCost = routeOrderFirstValue(payload.cost, payload.carrierCost, payload.transportCost);
+      const oversizedCost = routeOrderFirstValue(payload.oversizedCost, payload.gabarytCost);
+      const notes = routeOrderFirstValue(payload.extraInfo, payload.notes, payload.uwagi);
+
+      add("load", "Załadunek", pickupLocation, data.loadCity || pickupLocation);
+      add("loadAddress", "Adres załadunku", pickupAddress, data.loadAddress || pickupAddress);
+      add("loadDate", "Data załadunku", pickupDate, data.loadDate || pickupDate);
+      add("loadTime", "Godzina załadunku", pickupTime, data.loadTime || pickupTime);
+      add("unload", "Rozładunek", deliveryLocation, data.unloadCity || deliveryLocation);
+      add("unloadAddress", "Adres rozładunku", deliveryAddress, data.unloadAddress || deliveryAddress);
+      add("unloadDate", "Data rozładunku", deliveryDate, data.unloadDate || deliveryDate);
+      add("unloadTime", "Godzina rozładunku", deliveryTime, data.unloadTime || deliveryTime);
+      add("client", "Klient", client, data.client || client);
+      add("reference", "Numer zlecenia", reference, data.reference || reference);
+      if (Number(rate) > 0) add("rate", "Stawka", rate, `${Number(rate)}${currency ? ` ${String(currency).toUpperCase()}` : ""}`);
+      if (Number(loadedKm) > 0) add("loadedKm", "Kilometry", loadedKm, `${Number(loadedKm)} km`);
+      if (Number(carrierCost) > 0) add("cost", "Koszt przewoźnika", carrierCost, `${Number(carrierCost)} PLN`);
+      if (Number(oversizedCost) > 0) add("oversizedCost", "Kwota za gabaryt", oversizedCost, `${Number(oversizedCost)} PLN`);
+      if (notes) add("notes", "Uwagi", Array.isArray(notes) ? notes.join(" ") : notes);
+      return fields;
+    }
+
+    function applyRouteOrderAnalysis(route, payload = {}) {
+      const data = normalizePdfOrderAnalysis(payload);
+      const fields = routeOrderExtractedFields(payload, data);
+      const keys = new Set(fields.map(field => field.key));
+      let changed = 0;
+      const set = (field, value) => {
+        if (value == null || String(value).trim() === "") return;
+        if (String(route[field] ?? "") === String(value)) return;
+        route[field] = value;
+        changed += 1;
+      };
+
+      if (keys.has("load")) set("load", normalizeLocation(data.loadCity) || data.loadCity);
+      if (keys.has("loadAddress") && removePolishChars(data.loadAddress) !== removePolishChars(data.loadCity)) set("loadAddress", data.loadAddress);
+      if (keys.has("unload")) set("unload", normalizeLocation(data.unloadCity) || data.unloadCity);
+      if (keys.has("unloadAddress") && removePolishChars(data.unloadAddress) !== removePolishChars(data.unloadCity)) set("unloadAddress", data.unloadAddress);
+      if (keys.has("loadDate")) {
+        const date = parseDateInput(data.loadDate, route.date || currentAppDate());
+        set("date", date);
+        set("loadDate", date);
+      }
+      if (keys.has("loadTime")) set("startHour", pdfImportHour(data.loadTime, route.startHour ?? 12));
+      if (keys.has("unloadDate")) set("endDate", parseDateInput(data.unloadDate, route.endDate || route.date || currentAppDate()));
+      if (keys.has("unloadTime")) set("endHour", pdfImportHour(data.unloadTime, route.endHour ?? 10));
+      if (keys.has("client")) {
+        set("client", data.client);
+        const client = (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(data.client));
+        route.clientId = client?.id || "";
+      }
+      if (keys.has("reference")) set("orderReference", data.reference);
+
+      const currency = String(data.currency || payload.currency || "").trim().toUpperCase();
+      if (keys.has("rate") && Number(data.rate || 0) > 0) {
+        route.orderRateOriginal = Number(data.rate);
+        route.orderCurrency = currency || "PLN";
+        if (!currency || currency === "PLN") set("rate", Number(data.rate));
+      }
+      const numberFromPayload = (...names) => {
+        const value = names.map(name => payload?.[name]).find(item => Number(item) > 0);
+        return Number(value || 0);
+      };
+      const loadedKm = numberFromPayload("loadedKm", "distanceKm", "kilometers", "kilometry");
+      const carrierCost = numberFromPayload("cost", "carrierCost", "transportCost");
+      const oversizedCost = numberFromPayload("oversizedCost", "gabarytCost");
+      if (keys.has("loadedKm") && loadedKm > 0) set("loadedKm", loadedKm);
+      if (keys.has("cost") && carrierCost > 0) set("cost", carrierCost);
+      if (keys.has("oversizedCost") && oversizedCost > 0) {
+        set("oversizedCost", oversizedCost);
+        route.oversizedTransport = true;
+      }
+
+      const noteText = [data.notes, data.reminders].filter(Boolean).join("\n").trim();
+      if (keys.has("notes") && noteText && !String(route.notes || "").includes(noteText)) {
+        set("notes", [route.notes, noteText].filter(Boolean).join("\n"));
+      }
+      if (loadedKm > 0 && !(carrierCost > 0)) applyAutomaticCarrierCost(route);
+      if (keys.has("load") || keys.has("unload")) route.freeDay = false;
+      route.orderImportFileName = String(payload.__fileName || route.orderImportFileName || "");
+      route.orderImportedAt = new Date().toISOString();
+      route.orderAiConfidence = Number(data.confidence || 0);
+      route.orderAiExtractedFields = fields.map(({ key, label, value }) => ({ key, label, value }));
+      invalidateRouteSmsGeneration(route, true);
+      scheduleRouteHistoryCapture(route);
+      scheduleSavedRoutePointGeocodes(route);
+      scheduleCentralRelationsDiff(0);
+      scheduleUiSync({ board: true, unload: true, details: true });
+      return { data, fields, changed };
+    }
+
+    function renderRouteOrderDropzone(route, canEdit) {
+      if (!canEdit || state.user?.role !== "spedytor") return "";
+      const entry = ROUTE_ORDER_IMPORTS.get(route.id) || null;
+      const busy = Boolean(entry?.busy);
+      const status = String(entry?.status || "");
+      return `<section class="section route-order-dropzone ${busy ? "is-busy" : ""}"
+        ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')"
+        ondragover="routeOrderDragOver(event,'${attr(route.id)}')"
+        ondragleave="routeOrderDragLeave(event)"
+        ondrop="routeOrderDrop(event,'${attr(route.id)}')">
+        <input id="route-order-file-${attr(route.id)}" type="file" accept="application/pdf,.pdf" hidden onchange="routeOrderFileSelected(event,'${attr(route.id)}')" />
+        <div class="route-order-dropzone-head">
+          <b>${busy ? "AI analizuje zlecenie…" : entry?.fileName ? esc(entry.fileName) : "Upuść tutaj zlecenie PDF"}</b>
+          <button class="btn btn-ai-action" type="button" ${busy ? "disabled" : ""} onclick="event.stopPropagation();document.getElementById('route-order-file-${attr(route.id)}')?.click()">${entry?.fileName ? "Zmień plik" : "Wybierz plik"}</button>
+        </div>
+        <div class="route-order-dropzone-copy">Po upuszczeniu AI automatycznie uzupełni rozpoznane dane tej relacji. Oryginalny dokument pozostanie obok do weryfikacji.</div>
+        ${status ? `<div class="route-order-status-line ${entry?.warning ? "warning" : ""}">${busy ? `<span class="route-order-spinner" aria-hidden="true"></span>` : ""}<span>${esc(status)}</span></div>` : ""}
+      </section>`;
+    }
+
+    function routeOrderPdfUrl(entry) {
+      const field = entry?.fields?.[Number(entry?.activeField || 0)];
+      const search = String(field?.searchValue || field?.value || "").trim();
+      return `${entry?.previewUrl || ""}#toolbar=1&navpanes=0${search ? `&search=${encodeURIComponent(search)}` : ""}`;
+    }
+
+    function renderRouteOrderVerification(routeId, entry) {
+      if (!entry?.previewUrl) return "";
+      const fields = Array.isArray(entry.fields) ? entry.fields : [];
+      return `<section class="route-order-verification" aria-label="Weryfikacja zlecenia">
+        <div class="route-order-verification-head">
+          <div><h3>Oryginalne zlecenie</h3><div class="small">${esc(entry.fileName || "zlecenie.pdf")}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+            ${entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
+            <a class="btn" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz PDF</a>
+            <button class="btn" type="button" onclick="clearRouteOrderImport('${attr(routeId)}')">Usuń podgląd</button>
+          </div>
+        </div>
+        <div class="route-order-extracted">
+          <div class="route-order-extracted-copy">Żółte pola to dane pobrane przez AI. Kliknij wartość, aby wyszukać ją w oryginalnym PDF.</div>
+          <div class="route-order-field-list">
+            ${fields.length ? fields.map((field, index) => `<button class="route-order-field ${Number(entry.activeField || 0) === index ? "active" : ""}" type="button" onclick="focusRouteOrderField('${attr(routeId)}',${index})"><b>${esc(field.label)}</b>${esc(field.value)}</button>`).join("") : `<span class="small">AI nie wskazało jeszcze żadnych danych.</span>`}
+          </div>
+        </div>
+        <iframe class="route-order-document" data-route-order-document="${attr(routeId)}" src="${attr(routeOrderPdfUrl(entry))}" title="Podgląd oryginalnego zlecenia PDF"></iframe>
+      </section>`;
+    }
+
+    function routeOrderDragEnter(event) {
+      if (!Array.from(event?.dataTransfer?.types || []).includes("Files")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget?.classList.add("is-dragover");
+    }
+
+    function routeOrderDragOver(event) {
+      if (!Array.from(event?.dataTransfer?.types || []).includes("Files")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      event.currentTarget?.classList.add("is-dragover");
+    }
+
+    function routeOrderDragLeave(event) {
+      if (event?.currentTarget?.contains?.(event.relatedTarget)) return;
+      event?.currentTarget?.classList.remove("is-dragover");
+    }
+
+    function routeOrderDrop(event, routeId) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.currentTarget?.classList.remove("is-dragover");
+      const file = event?.dataTransfer?.files?.[0] || null;
+      if (file) analyzeRouteOrderFile(routeId, file);
+    }
+
+    function routeOrderFileSelected(event, routeId) {
+      const file = event?.target?.files?.[0] || null;
+      if (event?.target) event.target.value = "";
+      if (file) analyzeRouteOrderFile(routeId, file);
+    }
+
+    async function analyzeRouteOrderFile(routeId, file) {
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route || state.user?.role !== "spedytor" || !canEditBoardRoute(route)) {
+        showAppMessage("Brak uprawnień", "Zlecenie może importować spedytor, który może edytować tę relację.", "error");
+        return;
+      }
+      const isPdf = file instanceof Blob && (String(file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(String(file.name || "")));
+      if (!isPdf) {
+        showAppMessage("Nieprawidłowy plik", "Upuść zlecenie zapisane jako PDF.", "error");
+        return;
+      }
+      if (!EMBEDDED_MODE) {
+        showAppMessage("Analizator AI jest niedostępny", "Import zlecenia wymaga zalogowanej wersji produkcyjnej TMS.", "error");
+        return;
+      }
+      const previous = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (previous?.busy) return;
+      if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl);
+      const entry = {
+        file,
+        fileName: String(file.name || "zlecenie.pdf"),
+        previewUrl: URL.createObjectURL(file),
+        fields: [],
+        activeField: 0,
+        busy: true,
+        warning: false,
+        status: "Trwa analiza dokumentu i uzupełnianie szczegółów relacji…"
+      };
+      ROUTE_ORDER_IMPORTS.set(routeId, entry);
+      syncDetailsPanel();
+      const startedAt = performance.now();
+      try {
+        const payload = await requestAiAnalyzer("pdf", {
+          file,
+          fileName: entry.fileName,
+          referenceDate: route.date || state.reportDate || currentAppDate()
+        }, 90000);
+        payload.__fileName = entry.fileName;
+        const result = applyRouteOrderAnalysis(route, payload);
+        entry.fields = result.fields;
+        entry.activeField = 0;
+        entry.busy = false;
+        const requiredComplete = result.fields.some(field => field.key === "load") && result.fields.some(field => field.key === "unload");
+        entry.warning = !requiredComplete || result.changed === 0;
+        const confidence = Number(result.data?.confidence || 0);
+        const elapsed = aiElapsedLabel(Number(payload?.elapsedMs || Math.max(0, performance.now() - startedAt)));
+        entry.status = result.changed > 0
+          ? `Uzupełniono ${result.changed} pól${confidence > 0 ? ` · pewność ${Math.round(confidence * 100)}%` : ""}${elapsed ? ` · ${elapsed}` : ""}. Zweryfikuj żółte wartości z dokumentem.`
+          : "AI odczytało dokument, ale nie znalazło nowych danych do uzupełnienia. Sprawdź żółte wartości.";
+        syncDetailsPanel();
+      } catch (error) {
+        entry.busy = false;
+        entry.warning = true;
+        entry.status = `Nie udało się przeanalizować zlecenia: ${error?.message || error}`;
+        syncDetailsPanel();
+      }
+    }
+
+    function reanalyzeRouteOrder(routeId) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (entry?.file && !entry.busy) analyzeRouteOrderFile(routeId, entry.file);
+    }
+
+    function focusRouteOrderField(routeId, index) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (!entry?.previewUrl || !entry.fields?.[index]) return;
+      entry.activeField = Number(index) || 0;
+      document.querySelectorAll(".route-order-field").forEach((button, buttonIndex) => button.classList.toggle("active", buttonIndex === entry.activeField));
+      const frame = document.querySelector(`[data-route-order-document="${CSS.escape(String(routeId))}"]`);
+      if (frame) frame.src = routeOrderPdfUrl(entry);
+    }
+
+    function clearRouteOrderImport(routeId) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      ROUTE_ORDER_IMPORTS.delete(routeId);
+      syncDetailsPanel();
+    }
+
     function renderSidePanel() {
       const route = state.routes.find(item => item.id === state.selectedRouteId);
       const driver = route ? driverById(route.driverId) : null;
@@ -80983,16 +81487,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canDelete = canDeleteBoardRoute(route);
       const disabled = formDisabledAttr(route);
       const canAccept = state.user.role === "spedytor" && route.ownerDispatcher === state.user.login && route.createdBy !== state.user.login && route.approvalStatus === "pending";
+      const orderImport = ROUTE_ORDER_IMPORTS.get(route.id) || null;
+      const hasOrderPreview = Boolean(state.user.role === "spedytor" && canEdit && orderImport?.previewUrl);
 
       return `
         ${state.detailsOpen ? `<div class="details-backdrop" onclick="closeDetails()"></div>` : ""}
-        <aside class="side-panel ${state.detailsOpen ? "open" : ""}" onclick="event.stopPropagation()">
+        <aside class="side-panel ${state.detailsOpen ? "open" : ""} ${hasOrderPreview ? "has-order-preview" : ""}"
+          ${state.user.role === "spedytor" && canEdit ? `ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')" ondragover="routeOrderDragOver(event,'${attr(route.id)}')" ondragleave="routeOrderDragLeave(event)" ondrop="routeOrderDrop(event,'${attr(route.id)}')"` : ""}
+          onclick="event.stopPropagation()">
           <div class="panel-head">
             <h2>Szczegóły zlecenia</h2>
             <button class="btn" onclick="closeDetails()">Schowaj</button>
           </div>
 
+          <div class="details-workspace ${hasOrderPreview ? "has-order-preview" : ""}">
           <div class="panel-body">
+            ${renderRouteOrderDropzone(route, canEdit)}
             <section class="section">
               <div class="field-label" style="margin-top:0;">Kierowca</div>
               <b>${esc(driver.driver)}</b>
@@ -81135,6 +81645,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </section>
 
             ${canDelete ? `<div class="details-delete-row"><button type="button" class="details-delete-icon" onclick="deleteRoute('${attr(route.id)}')" title="Usuń relację" aria-label="Usuń relację"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg></button></div>` : ""}
+          </div>
+          ${hasOrderPreview ? renderRouteOrderVerification(route.id, orderImport) : ""}
           </div>
         </aside>
       `;
@@ -85675,7 +86187,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       (state.clients || []).forEach(client => {
         if (!client || client.sample) return;
         const clientId = String(client.id || "").trim();
-        const branchId = excelUuid(centralClientBranchId(client));
+        const branchId = centralClientBranchId(client);
         if (!clientId) return;
 
         const key = centralClientKey(branchId, clientId);
@@ -86766,7 +87278,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('relations')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('relations')">Import Excel</button>
-                    <button type="button" class="btn" onclick="adminOpenAiImport('relations')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('relations')">✨ Import AI</button>
                   </div>
                 </div>
                 <div class="admin-transfer-group">
@@ -86775,7 +87287,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('clients')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('clients')">Import Excel</button>
-                    <button type="button" class="btn" onclick="adminOpenAiImport('clients')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('clients')">✨ Import AI</button>
                   </div>
                 </div>
                 <div class="admin-transfer-group">
@@ -86784,7 +87296,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('vehicles')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('vehicles')">Import Excel</button>
-                    <button type="button" class="btn" onclick="adminOpenAiImport('vehicles')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('vehicles')">✨ Import AI</button>
                   </div>
                 </div>
               </div>
@@ -87422,11 +87934,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const details = excelImportIssuesText(rows?.issues || []);
           throw new Error(`Arkusz nie zawiera prawidłowych danych floty.${details ? ` ${details}` : ""}`);
         }
-        if (FLEET_OPERATION_BUSY) throw new Error("Poczekaj na zakończenie poprzedniej operacji floty.");
+        if (state.fleetOperationBusy) throw new Error("Poczekaj na zakończenie poprzedniej operacji floty.");
         if (rows.issues?.length) {
           showAppMessage("Część wierszy floty pominięto", excelImportIssuesText(rows.issues), "info");
         }
-        FLEET_OPERATION_BUSY = true;
+        state.fleetOperationBusy = true;
         window.parent?.postMessage({
           type:"top-dragon-fleet-excel-import",
           requestId:`fleet-excel-import-${Date.now()}`,
@@ -87498,7 +88010,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           recordAuditOperation(`Import Excel ${kind === "clients" ? "klientów" : "relacji"}`, kind, "", `${totalImported} rekordów${result.skipped ? ` · pominięto ${result.skipped}` : ""}`);
           showAppMessage("Import Excel zakończony", `Zaimportowano ${totalImported} rekordów.${plannedText}${skippedText}${result.issues?.length ? ` ${excelImportIssuesText(result.issues)}` : ""}`, result.skipped ? "info" : "success");
         } catch (error) {
-          FLEET_OPERATION_BUSY = false;
+          state.fleetOperationBusy = false;
           showAppMessage("Nie udało się zaimportować Excela", String(error?.message || error), "error");
         }
       }
@@ -87677,7 +88189,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <textarea id="admin-ai-import-text" class="textarea" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} placeholder="Możesz też wkleić dowolną tabelę, listę lub dane z innego systemu…" oninput="adminAiSetSourceText(this.value)">${esc(ADMIN_AI_IMPORT_STATE.sourceText)}</textarea>
                 </section>
                 <div class="admin-ai-import-actions">
-                  <button type="button" class="btn btn-dark" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="adminAnalyzeAiImport()">${ADMIN_AI_IMPORT_STATE.busy ? "AI analizuje…" : "Analizuj przez AI"}</button>
+                  <button type="button" class="btn btn-ai-action" ${ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="adminAnalyzeAiImport()">${ADMIN_AI_IMPORT_STATE.busy ? "AI analizuje…" : "Analizuj przez AI"}</button>
                   ${items.length ? `<button type="button" class="btn" onclick="adminAiToggleAll(true)">Zaznacz wszystkie</button><button type="button" class="btn" onclick="adminAiToggleAll(false)">Odznacz wszystkie</button>` : ""}
                   ${ADMIN_AI_IMPORT_STATE.model ? `<span class="small">${esc(ADMIN_AI_IMPORT_STATE.model)}${ADMIN_AI_IMPORT_STATE.elapsedMs ? ` · ${esc(aiElapsedLabel(ADMIN_AI_IMPORT_STATE.elapsedMs))}` : ""}</span>` : ""}
                 </div>
@@ -87700,7 +88212,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </div>
               <div class="admin-ai-import-foot">
                 <button type="button" class="btn" onclick="adminCloseAiImport()">Anuluj</button>
-                <button type="button" class="btn btn-dark" ${!selectedCount || ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="adminApplyAiImport()">Importuj zaznaczone (${selectedCount})</button>
+                <button type="button" class="btn btn-ai-action" ${!selectedCount || ADMIN_AI_IMPORT_STATE.busy ? "disabled" : ""} onclick="adminApplyAiImport()">Importuj zaznaczone (${selectedCount})</button>
               </div>
             </section>
           </div>`;
@@ -88137,7 +88649,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
 
-      let FLEET_OPERATION_BUSY = false;
       let LAST_FLEET_REQUEST_ID = "";
 
       const CENTRAL_RELATION_USAGE_SYNCED = new Set();
@@ -88383,7 +88894,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.handleFleetOperationResult = function(message) {
-        FLEET_OPERATION_BUSY = false;
+        state.fleetOperationBusy = false;
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
         if (action === "color") state.driverColorOperationBusy = false;
@@ -88526,7 +89037,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Wysokość naczepy</label><input id="fleet-height" class="input" type="number" min="1" max="4.3" step="0.05" placeholder="opcjonalnie" /></div>
               <div><label class="field-label" style="margin-top:0;">Narodowość kierowcy</label><select id="fleet-nationality" class="select"><option>PL</option><option>UA</option><option>BY</option><option>LT</option><option>SK</option><option>CZ</option></select></div>
               <div class="wide"><label class="field-label" style="margin-top:0;">Baza kierowcy</label><input id="fleet-base" class="input" list="locations-list" placeholder="miejscowość lub kod" /></div>
-              <div class="fleet-form-actions wide">${isAdminUser() ? `<button type="button" class="btn" onclick="exportFleetVehiclesExcel()">Eksport Excel</button><button type="button" class="btn" onclick="chooseFleetExcelImport()">Import Excel</button>` : ""}<button type="submit" class="btn btn-dark" ${FLEET_OPERATION_BUSY ? "disabled" : ""}>${FLEET_OPERATION_BUSY ? "Zapisywanie…" : "Dodaj kierowcę"}</button></div>
+              <div class="fleet-form-actions wide">${isAdminUser() ? `<button type="button" class="btn" onclick="exportFleetVehiclesExcel()">Eksport Excel</button><button type="button" class="btn" onclick="chooseFleetExcelImport()">Import Excel</button>` : ""}<button type="submit" class="btn btn-dark" ${state.fleetOperationBusy ? "disabled" : ""}>${state.fleetOperationBusy ? "Zapisywanie…" : "Dodaj kierowcę"}</button></div>
             </form>
           </div>
           <div class="fleet-form-card">
@@ -88572,7 +89083,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           showAppMessage("Brak uprawnień", "Import floty jest dostępny wyłącznie dla administratora.", "error");
           return;
         }
-        if (FLEET_OPERATION_BUSY) return;
+        if (state.fleetOperationBusy) return;
         const input = document.createElement("input");
         input.type = "file";
         input.accept = ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -88589,7 +89100,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const rows = excelFleetImportRows(sheet?.rows || [], options);
             postFleetExcelImport(rows);
           } catch (error) {
-            FLEET_OPERATION_BUSY = false;
+            state.fleetOperationBusy = false;
             showAppMessage("Nie udało się zaimportować Excela", String(error?.message || error), "error");
           }
         }, { once:true });
@@ -88598,12 +89109,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.setFleetDriverHidden = function(driverId, hidden) {
         const driver = driverById(driverId);
-        if (!driver?.supabaseFleet || FLEET_OPERATION_BUSY) return;
+        if (!driver?.supabaseFleet || state.fleetOperationBusy) return;
         if (!isAdminUser() && !(isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : state.user?.role === "spedytor" && [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || "")))) {
           showAppMessage("Brak uprawnień", "Możesz ukrywać wyłącznie własne pojazdy.", "error");
           return;
         }
-        FLEET_OPERATION_BUSY = true;
+        state.fleetOperationBusy = true;
         if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
         const requestId = `fleet-visibility-${Date.now()}`;
         window.parent?.postMessage({
@@ -88615,14 +89126,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.refreshFleetFromSupabase = function() {
-        if (FLEET_OPERATION_BUSY) return;
+        if (state.fleetOperationBusy) return;
         const requestId = `fleet-refresh-${Date.now()}`;
         window.parent?.postMessage({ type:"top-dragon-fleet-refresh", requestId }, window.location.origin);
       };
 
       window.addFleetDriver = function(event) {
         event?.preventDefault?.();
-        if (!state.user || !["spedytor","kierownik","admin"].includes(state.user.role) || FLEET_OPERATION_BUSY) return;
+        if (!state.user || !["spedytor","kierownik","admin"].includes(state.user.role) || state.fleetOperationBusy) return;
 
         const dispatcher = isAdminUser() || isBranchManagerUser()
           ? String(document.getElementById("fleet-dispatcher")?.value || currentFleetDispatcher())
@@ -88662,7 +89173,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
 
-        FLEET_OPERATION_BUSY = true;
+        state.fleetOperationBusy = true;
         const requestId = `fleet-create-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
         LAST_FLEET_REQUEST_ID = requestId;
 
@@ -88691,14 +89202,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.removeFleetDriver = function(driverId) {
         const driver = driverById(driverId);
-        if (!driver?.supabaseFleet || FLEET_OPERATION_BUSY) return;
+        if (!driver?.supabaseFleet || state.fleetOperationBusy) return;
         if (!isAdminUser()) {
           showAppMessage("Brak uprawnień", "Tylko administrator może usuwać pojazdy z aktywnej floty.", "error");
           return;
         }
         if (!window.confirm(`Usunąć zestaw ${driver.driver} · ${driver.carrier} z aktywnej floty?\n\nDane pojazdu, kierowcy i cała historia relacji pozostaną w archiwum.`)) return;
 
-        FLEET_OPERATION_BUSY = true;
+        state.fleetOperationBusy = true;
         const requestId = `fleet-delete-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
         LAST_FLEET_REQUEST_ID = requestId;
         const host = document.querySelector('[data-role="commercial-body"]');
@@ -89263,7 +89774,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const originalRenderBoard3L19 = renderBoard;
       renderBoard = function(...args) {
         let html = originalRenderBoard3L19.apply(this, args);
-        const heading = `<div class="board-heading-stack"><div class="board-heading-line"><h2>Plan kierowców</h2><div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;">${driverSettingsAvailable() ? `<button type="button" class="btn" onclick="openHiddenDriversRestore(event)" title="Pokaż i przywróć ukrytych kierowców">⚙ Ustawienia kierowcy</button>` : ""}<button type="button" class="btn board-tools-toggle ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools()">${state.boardToolsOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.boardToolsOpen ? boardMetricControlsHtml() : ""}</div>`;
+        const heading = `<div class="board-heading-stack"><div class="board-heading-line"><h2>Plan kierowców</h2><div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;"><button type="button" class="btn board-tools-toggle ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools()">${state.boardToolsOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.boardToolsOpen ? boardMetricControlsHtml() : ""}</div>`;
         html = html.replace('<h2>Plan kierowców</h2>', heading);
         if (!state.boardToolsOpen) html = html.replace('<div class="board-controls">', '<div class="board-controls board-controls-hidden">');
         return html;
