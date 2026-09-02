@@ -3587,7 +3587,7 @@ async function handleAiAnalyzerRequestFromTms(message) {
     if (kind === 'admin-import' && !isActualAdmin()) {
       throw new Error('Import administracyjny AI jest dostępny wyłącznie dla administratora.')
     }
-    if (['pdf', 'text'].includes(kind) && !hasRole('dispatcher')) {
+    if (['pdf', 'text'].includes(kind) && !hasRole('dispatcher', 'admin')) {
       throw new Error('Analiza zleceń AI jest dostępna wyłącznie dla spedytora.')
     }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
@@ -3839,7 +3839,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v93-client-write-navigation-map-export"
+        src="/tms.html?embedded=1&build=request-workflow-v94-route-order-drop-verification"
         title="Top Dragon TMS"
       ></iframe>
     </main>
