@@ -68824,7 +68824,7 @@
     function loadClientMapHistoryDays() {
       try {
         const value = Number(localStorage.getItem(CLIENT_MAP_HISTORY_DAYS_STORAGE_KEY));
-        return Number.isFinite(value) && value > 0 ? Math.min(730, Math.max(7, Math.round(value))) : 30;
+        return Number.isFinite(value) && value > 0 ? Math.min(730, Math.max(1, Math.round(value))) : 30;
       } catch (error) { return 30; }
     }
 
@@ -73591,8 +73591,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ? [lat, lng]
         : null;
       const address = String(client?.address || "").trim();
-      if (client?.approximate && postalCodeFromText(address)) {
-        const resolved = postalGeoCoordsFromText(address)?.coords;
+      if (address && (!stored || client?.approximate)) {
+        const resolved = postalGeoCoordsFromText(address)?.coords || fastOperationalLocation(address)?.coords;
         if (Array.isArray(resolved) && resolved.every(Number.isFinite)) {
           const corrected = [Number(resolved[0]), Number(resolved[1])];
           if (!stored || distanceKmBetweenCoords(stored, corrected) > 0.35) return corrected;
@@ -79664,13 +79664,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             // Po pierwszej ręcznej zmianie szerokości przechodzimy w tryb manualny:
             // wtedy widoczne krawędzie odpowiadają dokładnie pozycji wybranej kursorem.
             const displayWidth = routeTimelineDisplayWidthPercent(route, exactWidth);
+            const renderedWidth = Math.min(displayWidth, 100 - left);
+            const compactContent = renderedWidth <= 4.5;
             const hasOverlap = routes.some(other => routesActuallyOverlap(route, other));
             const hasPauseConflict = false;
 
             const canEditThisRoute = canEditBoardRoute(route);
             return `
               <button
-                class="time-route continuous ${canEditThisRoute ? "can-resize" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
+                class="time-route continuous ${canEditThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
                 data-route-id="${attr(route.id)}"
                 data-can-resize="${canEditThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
@@ -79679,7 +79681,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
                 ${canEditThisRoute ? `ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
-                style="left:${left}%;width:${Math.min(displayWidth, 100 - left)}%;"
+                style="left:${left}%;width:${renderedWidth}%;"
               >
                 ${canEditThisRoute ? `<span
                   class="time-resize time-resize-left"
@@ -79863,12 +79865,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button type="button" class="btn ${state.mapVehicleFilterOpen ? "btn-dark" : ""}" onclick="toggleMapVehicleFilter(event)">Pojazdy (${visibleMapDriverCount()})</button>
                   ${renderMapVehicleFilter()}
                 </div>
-                <button type="button" data-action="toggle-map-clients" class="btn map-client-toggle ${state.showClientsOnMap ? "btn-dark" : ""}" onclick="toggleClientsOnMap(event)">${state.showClientsOnMap ? "Ukryj klientów z opiekunem" : "Klienci z opiekunem"} (${assignedClientMapCount()})</button>
-                <button type="button" data-action="toggle-map-unassigned-clients" class="btn map-client-toggle ${state.showUnassignedClientsOnMap ? "btn-dark" : ""}" onclick="toggleUnassignedClientsOnMap(event)">${state.showUnassignedClientsOnMap ? "Ukryj klientów bez opiekuna" : "Klienci bez opiekuna"}</button>
+                <button type="button" data-action="toggle-map-clients" class="btn map-client-toggle ${state.showClientsOnMap ? "btn-dark" : ""}" onclick="toggleClientsOnMap(event)">${state.showClientsOnMap ? "Ukryj wszystkich klientów" : "Wszyscy klienci"} (${allClientMapCount()})</button>
+                <button type="button" data-action="toggle-map-unassigned-clients" class="btn map-client-toggle ${state.showUnassignedClientsOnMap ? "btn-dark" : ""}" onclick="toggleUnassignedClientsOnMap(event)">${state.showUnassignedClientsOnMap ? "Ukryj klientów z relacją" : "Klienci z relacją w okresie"}</button>
                 <button type="button" data-action="toggle-map-driver-bases" class="btn map-client-toggle ${state.showDriverBasesOnMap ? "btn-dark" : ""}" onclick="toggleDriverBasesOnMap(event)">${state.showDriverBasesOnMap ? "Ukryj bazy kierowców" : "Bazy kierowców"} (${driverBaseMapPoints().length})</button>
-                <label class="map-client-period" title="Okres historii używany do kwalifikowania klientów bez opiekuna">
-                  <span>Okres</span>
-                  <input data-role="client-map-history-days" type="number" min="7" max="730" step="1" value="${currentClientMapHistoryDays()}" oninput="queueClientMapHistoryDays(this.value)" onchange="setClientMapHistoryDays(this.value, true)" />
+                <label class="map-client-period" title="Klienci z co najmniej jedną relacją od dzisiaj wstecz">
+                  <span>Ostatnie</span>
+                  <input data-role="client-map-history-days" type="number" min="1" max="730" step="1" value="${currentClientMapHistoryDays()}" oninput="queueClientMapHistoryDays(this.value)" onchange="setClientMapHistoryDays(this.value, true)" />
                   <span>dni</span>
                 </label>
                 <div class="map-date-block" data-role="unload-date-block">
@@ -80003,7 +80005,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .join("|");
       const clientsVisible = state.showClientsOnMap || state.showUnassignedClientsOnMap;
       const clientsSignature = clientsVisible
-        ? clientMapPoints().map(point => [point.id, point.client.name, point.client.address, point.coords[0], point.coords[1], point.client.dispatcher || "", point.client.repeatedCount || 0].join(":")).join("|")
+        ? clientMapPoints().map(point => [point.id, point.client.name, point.client.address, point.coords[0], point.coords[1], point.client.dispatcher || "", point.client.orderCount || 0].join(":")).join("|")
         : "";
       const basesSignature = state.showDriverBasesOnMap
         ? driverBaseMapPoints().map(point => [point.id, point.base, point.coords[0], point.coords[1], point.drivers.map(driver => driver.id).join(",")].join(":")).join("|")
@@ -80103,10 +80105,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const markerColor=assigned?"#66cc66":"#6b7280";
         const [ownerBg,ownerFg]=dispatcherSvgBadgeColors(owner);
         const marker=`<circle cx="${item.p.x}" cy="${item.p.y}" r="${assigned ? 9 : 8}" fill="${markerColor}" stroke="#fff" stroke-width="3"/>`;
-        return `<g role="button" tabindex="0" style="cursor:pointer" onclick="openClientDetails('${attr(item.client.id || "")}','${attr(encodeURIComponent(item.client.name || ""))}')"><title>${esc(item.client.name)} · ${esc(item.client.address)}${owner?` · ${esc(owner)}`:` · ${item.client.repeatedCount||2} odbiory / ${item.client.historyDays || currentClientMapHistoryDays()} dni`}</title>${marker}<text x="${item.p.x+14}" y="${item.p.y+4}" font-size="13" font-weight="800" fill="${markerColor}">${esc(item.client.name.slice(0,18))}</text>${owner?`<rect x="${item.p.x+14}" y="${item.p.y+9}" rx="5" width="${Math.max(32,owner.length*8+12)}" height="18" fill="${ownerBg}"/><text x="${item.p.x+20}" y="${item.p.y+22}" font-size="11" font-weight="900" fill="${ownerFg}">${esc(owner)}</text>`:""}</g>`;
+        const orderInfo=item.client.orderedInPeriod?` · ${item.client.orderCount||1} rel. / ${item.client.historyDays || currentClientMapHistoryDays()} dni`:"";
+        return `<g role="button" tabindex="0" style="cursor:pointer" onclick="openClientDetails('${attr(item.client.id || "")}','${attr(encodeURIComponent(item.client.name || ""))}')"><title>${esc(item.client.name)} · ${esc(item.client.address)}${owner?` · ${esc(owner)}`:" · bez opiekuna"}${orderInfo}</title>${marker}<text x="${item.p.x+14}" y="${item.p.y+4}" font-size="13" font-weight="800" fill="${markerColor}">${esc(item.client.name.slice(0,18))}</text>${owner?`<rect x="${item.p.x+14}" y="${item.p.y+9}" rx="5" width="${Math.max(32,owner.length*8+12)}" height="18" fill="${ownerBg}"/><text x="${item.p.x+20}" y="${item.p.y+22}" font-size="11" font-weight="900" fill="${ownerFg}">${esc(owner)}</text>`:""}</g>`;
       }).join('');
       const baseSvg=bases.map(item=>`<g style="cursor:pointer"><title>Baza ${esc(item.base)} · ${item.drivers.length} pojazdów</title><circle cx="${item.p.x}" cy="${item.p.y}" r="11" fill="#facc15" stroke="#fff" stroke-width="3"/><text x="${item.p.x}" y="${item.p.y+5}" text-anchor="middle" font-size="15" font-weight="950" fill="#713f12">⌂</text><text x="${item.p.x+14}" y="${item.p.y+4}" font-size="12" font-weight="850" fill="#713f12">${esc(item.base)}</text></g>`).join('');
-      element.innerHTML=`<div class="native-map-fallback"><svg viewBox="0 0 1000 540" role="img" aria-label="Mapa Polski z pojazdami, klientami i bazami kierowców"><path d="${country}" fill="#f8fafc" stroke="#94a3b8" stroke-width="5"/><path d="M215 126 L355 72 M512 88 L532 476 M242 377 L847 382" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="8 10"/>${clientSvg}${baseSvg}${vehicles.map(item=>{const hasNext=mapVehicleHasNext(item.routeId);const markerColor=hasNext?'#22c55e':'#ef4444';const statusText=hasNext?'ma następny ładunek':'brak następnego ładunku';return `<g style="cursor:pointer" onclick="openRoute('${attr(item.routeId)}')"><circle cx="${item.p.x}" cy="${item.p.y}" r="10" fill="${markerColor}" stroke="#fff" stroke-width="3"><title>${esc(item.driver)} · ${esc(item.city||item.unload||'')} · ${statusText}</title></circle><text x="${item.p.x+13}" y="${item.p.y+4}" font-size="13" font-weight="850" fill="#0f172a">${esc(item.driver||item.city||'AUTO')}</text></g>`;}).join('')}</svg><div class="native-map-note">Mapa awaryjna działa bez zewnętrznych kafelków. <button type="button" class="btn-mini" style="margin-left:5px" onclick="retryRoadMap()">Ponów mapę drogową</button></div><div class="native-map-legend"><span style="color:#22c55e"><b>●</b> ma następny ładunek</span> · <span style="color:#ef4444"><b>●</b> brak następnego ładunku</span>${state.showClientsOnMap?' · <span style="color:#66cc66"><b>●</b> klient z opiekunem</span>':''}${state.showUnassignedClientsOnMap?' · <span style="color:#6b7280"><b>●</b> klient bez opiekuna</span>':''}${state.showDriverBasesOnMap?' · <span style="color:#ca8a04"><b>⌂</b> baza kierowców</span>':''}</div></div>`;
+      element.innerHTML=`<div class="native-map-fallback"><svg viewBox="0 0 1000 540" role="img" aria-label="Mapa Polski z pojazdami, klientami i bazami kierowców"><path d="${country}" fill="#f8fafc" stroke="#94a3b8" stroke-width="5"/><path d="M215 126 L355 72 M512 88 L532 476 M242 377 L847 382" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="8 10"/>${clientSvg}${baseSvg}${vehicles.map(item=>{const hasNext=mapVehicleHasNext(item.routeId);const markerColor=hasNext?'#22c55e':'#ef4444';const statusText=hasNext?'ma następny ładunek':'brak następnego ładunku';return `<g style="cursor:pointer" onclick="openRoute('${attr(item.routeId)}')"><circle cx="${item.p.x}" cy="${item.p.y}" r="10" fill="${markerColor}" stroke="#fff" stroke-width="3"><title>${esc(item.driver)} · ${esc(item.city||item.unload||'')} · ${statusText}</title></circle><text x="${item.p.x+13}" y="${item.p.y+4}" font-size="13" font-weight="850" fill="#0f172a">${esc(item.driver||item.city||'AUTO')}</text></g>`;}).join('')}</svg><div class="native-map-note">Mapa awaryjna działa bez zewnętrznych kafelków. <button type="button" class="btn-mini" style="margin-left:5px" onclick="retryRoadMap()">Ponów mapę drogową</button></div></div>`;
     }
 
     function ensureLeafletRuntime() {
@@ -80578,32 +80581,64 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
     }
 
-    let UNASSIGNED_CLIENT_MAP_CACHE = { history:null, clients:null, days:0, date:"", value:[] };
-    let CLIENT_MAP_POINTS_CACHE = { clients:null, clientLength:-1, history:null, assigned:false, unassigned:false, days:0, value:[] };
+    let RECENT_CLIENT_MAP_CACHE = { history:null, clients:null, days:0, date:"", value:[] };
+    let CLIENT_MAP_ORDER_HISTORY_CACHE = { combined:null, value:[] };
+    let CLIENT_MAP_POINTS_CACHE = { clients:null, clientLength:-1, history:null, all:false, recent:false, days:0, value:[] };
 
     function invalidateClientMapCaches() {
-      UNASSIGNED_CLIENT_MAP_CACHE = { history:null, clients:null, days:0, date:"", value:[] };
-      CLIENT_MAP_POINTS_CACHE = { clients:null, clientLength:-1, history:null, assigned:false, unassigned:false, days:0, value:[] };
+      RECENT_CLIENT_MAP_CACHE = { history:null, clients:null, days:0, date:"", value:[] };
+      CLIENT_MAP_ORDER_HISTORY_CACHE = { combined:null, value:[] };
+      CLIENT_MAP_POINTS_CACHE = { clients:null, clientLength:-1, history:null, all:false, recent:false, days:0, value:[] };
     }
 
-    function assignedClientMapCount() {
-      return (state.clients || []).filter(client => Boolean(String(client.dispatcher || "").trim())).length;
+    function allClientMapCount() {
+      return (state.clients || []).length;
     }
 
     function currentClientMapHistoryDays() {
-      return Math.min(730, Math.max(7, Math.round(Number(state.clientMapHistoryDays || 30) || 30)));
+      return Math.min(730, Math.max(1, Math.round(Number(state.clientMapHistoryDays || 30) || 30)));
     }
 
-    function unassignedClientMapCandidates() {
-      const history = combinedClientRouteHistory();
+    function clientMapOrderHistory() {
+      const combined = combinedClientRouteHistory();
+      if (CLIENT_MAP_ORDER_HISTORY_CACHE.combined === combined) return CLIENT_MAP_ORDER_HISTORY_CACHE.value;
+      const rows = new Map();
+      combined.forEach((record, index) => {
+        const key = record?.routeId ? `route:${record.routeId}` : `history:${record?.id || index}`;
+        rows.set(key, record);
+      });
+      (state.routes || []).forEach(route => {
+        if (!route || route.futureQueue || route.proposedLoad || route.approvalStatus === "rejected" || isFreeDayRoute(route)) return;
+        const client = resolveClientForRoute(route);
+        const clientName = String(client?.name || route.client || "").trim();
+        const load = String(route.load || "").trim();
+        if (!clientName || !load || /^klient testowy$/i.test(clientName)) return;
+        rows.set(`route:${route.id}`, {
+          id:`map-order-${route.id}`,
+          routeId:String(route.id || ""),
+          clientId:String(client?.id || route.clientId || ""),
+          clientName,
+          load,
+          unload:String(route.unload || "").trim(),
+          date:String(route.loadDate || route.date || currentAppDate()).slice(0, 10),
+          dispatcher:String(client?.dispatcher || "")
+        });
+      });
+      const value = Array.from(rows.values());
+      CLIENT_MAP_ORDER_HISTORY_CACHE = { combined, value };
+      return value;
+    }
+
+    function recentClientMapCandidates() {
+      const history = clientMapOrderHistory();
       const clients = state.clients || [];
       const days = currentClientMapHistoryDays();
       const today = currentAppDate();
-      const cache = UNASSIGNED_CLIENT_MAP_CACHE;
+      const cache = RECENT_CLIENT_MAP_CACHE;
       if (cache.history === history && cache.clients === clients && cache.days === days && cache.date === today) return cache.value;
 
       const clientIndex = clientLookupIndex();
-      const cutoff = addDaysToIso(today, -days);
+      const cutoff = addDaysToIso(today, -(days - 1));
       const groups = new Map();
       history.forEach(record => {
         const recordDate = String(record.date || "").slice(0, 10);
@@ -80611,20 +80646,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const linked = (record.clientId ? clientIndex.byId.get(record.clientId) : null)
           || clientIndex.byName.get(removePolishChars(record.clientName || ""))
           || null;
-        if (linked?.dispatcher) return;
-        const address = String(record.load || linked?.address || "").replace(/\s+/g, " ").trim();
+        const address = String(linked?.address || record.load || "").replace(/\s+/g, " ").trim();
         if (!address) return;
-        const clientName = String(linked?.name || record.clientName || "Klient bez opiekuna").trim();
-        const key = `${linked?.id || removePolishChars(clientName)}|${removePolishChars(address)}`;
+        const clientName = String(linked?.name || record.clientName || "Klient").trim();
+        const key = linked?.id || removePolishChars(clientName);
         if (!groups.has(key)) groups.set(key, { client: linked, clientName, address, rows:[] });
         groups.get(key).rows.push(record);
       });
 
-      const qualifiedGroups = Array.from(groups.values()).filter(group => group.rows.length >= 2);
-      if (qualifiedGroups.length) postalPackedBatchLookup(qualifiedGroups.map(group => group.address));
-      const value = qualifiedGroups.map(group => {
+      const orderedGroups = Array.from(groups.values());
+      if (orderedGroups.length) postalPackedBatchLookup(orderedGroups.map(group => group.address));
+      const value = orderedGroups.map(group => {
         const client = group.client || {
-          id:`candidate-${removePolishChars(group.clientName)}-${removePolishChars(group.address)}`,
+          id:`recent-${removePolishChars(group.clientName)}`,
           databaseType:"operations",
           name:group.clientName,
           address:group.address,
@@ -80635,15 +80669,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           approximate:true
         };
         const relationPoint = clientRelationLocationPoint(group.address)?.coords || null;
-        const registeredAddressMatches = removePolishChars(client.address || "") === removePolishChars(group.address || "");
-        const coords = registeredAddressMatches ? clientCoords(client) : relationPoint;
+        const coords = group.client ? (clientCoords(client) || relationPoint) : relationPoint;
         if (!coords) return null;
         const latest = group.rows.reduce((best, row) => !best || String(row.date) > String(best.date) ? row : best, null);
-        const mapClient = { ...client, address:group.address, dispatcher:"", repeatedCount:group.rows.length, lastRouteDate:latest?.date || "", candidate:true, historyDays:days };
-        return { id:`candidate-${client.id || removePolishChars(group.clientName)}-${removePolishChars(group.address)}`, client:mapClient, coords };
-      }).filter(Boolean).sort((a,b)=>String(b.client.lastRouteDate).localeCompare(String(a.client.lastRouteDate)) || b.client.repeatedCount-a.client.repeatedCount);
+        const mapClient = { ...client, address:group.address, orderCount:group.rows.length, lastRouteDate:latest?.date || "", orderedInPeriod:true, historyDays:days };
+        return { id:`recent-${client.id || removePolishChars(group.clientName)}`, client:mapClient, coords };
+      }).filter(Boolean).sort((a,b)=>String(b.client.lastRouteDate).localeCompare(String(a.client.lastRouteDate)) || b.client.orderCount-a.client.orderCount);
 
-      UNASSIGNED_CLIENT_MAP_CACHE = { history, clients, days, date:today, value };
+      RECENT_CLIENT_MAP_CACHE = { history, clients, days, date:today, value };
       return value;
     }
 
@@ -80679,33 +80712,48 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function clientMapPoints() {
       const clients = state.clients || [];
-      const history = state.showUnassignedClientsOnMap ? combinedClientRouteHistory() : null;
+      const history = state.showUnassignedClientsOnMap ? clientMapOrderHistory() : null;
       const days = currentClientMapHistoryDays();
       const cache = CLIENT_MAP_POINTS_CACHE;
-      if (cache.clients === clients && cache.clientLength === clients.length && cache.history === history && cache.assigned === Boolean(state.showClientsOnMap) && cache.unassigned === Boolean(state.showUnassignedClientsOnMap) && cache.days === days) return cache.value;
+      if (cache.clients === clients && cache.clientLength === clients.length && cache.history === history && cache.all === Boolean(state.showClientsOnMap) && cache.recent === Boolean(state.showUnassignedClientsOnMap) && cache.days === days) return cache.value;
 
       const points = [];
+      const pointIndex = new Map();
+      const addPoint = point => {
+        if (!point?.client || !Array.isArray(point.coords)) return;
+        const key = point.client.id ? `id:${point.client.id}` : `name:${removePolishChars(point.client.name || "")}`;
+        const existingIndex = pointIndex.get(key);
+        if (Number.isInteger(existingIndex)) {
+          const existing = points[existingIndex];
+          points[existingIndex] = { ...existing, client:{ ...existing.client, ...point.client } };
+          return;
+        }
+        pointIndex.set(key, points.length);
+        points.push(point);
+      };
       if (state.showClientsOnMap) {
-        clients.filter(client => Boolean(String(client.dispatcher || "").trim())).forEach(client => {
+        clients.forEach(client => {
           const coords = clientCoords(client);
-          if (coords) points.push({ id:client.id, client, coords });
+          if (coords) addPoint({ id:client.id, client, coords });
         });
       }
-      if (state.showUnassignedClientsOnMap) points.push(...unassignedClientMapCandidates());
+      if (state.showUnassignedClientsOnMap) recentClientMapCandidates().forEach(addPoint);
       const value = spreadOverlappingClientPoints(points);
-      CLIENT_MAP_POINTS_CACHE = { clients, clientLength:clients.length, history, assigned:Boolean(state.showClientsOnMap), unassigned:Boolean(state.showUnassignedClientsOnMap), days, value };
+      CLIENT_MAP_POINTS_CACHE = { clients, clientLength:clients.length, history, all:Boolean(state.showClientsOnMap), recent:Boolean(state.showUnassignedClientsOnMap), days, value };
       return value;
     }
 
     function renderClientMapPopup(client) {
       const validation = validateClientAddress(client);
+      const ownerText = client.dispatcher ? esc(validation.label) : "Bez przypisanego spedytora";
+      const orderText = client.orderedInPeriod
+        ? `${esc(client.orderCount || 1)} ${Number(client.orderCount || 1) === 1 ? "relacja" : "relacji"} w ostatnich ${esc(client.historyDays || currentClientMapHistoryDays())} dniach${client.lastRouteDate ? `<br>Ostatnia: ${esc(formatDateForInput(client.lastRouteDate))}` : ""}`
+        : "";
       return `
         <div class="map-client-popup">
           <span class="client-owner-inline">${clientNameLink(client)}</span><br>
           ${esc(client.address)}<br>
-          <span class="small">${client.dispatcher
-            ? `${esc(validation.label)}`
-            : `Bez przypisanego spedytora · ${esc(client.repeatedCount || 2)} odbiory z tego adresu w ostatnich ${esc(client.historyDays || currentClientMapHistoryDays())} dniach${client.lastRouteDate ? `<br>Ostatnio: ${esc(formatDateForInput(client.lastRouteDate))}` : ""}`}</span>
+          <span class="small">${ownerText}${orderText ? `<br>${orderText}` : ""}</span>
         </div>
       `;
     }
@@ -80798,9 +80846,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           iconAnchor: assigned ? [10, 10] : [9, 9],
           popupAnchor: assigned ? [0, -9] : [0, -7]
         });
-        const tooltip = assigned
-          ? `${point.client.name} · ${point.client.dispatcher}`
-          : `${point.client.name} · bez opiekuna · ${point.client.repeatedCount || 2}× / ${point.client.historyDays || currentClientMapHistoryDays()} dni`;
+        const orderInfo = point.client.orderedInPeriod
+          ? ` · ${point.client.orderCount || 1}× / ${point.client.historyDays || currentClientMapHistoryDays()} dni`
+          : "";
+        const tooltip = `${point.client.name} · ${assigned ? point.client.dispatcher : "bez opiekuna"}${orderInfo}`;
         const marker = L.marker(point.coords, { icon, zIndexOffset: assigned ? 2200 : 1700 })
           .addTo(state.leafletClientLayer)
           .bindTooltip(tooltip, { direction: "top", offset: [0, assigned ? -10 : -8], opacity: 0.92 })
@@ -80816,7 +80865,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const button = document.querySelector('[data-action="toggle-map-clients"]');
       if (button) {
         button.classList.toggle("btn-dark", state.showClientsOnMap);
-        button.textContent = `${state.showClientsOnMap ? "Ukryj klientów z opiekunem" : "Klienci z opiekunem"} (${assignedClientMapCount()})`;
+        button.textContent = `${state.showClientsOnMap ? "Ukryj wszystkich klientów" : "Wszyscy klienci"} (${allClientMapCount()})`;
       }
       const model = unloadMapViewModel(mapRoutesForReportDate());
       scheduleLeafletMapSync(model.leafletPayload);
@@ -80831,7 +80880,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function setClientMapHistoryDays(value, immediate = false) {
       if (immediate) clearTimeout(clientMapHistoryDaysTimer);
-      const days = Math.min(730, Math.max(7, Math.round(Number(value) || 30)));
+      const days = Math.min(730, Math.max(1, Math.round(Number(value) || 30)));
       const changed = days !== currentClientMapHistoryDays();
       state.clientMapHistoryDays = days;
       saveClientMapHistoryDaysToStorage();
@@ -80842,10 +80891,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const button = document.querySelector('[data-action="toggle-map-unassigned-clients"]');
       if (button) {
-        const count = state.showUnassignedClientsOnMap ? unassignedClientMapCandidates().length : null;
+        const count = state.showUnassignedClientsOnMap ? recentClientMapCandidates().length : null;
         button.textContent = state.showUnassignedClientsOnMap
-          ? `Ukryj klientów bez opiekuna${Number.isFinite(count) ? ` (${count})` : ""}`
-          : "Klienci bez opiekuna";
+          ? `Ukryj klientów z relacją${Number.isFinite(count) ? ` (${count})` : ""}`
+          : "Klienci z relacją w okresie";
       }
 
       const model = unloadMapViewModel(mapRoutesForReportDate());
@@ -80863,7 +80912,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const button = document.querySelector('[data-action="toggle-map-unassigned-clients"]');
       if (button) {
         button.classList.toggle("btn-dark", state.showUnassignedClientsOnMap);
-        button.textContent = state.showUnassignedClientsOnMap ? "Ukryj klientów bez opiekuna" : "Klienci bez opiekuna";
+        const count = state.showUnassignedClientsOnMap ? recentClientMapCandidates().length : null;
+        button.textContent = state.showUnassignedClientsOnMap
+          ? `Ukryj klientów z relacją${Number.isFinite(count) ? ` (${count})` : ""}`
+          : "Klienci z relacją w okresie";
       }
       const model = unloadMapViewModel(mapRoutesForReportDate());
       scheduleLeafletMapSync(model.leafletPayload);
@@ -82689,12 +82741,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const clientToggle = card.querySelector('[data-action="toggle-map-clients"]');
       if (clientToggle) {
         clientToggle.classList.toggle("btn-dark", state.showClientsOnMap);
-        clientToggle.textContent = `${state.showClientsOnMap ? "Ukryj klientów z opiekunem" : "Klienci z opiekunem"} (${assignedClientMapCount()})`;
+        clientToggle.textContent = `${state.showClientsOnMap ? "Ukryj wszystkich klientów" : "Wszyscy klienci"} (${allClientMapCount()})`;
       }
       const unassignedToggle = card.querySelector('[data-action="toggle-map-unassigned-clients"]');
       if (unassignedToggle) {
         unassignedToggle.classList.toggle("btn-dark", state.showUnassignedClientsOnMap);
-        unassignedToggle.textContent = state.showUnassignedClientsOnMap ? "Ukryj klientów bez opiekuna" : "Klienci bez opiekuna";
+        const count = state.showUnassignedClientsOnMap ? recentClientMapCandidates().length : null;
+        unassignedToggle.textContent = state.showUnassignedClientsOnMap
+          ? `Ukryj klientów z relacją${Number.isFinite(count) ? ` (${count})` : ""}`
+          : "Klienci z relacją w okresie";
       }
       const basesToggle = card.querySelector('[data-action="toggle-map-driver-bases"]');
       if (basesToggle) {
@@ -94690,6 +94745,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* 3L.61 — uproszczony panel Statystyk. Akcje okna są razem po prawej stronie. */
     .stats-drawer-head { display:flex !important; align-items:flex-start !important; justify-content:space-between !important; gap:12px !important; }
     .stats-drawer-head-actions { margin-left:auto !important; display:flex !important; align-items:center !important; justify-content:flex-end !important; gap:6px !important; flex:0 0 auto !important; }
+  </style>
+  <style id="targeted-3l65-map-clients-compact-routes">
+    /* Krótkie relacje wykorzystują niemal całą szerokość kafelka na treść. */
+    .time-route.compact-content {
+      padding-left:2px !important;
+      padding-right:2px !important;
+    }
+    .time-route.compact-content .time-resize { width:8px !important; background:rgba(15,23,42,.035); }
+    .time-route.compact-content .time-resize-left:after { left:2px; }
+    .time-route.compact-content .time-resize-right:after { right:2px; }
+    .time-route.compact-content .time-route-title { width:100%; gap:1px; justify-content:flex-start; }
+    .time-route.compact-content .route-unload-label { flex:1 1 auto; min-width:0; text-align:center; }
+    .time-route.compact-content .route-commercial-warning { width:12px; height:12px; margin-right:1px; font-size:8px; flex:0 0 12px; }
+    .time-route.compact-content .route-dispatcher-chip { min-width:15px; max-width:25px; padding:0 1px; margin-right:0; font-size:6.5px; flex:0 0 auto; }
+    .time-route.compact-content .time-route-sub { padding-left:1px; padding-right:1px; text-align:center; }
   </style>
 </body>
 </html>
