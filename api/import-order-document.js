@@ -118,7 +118,7 @@ function analysisInstructions(referenceDate = '') {
 }
 
 function outputText(data) {
-  return String(data?.output_text || data?.output?.flatMap((item) => item?.content || []).find((item) => item?.type === 'output_text')?.text || '').trim()
+  return String(data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
 }
 
 function normalizeResult(value = {}) {
@@ -169,30 +169,25 @@ export default async function handler(req, res) {
     const file = await readRawBody(req)
     if (!file.length) return json(res, 400, { ok: false, message: 'Przekazany plik jest pusty.' })
 
-    const openAiKey = env('OPENAI_API_KEY')
-    if (!openAiKey) return json(res, 503, { ok: false, message: 'Brak OPENAI_API_KEY w konfiguracji wdrożenia.' })
+    const geminiKey = env('GEMINI_API_KEY')
+    if (!geminiKey) return json(res, 503, { ok: false, message: 'Brak GEMINI_API_KEY w konfiguracji wdrożenia.' })
+    const geminiModel = env('GEMINI_IMPORT_MODEL', env('GEMINI_MODEL', 'gemini-2.5-flash'))
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 85000)
-    let openAiResponse
+    let geminiResponse
     try {
-      const fileInput = {
-        type: 'input_file',
-        filename: fileName,
-        file_data: `data:${mimeType};base64,${file.toString('base64')}`,
-      }
-      if (extension === 'pdf') fileInput.detail = 'auto'
-      openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+      geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiKey}` },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
         signal: controller.signal,
         body: JSON.stringify({
-          model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
-          store: false,
-          instructions: analysisInstructions(referenceDate),
-          input: [{ role: 'user', content: [fileInput, { type: 'input_text', text: 'Przeanalizuj załączone zlecenie transportowe.' }] }],
-          max_output_tokens: 5000,
-          text: { format: { type: 'json_object' } },
+          systemInstruction: { parts: [{ text: analysisInstructions(referenceDate) }] },
+          contents: [{ role: 'user', parts: [
+            { inlineData: { mimeType, data: file.toString('base64') } },
+            { text: `Nazwa pliku: ${fileName}\nPrzeanalizuj załączone zlecenie transportowe.` },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 5000, temperature: 0 },
         }),
       })
     } catch (error) {
@@ -202,18 +197,18 @@ export default async function handler(req, res) {
       clearTimeout(timeout)
     }
 
-    const openAiData = await openAiResponse.json().catch(() => ({}))
-    if (!openAiResponse.ok) {
-      return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${errorMessage(openAiData?.error, `OpenAI zwróciło HTTP ${openAiResponse.status}.`)}` })
+    const geminiData = await geminiResponse.json().catch(() => ({}))
+    if (!geminiResponse.ok) {
+      return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)}` })
     }
     let parsed
-    try { parsed = JSON.parse(outputText(openAiData)) } catch { throw new Error('Model AI zwrócił niepoprawny format danych.') }
+    try { parsed = JSON.parse(outputText(geminiData)) } catch { throw new Error('Model Gemini zwrócił niepoprawny format danych.') }
     return json(res, 200, {
       ok: true,
       ...normalizeResult(parsed),
       fileName,
       fileType: extension,
-      model: String(openAiData?.model || env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini')),
+      model: geminiModel,
       elapsedMs: Date.now() - startedAt,
     })
   } catch (error) {

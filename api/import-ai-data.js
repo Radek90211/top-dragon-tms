@@ -315,24 +315,22 @@ export default async function handler(req, res) {
       })
     }
 
-    const openAiKey = env('OPENAI_API_KEY')
-    if (!openAiKey) return json(res, 503, { ok: false, message: 'Brak OPENAI_API_KEY w konfiguracji wdrożenia. Import AI jest chwilowo niedostępny.' })
+    const geminiKey = env('GEMINI_API_KEY')
+    if (!geminiKey) return json(res, 503, { ok: false, message: 'Brak GEMINI_API_KEY w konfiguracji wdrożenia. Import AI jest chwilowo niedostępny.' })
+    const geminiModel = env('GEMINI_IMPORT_MODEL', env('GEMINI_MODEL', 'gemini-2.5-flash'))
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 75000)
-    let openAiResponse
+    let geminiResponse
     try {
-      openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+      geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiKey}` },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
         signal: controller.signal,
         body: JSON.stringify({
-          model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
-          store: false,
-          instructions: instructionsForKind(kind, referenceDate),
-          input: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}`,
-          max_output_tokens: kind === 'clients' ? 24000 : 12000,
-          text: { format: { type: 'json_object' } },
+          systemInstruction: { parts: [{ text: instructionsForKind(kind, referenceDate) }] },
+          contents: [{ role: 'user', parts: [{ text: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}` }] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: kind === 'clients' ? 24000 : 12000, temperature: 0 },
         }),
       })
     } catch (error) {
@@ -341,15 +339,15 @@ export default async function handler(req, res) {
     } finally {
       clearTimeout(timeout)
     }
-    const openAiData = await openAiResponse.json().catch(() => ({}))
-    if (!openAiResponse.ok) {
-      const providerMessage = errorMessage(openAiData?.error, `OpenAI zwróciło HTTP ${openAiResponse.status}.`)
+    const geminiData = await geminiResponse.json().catch(() => ({}))
+    if (!geminiResponse.ok) {
+      const providerMessage = errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${providerMessage}` })
     }
 
-    const outputText = String(openAiData?.output_text || openAiData?.output?.flatMap((item) => item?.content || []).find((item) => item?.type === 'output_text')?.text || '').trim()
+    const outputText = String(geminiData?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
     let parsed
-    try { parsed = JSON.parse(outputText) } catch { throw new Error('Model AI zwrócił niepoprawny JSON. Spróbuj ponownie z krótszym lub bardziej uporządkowanym źródłem.') }
+    try { parsed = JSON.parse(outputText) } catch { throw new Error('Model Gemini zwrócił niepoprawny JSON. Spróbuj ponownie z krótszym lub bardziej uporządkowanym źródłem.') }
     const items = normalizeItems(kind, parsed?.items)
     const warnings = (Array.isArray(parsed?.warnings) ? parsed.warnings : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100)
     return json(res, 200, {
@@ -357,7 +355,7 @@ export default async function handler(req, res) {
       kind,
       items,
       warnings,
-      model: String(openAiData?.model || env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini')),
+      model: geminiModel,
       elapsedMs: Date.now() - startedAt,
     })
   } catch (error) {
