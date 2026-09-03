@@ -3848,9 +3848,6 @@ async function renderDashboard(user) {
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
   }
 
-  const requestedWorkspaceView = ['plan', 'map'].includes(new URLSearchParams(window.location.search).get('tmsView'))
-    ? new URLSearchParams(window.location.search).get('tmsView')
-    : ''
   app.innerHTML = `
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite">
@@ -3860,7 +3857,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v101-sms-maps-hourly&startView=${encodeURIComponent(requestedWorkspaceView)}"
+          src="/tms.html?embedded=1&build=request-workflow-v102-ai-queue-dock"
         title="Top Dragon TMS"
       ></iframe>
     </main>
