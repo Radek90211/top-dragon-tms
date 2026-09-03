@@ -70658,7 +70658,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeUnloadBoardLabel(route) {
       if (isFreeDayRoute(route)) return "WOLNE";
       return [route?.unload, route?.secondUnload]
-        .map(value => compactRouteLocationLabel(value))
+        .map(value => displayCity(value) || cityFromText(value) || compactRouteLocationLabel(value))
         .filter(Boolean)
         .join(" / ") || "ROZŁADUNEK";
     }
@@ -77904,7 +77904,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const pickup = payload.pickup || payload.load || payload.loading || payload.zaladunek || {};
       const delivery = payload.delivery || payload.unload || payload.unloading || payload.rozladunek || {};
       const listToText = value => Array.isArray(value) ? value.filter(Boolean).join("\n") : String(value || "");
-      const cityLabel = point => point.fullAddress || [point.city, point.postalCode].filter(Boolean).join(" ") || point.place || point.location || "";
+      const cityLabel = point => [point.city, point.postalCode].filter(Boolean).join(" ") || point.city || point.place || point.location || point.fullAddress || "";
       const addressLabel = point => point.address || [point.street, point.number].filter(Boolean).join(" ") || point.fullAddress || "";
       return {
         ...defaults,
@@ -78014,7 +78014,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         endDate,
         endHour: pdfImportHour(data.unloadTime, 10),
         load: data.loadCity,
+        loadAddress: data.loadAddress,
         unload: data.unloadCity,
+        unloadAddress: data.unloadAddress,
         notes: [
           data.reference ? `Ref.: ${data.reference}` : "",
           data.currency && data.currency !== "PLN" && Number(data.rate || 0) > 0 ? `Stawka z dokumentu: ${data.rate} ${data.currency}` : "",
@@ -78022,7 +78024,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           data.reminders
         ].filter(Boolean).join("\n"),
         client: data.client || "Zlecenie z dokumentu",
-        rate: (!data.currency || data.currency === "PLN") ? Number(data.rate || 0) : 0,
+        rate: Number(data.rate || 0),
+        currency: data.currency || "PLN",
         visibilityScope: targetProposed ? "all" : "branch"
       };
       state.pdfImportOpen = false;
@@ -78226,7 +78229,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ].filter(Boolean).join("\n"),
           client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`,
           reference: String(item.reference || ""),
-          rate: (!item.currency || String(item.currency).toUpperCase() === "PLN") ? Number(item.rate || 0) : 0,
+          rate: Number(item.rate || 0),
           loadedKm: Number(item.loadedKm || item.distanceKm || item.kilometers || 0) > 0
             ? Math.ceil(Number(item.loadedKm || item.distanceKm || item.kilometers || 0) / 10) * 10
             : 0,
@@ -78434,7 +78437,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const clientStartedAt = performance.now();
       try {
         if (EMBEDDED_MODE) {
-          const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 70000);
+          const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 130000);
           parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
           state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
         } else {
@@ -78455,9 +78458,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
         openAiTextImportBatchItem(0);
       } catch (error) {
-        state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
-        state.textImportWarning = true;
-        showAppMessage("Błąd analizy", String(error?.message || error));
+        const fallback = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text-fallback" }));
+        if (fallback.length) {
+          state.textImportStatus = `Gemini jest chwilowo przeciążone. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
+          state.textImportWarning = true;
+          state.textImportBatch = fallback;
+          state.textImportBatchIndex = 0;
+          state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
+          openAiTextImportBatchItem(0);
+          showAppMessage("Użyto szybkiej analizy lokalnej", "Gemini było chwilowo przeciążone. Sprawdź uzupełnione pola przed zapisaniem.", "info");
+        } else {
+          state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
+          state.textImportWarning = true;
+          showAppMessage("Błąd analizy", String(error?.message || error));
+        }
       } finally {
         setAiAnalyzerBusy("");
       }
@@ -78479,7 +78493,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       try {
         let parsed = [];
         if (EMBEDDED_MODE) {
-          const payload = await requestAiAnalyzer("text", { text, date: state.reportDate || currentAppDate() }, 90000);
+          const payload = await requestAiAnalyzer("text", { text, date: state.reportDate || currentAppDate() }, 130000);
           parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
         } else {
           parsed = localTextOrderParser(text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
@@ -78507,8 +78521,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         notifyProposedLoadsIfNeeded();
         syncTextImportUi();
       } catch (error) {
-        state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
-        state.textImportWarning = true;
+        const fallback = localTextOrderParser(text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text-fallback" }));
+        if (fallback.length) {
+          const routes = fallback.map((item, index) => ({ ...createProposedLoadFromTextItem(item, index), aiSourceText: text, aiSourceType: "text-fallback" }));
+          if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
+          state.proposedLoads.push(...routes);
+          state.textImportPreview = routes;
+          state.textImportStatus = `Gemini jest chwilowo przeciążone. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
+          state.textImportWarning = true;
+          state.proposedPanelOpen = true;
+          syncProposedPanel();
+        } else {
+          state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
+          state.textImportWarning = true;
+        }
         syncTextImportUi();
       }
     }
@@ -81375,7 +81401,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadedKm = routeOrderFirstValue(payload.loadedKm, payload.distanceKm, payload.kilometers, payload.kilometry);
       const carrierCost = routeOrderFirstValue(payload.cost, payload.carrierCost, payload.transportCost);
       const oversizedCost = routeOrderFirstValue(payload.oversizedCost, payload.gabarytCost);
-      const notes = routeOrderFirstValue(payload.extraInfo, payload.notes, payload.uwagi);
+      const notes = [payload.extraInfo, payload.notes, payload.uwagi, payload.reminders]
+        .flatMap(value => Array.isArray(value) ? value : [value])
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+        .join("\n");
 
       add("load", "Załadunek", pickupLocation, data.loadCity || pickupLocation);
       add("loadAddress", "Adres załadunku", pickupAddress, data.loadAddress || pickupAddress);
@@ -81430,7 +81460,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (keys.has("rate") && Number(data.rate || 0) > 0) {
         route.orderRateOriginal = Number(data.rate);
         route.orderCurrency = currency || "PLN";
-        if (!currency || currency === "PLN") set("rate", Number(data.rate));
+        set("rate", Number(data.rate));
       }
       const numberFromPayload = (...names) => {
         const value = names.map(name => payload?.[name]).find(item => Number(item) > 0);
@@ -81446,7 +81476,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         route.oversizedTransport = true;
       }
 
-      const noteText = [data.notes, data.reminders].filter(Boolean).join("\n").trim();
+      const extractedNoteText = fields.find(field => field.key === "notes")?.searchValue || "";
+      const noteText = Array.from(new Set([data.notes, data.reminders, extractedNoteText]
+        .flatMap(value => String(value || "").split(/\n+/))
+        .map(value => value.trim())
+        .filter(Boolean)))
+        .join("\n");
       if (keys.has("notes") && noteText && !String(route.notes || "").includes(noteText)) {
         set("notes", [route.notes, noteText].filter(Boolean).join("\n"));
       }
@@ -81467,7 +81502,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderRouteOrderDropzone(route, canEdit) {
-      if (!canEdit || state.user?.role !== "spedytor") return "";
+      if (!canEdit || !canUseOperationalAi()) return "";
       const entry = ROUTE_ORDER_IMPORTS.get(route.id) || null;
       const busy = Boolean(entry?.busy);
       const status = String(entry?.status || "");
@@ -81540,6 +81575,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeOrderDrop(event, routeId) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
+      document.body.classList.remove("ai-file-dragover");
       event?.currentTarget?.classList.remove("is-dragover");
       const file = event?.dataTransfer?.files?.[0] || null;
       if (file) analyzeRouteOrderFile(routeId, file);
@@ -81553,7 +81589,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function analyzeRouteOrderFile(routeId, file) {
       const route = state.routes.find(item => item.id === routeId);
-      if (!route || state.user?.role !== "spedytor" || !canEditBoardRoute(route)) {
+      if (!route || !canUseOperationalAi() || !canEditBoardRoute(route)) {
         showAppMessage("Brak uprawnień", "Zlecenie może importować spedytor, który może edytować tę relację.", "error");
         return;
       }
@@ -81658,12 +81694,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const disabled = formDisabledAttr(route);
       const canAccept = state.user.role === "spedytor" && route.ownerDispatcher === state.user.login && route.createdBy !== state.user.login && route.approvalStatus === "pending";
       const orderImport = ROUTE_ORDER_IMPORTS.get(route.id) || null;
-      const hasOrderPreview = Boolean(state.user.role === "spedytor" && canEdit && orderImport?.previewUrl);
+      const hasOrderPreview = Boolean(canUseOperationalAi() && canEdit && orderImport?.previewUrl);
 
       return `
         ${state.detailsOpen ? `<div class="details-backdrop" onclick="closeDetails()"></div>` : ""}
         <aside class="side-panel ${state.detailsOpen ? "open" : ""} ${hasOrderPreview ? "has-order-preview" : ""}"
-          ${state.user.role === "spedytor" && canEdit ? `ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')" ondragover="routeOrderDragOver(event,'${attr(route.id)}')" ondragleave="routeOrderDragLeave(event)" ondrop="routeOrderDrop(event,'${attr(route.id)}')"` : ""}
+          ${canUseOperationalAi() && canEdit ? `ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')" ondragover="routeOrderDragOver(event,'${attr(route.id)}')" ondragleave="routeOrderDragLeave(event)" ondrop="routeOrderDrop(event,'${attr(route.id)}')"` : ""}
           onclick="event.stopPropagation()">
           <div class="panel-head">
             <h2>Szczegóły zlecenia</h2>
@@ -81770,8 +81806,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="details-client-helper">${clientOwnerBadge(resolveClientForRoute(route))}</div>
               ${canEdit ? `<div id="details-client-add-${attr(route.id)}" class="client-quick-add" hidden><div><label class="field-label" style="margin-top:0;">Nowa firma</label><input id="details-client-name-${attr(route.id)}" class="input" value="${attr(route.client || "")}" placeholder="nazwa firmy" /></div><div><label class="field-label" style="margin-top:0;">NIP</label><input id="details-client-nip-${attr(route.id)}" class="input" inputmode="numeric" maxlength="10" placeholder="10 cyfr" /></div><button type="button" class="btn btn-dark" onclick="quickAddClientFromRoute('${attr(route.id)}')">Dodaj firmę</button></div>` : ""}
 
-              <div style="display:none" aria-hidden="true">
-                <label class="field-label">Dodatkowe informacje do SMS</label>
+              <div>
+                <label class="field-label">Uwagi do zlecenia</label>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
               </div>
             </section>
@@ -81784,7 +81820,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
               <div class="grid-4 details-finance-grid" style="margin-top:10px;">
                 ${numberInput(route, "loadedKm", "Kilometry")}
-                ${numberInput(route, "rate", "Stawka PLN")}
+                ${numberInput(route, "rate", `Stawka ${route.orderCurrency || "PLN"}`)}
                 ${numberInput(route, "oversizedCost", "Kwota za gabaryt")}
                 ${numberInput(route, "cost", "Koszt przewoźnika")}
               </div>
@@ -81908,7 +81944,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <button type="button" id="new-load-suggestion" class="single-suggestion-button" onpointerdown="acceptNewRouteLocationSuggestion(event,'new-load')"></button>
                   </div>
                 </div>
-                <input id="new-load-address" type="hidden" value="${attr(prefill.loadAddress || "")}" />
+                <div>
+                  <label class="field-label">Dokładny adres załadunku</label>
+                  <input id="new-load-address" class="input" placeholder="ulica, numer, zakład, brama" value="${attr(prefill.loadAddress || "")}" />
+                </div>
                 ${prefill.secondLoad || prefill.secondLoadAddress || prefill.routeSecondLoadCoords ? "" : `
                 <div id="new-second-load-action" class="optional-stop-action-row">
                   <button type="button" class="btn-mini details-add-stop" onclick="revealNewExtraStop('load')">+ Drugi załadunek</button>
@@ -81934,7 +81973,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   </div>
                   <div class="location-helper"></div>
                 </div>
-                <input id="new-unload-address" type="hidden" value="${attr(prefill.unloadAddress || "")}" />
+                <div>
+                  <label class="field-label">Dokładny adres rozładunku</label>
+                  <input id="new-unload-address" class="input" placeholder="ulica, numer, zakład, brama" value="${attr(prefill.unloadAddress || "")}" />
+                </div>
                 ${prefill.secondUnload || prefill.secondUnloadAddress || prefill.routeSecondUnloadCoords ? "" : `
                 <div id="new-second-unload-action" class="optional-stop-action-row">
                   <button type="button" class="btn-mini details-add-stop" onclick="revealNewExtraStop('unload')">+ Drugi rozładunek</button>
@@ -81965,12 +82007,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <input id="new-route-second-load-coords" type="hidden" value="" />
               <input id="new-route-second-unload-coords" type="hidden" value="" />
 
-              ${proposedMode ? `
-                <div class="compact-comment-field">
-                  <label class="field-label">Komentarz</label>
-                  <input id="new-notes" class="input" maxlength="180" placeholder="krótka informacja o ładunku" value="${attr(prefill.notes || "")}" />
-                </div>
-              ` : `<input id="new-notes" type="hidden" value="${attr(prefill.notes || "")}" />`}
+              <div class="compact-comment-field">
+                <label class="field-label">Uwagi do zlecenia</label>
+                <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
+              </div>
 
               <label class="field-label">Klient</label>
               <div class="single-suggestion-wrap">
@@ -81982,7 +82022,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
               ${proposedMode || futureMode ? `
                 <div class="rate-only-card">
-                  <label class="field-label" style="margin-top:0;">Stawka PLN</label>
+                  <label class="field-label" style="margin-top:0;">Stawka ${esc(prefill.currency || prefill.orderCurrency || "PLN")}</label>
                   <input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" oninput="updateNewRouteFinance('rate')" />
                   <input id="new-approach" type="hidden" value="${attr(prefill.approachKm ?? 0)}" />
                   <input id="new-loaded" type="hidden" value="${attr(prefill.loadedKm ?? 0)}" />
@@ -81994,7 +82034,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <div class="grid-4" style="background:#f8fafc;border-radius:14px;padding:12px;margin-top:12px;">
                   <div><label class="field-label" style="margin-top:0;">Dolot km</label><input id="new-approach" class="input" type="number" min="0" step="1" value="${attr(prefill.approachKm ?? 0)}" oninput="markKmInputManual('new-approach');updateNewRouteFinance('km')" /></div>
                   <div><label class="field-label" style="margin-top:0;">Kilometry</label><input id="new-loaded" class="input" type="number" min="0" step="1" value="${attr(prefill.loadedKm ?? 0)}" oninput="markKmInputManual('new-loaded');updateNewRouteFinance('km')" /></div>
-                  <div><label class="field-label" style="margin-top:0;">Stawka PLN</label><input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" oninput="updateNewRouteFinance('rate')" /></div>
+                  <div><label class="field-label" style="margin-top:0;">Stawka ${esc(prefill.currency || prefill.orderCurrency || "PLN")}</label><input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" oninput="updateNewRouteFinance('rate')" /></div>
                   <div><label class="field-label" style="margin-top:0;">Kwota za gabaryt</label><input id="new-oversized-cost" class="input" type="number" min="0" step="1" value="${attr(prefill.oversizedCost ?? 0)}" oninput="updateNewRouteFinance('oversize')" /><input id="new-oversized" type="hidden" value="${Number(prefill.oversizedCost || 0) > 0 ? "1" : "0"}" /></div>
                   <div><label class="field-label" style="margin-top:0;">Koszt przewoźnika</label><input id="new-cost" class="input" type="number" min="0" step="1" value="${attr(prefill.cost ?? 0)}" readonly /></div>
                   <div class="profitability-calculator" style="grid-column:1 / -1;">
@@ -85780,6 +85820,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         loadedKm: loadedValue,
         baseKm: baseValue,
         rate: rateValue,
+        orderCurrency: String(state.prefill?.currency || state.prefill?.orderCurrency || "PLN").toUpperCase(),
+        orderRateOriginal: rateValue,
         cost: costValue,
         carrierRatePerKm: carrierRatePerKmValue,
         oversizedTransport: oversizedTransportValue,
@@ -94886,6 +94928,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .stats-hour-column small { position:absolute;top:100%;margin-top:5px;font-size:7px;color:var(--muted);white-space:nowrap; }
     .stats-hour-column b { font-size:8px;color:var(--text); }
     .admin-transfer-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--soft); }
+    .future-ai-text-box { display:grid;gap:7px;padding:10px;border:1px solid #bfdbfe;border-radius:12px;background:#eff6ff; }
+    .future-ai-text-box textarea { min-height:86px;resize:vertical; }
+    .app.dark-mode .future-ai-text-box { background:#172554;border-color:#1d4ed8; }
+    body.ai-file-dragover::after { content:"Upuść zlecenie — AI uzupełni relację";position:fixed;inset:14px;z-index:99999;display:grid;place-items:center;border:3px dashed #60a5fa;border-radius:18px;background:rgba(15,23,42,.88);color:#fff;font-size:22px;font-weight:950;text-align:center;pointer-events:none; }
     @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.stats-hourly-timeline{grid-template-columns:repeat(24,18px)}}
   </style>
   <script id="targeted-3l66-operations-ai-workspaces-script">
@@ -94909,23 +94955,47 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.openRouteSms = openRouteSms;
       window.deleteClientFromMap = deleteClientFromMap;
 
+      function routeExternalPoint3L67(route, kind) {
+        if (!route) return null;
+        const point = routePointFromRoute(route, kind);
+        if (point) return point;
+        const config = routePointConfig(kind);
+        const label = [route?.[config.addressKey], route?.[config.locationKey]].filter(Boolean).join(', ').trim();
+        return label ? { label } : null;
+      }
+
+      function dedupeExternalPoints3L67(points) {
+        const seen = new Set();
+        return (points || []).filter(point => {
+          if (!point || !String(point.label || '').trim()) return false;
+          const key = validRoutePlannerPoint(point)
+            ? `${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`
+            : removePolishChars(point.label);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
       function routeNavigationPoints3L66(route) {
         if (!route) return [];
         const previous = previousRouteBeforeRoute(route);
-        const previousUnload = previous ? routePointFromRoute(previous, 'unload') : null;
-        const load = routePointFromRoute(route, 'load');
-        const unload = routePointFromRoute(route, 'unload');
-        return dedupeRoutePlannerPoints([previousUnload, load, unload]);
+        const previousUnload = previous ? routeExternalPoint3L67(previous, 'unload') : null;
+        const load = routeExternalPoint3L67(route, 'load');
+        const unload = routeExternalPoint3L67(route, 'unload');
+        return dedupeExternalPoints3L67([previousUnload, load, unload]);
       }
 
       function impargoStopValue3L66(point) {
         const label = String(point?.label || '').replace(/\s+/g,' ').trim();
         const encodedLabel = encodeURIComponent(label);
-        return `${encodedLabel},${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`;
+        return validRoutePlannerPoint(point)
+          ? `${encodedLabel},${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`
+          : encodedLabel;
       }
 
       function buildImpargoUrl3L66(points) {
-        const valid = (points || []).filter(validRoutePlannerPoint);
+        const valid = (points || []).filter(point => String(point?.label || '').trim());
         if (valid.length < 2) return '';
         const params = new URLSearchParams({ considerTraffic:'false', maxAxle:'8', maxHeight:'4', routingMode:'shortest', shippedHazardousGoods:'' });
         valid.forEach((point,index) => {
@@ -94942,7 +95012,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ? buildImpargoUrl3L66(points)
           : (points.length >= 2 ? buildGoogleDirectionsUrl(points[0], points[points.length - 1], points.slice(1,-1)) : '');
         if (!url) {
-          showAppMessage('Brak punktów trasy','Uzupełnij poprzedni rozładunek, załadunek i rozładunek, aby otworzyć mapę.');
+          showAppMessage('Brak punktów trasy','Uzupełnij załadunek i rozładunek, aby otworzyć mapę. Poprzedni rozładunek jest dodawany tylko wtedy, gdy istnieje.');
           return;
         }
         window.open(url,'_blank','noopener,noreferrer');
@@ -94978,6 +95048,75 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const html = renderBoard3L66.apply(this, arguments);
         return html.replace('<h2>Plan kierowców</h2>', '<h2>Plan kierowców</h2><button type="button" class="btn workspace-window-button" onclick="openWorkspaceWindow3L66(\'plan\')">Otwórz w osobnym oknie</button>');
       };
+
+      window.analyzeFutureText3L67 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const text = String(document.getElementById('future-ai-text-3l67')?.value || state.textImportText || '').trim();
+        if (!text) {
+          showAppMessage('Brak tekstu','Wklej wiadomość klienta przed analizą.');
+          return;
+        }
+        state.textImportText = text;
+        state.aiImportTarget = 'future';
+        state.textImportOpen = true;
+        syncTextImportUi();
+        setTimeout(() => analyzeTextOrdersToQueue(), 0);
+      };
+
+      const renderFutureDrawer3L67 = renderFutureDrawer;
+      renderFutureDrawer = function() {
+        let html = renderFutureDrawer3L67.apply(this, arguments);
+        if (!canUseOperationalAi()) return html;
+        const textBox = `<section class="future-ai-text-box"><b>Analizuj wiadomość klienta</b><textarea id="future-ai-text-3l67" class="textarea" placeholder="Wklej treść zlecenia lub relacji…" oninput="state.textImportText=this.value">${esc(state.textImportText || '')}</textarea><button type="button" class="btn btn-ai-action" onclick="analyzeFutureText3L67(event)">Analizuj i uzupełnij relację</button></section>`;
+        return html.replace('<div class="queue-drop-zone"', `${textBox}<div class="queue-drop-zone"`);
+      };
+
+      let aiFileDragDepth3L67 = 0;
+      function isFileDrag3L67(event) {
+        return Array.from(event?.dataTransfer?.types || []).includes('Files');
+      }
+      document.addEventListener('dragenter', event => {
+        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        aiFileDragDepth3L67 += 1;
+        document.body.classList.add('ai-file-dragover');
+      });
+      document.addEventListener('dragover', event => {
+        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      });
+      document.addEventListener('dragleave', event => {
+        if (!isFileDrag3L67(event)) return;
+        aiFileDragDepth3L67 = Math.max(0, aiFileDragDepth3L67 - 1);
+        if (!aiFileDragDepth3L67) document.body.classList.remove('ai-file-dragover');
+      });
+      document.addEventListener('drop', event => {
+        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        aiFileDragDepth3L67 = 0;
+        document.body.classList.remove('ai-file-dragover');
+        if (event.target?.closest?.('.route-order-dropzone')) return;
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0] || null;
+        if (!orderDocumentFileType(file)) {
+          showAppMessage('Nieprawidłowy plik','Upuść zlecenie PDF, DOC lub DOCX.','error');
+          return;
+        }
+        const route = state.detailsOpen ? state.routes.find(item => item.id === state.selectedRouteId) : null;
+        if (route && canEditBoardRoute(route)) {
+          analyzeRouteOrderFile(route.id, file);
+          return;
+        }
+        state.aiImportTarget = 'future';
+        state.pdfImportFile = file;
+        state.pdfImportFileName = String(file.name || 'zlecenie.pdf');
+        state.pdfImportData = pdfImportDefaults();
+        state.pdfImportStatus = `Plik ${state.pdfImportFileName} został upuszczony. Rozpoczynam analizę…`;
+        state.pdfImportWarning = false;
+        state.pdfImportOpen = true;
+        syncPdfImportUi();
+        setTimeout(() => analyzePdfOrder(), 0);
+      });
 
       const applyAuthenticatedUser3L66 = applyAuthenticatedUser;
       applyAuthenticatedUser = function(user) {
