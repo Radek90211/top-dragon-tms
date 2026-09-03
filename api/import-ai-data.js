@@ -12,6 +12,25 @@ function env(name, fallback = '') {
   return String(process.env?.[name] || fallback || '').trim()
 }
 
+function firstValidSupabaseUrl() {
+  const candidates = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']
+    .map((name) => env(name))
+    .filter(Boolean)
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate)
+      if (url.protocol === 'https:' && /\.supabase\.(co|in)$/i.test(url.hostname)) return url.origin
+    } catch {}
+  }
+  return ''
+}
+
+function firstValidSupabaseKey() {
+  return ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+    .map((name) => env(name))
+    .find((value) => value && !/^https?:\/\//i.test(value)) || ''
+}
+
 function json(res, status, body) {
   res.status(status).json(body)
 }
@@ -24,11 +43,63 @@ function errorMessage(value, fallback) {
 
 function plainTableCell(value) {
   return String(value || '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/<br\s*\/?\s*>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;|&#x20;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function parseStructuredVehicleTable(sourceText) {
+  const lines = String(sourceText || '').replace(/\r/g, '').split('\n')
+  const aliases = {
+    carrierName: new Set(['firma', 'przewoznik', 'carrier', 'carriername']),
+    driverName: new Set(['kierowca', 'driver', 'drivername']),
+    registrations: new Set(['nrrej', 'nrrejestracyjny', 'numeryrejestracyjne', 'registration']),
+    identityDocumentNumber: new Set(['nrdowodu', 'dowod', 'identitydocumentnumber', 'idcard']),
+    phone: new Set(['tel', 'telefon', 'phone']),
+  }
+  let headerIndex = -1
+  let delimiter = ''
+  let indexes = null
+  for (let index = 0; index < lines.length; index += 1) {
+    const candidateDelimiter = tableDelimiter(lines[index])
+    if (!candidateDelimiter) continue
+    const headers = splitTableLine(lines[index], candidateDelimiter).map(tableHeaderKey)
+    const indexFor = (key) => headers.findIndex((header) => aliases[key].has(header))
+    const candidate = Object.fromEntries(Object.keys(aliases).map((key) => [key, indexFor(key)]))
+    if (candidate.driverName >= 0 && (candidate.carrierName >= 0 || candidate.registrations >= 0)) {
+      headerIndex = index
+      delimiter = candidateDelimiter
+      indexes = candidate
+      break
+    }
+  }
+  if (headerIndex < 0 || !indexes) return null
+
+  const items = []
+  const warnings = []
+  for (const line of lines.slice(headerIndex + 1)) {
+    if (!String(line || '').trim()) continue
+    if (tableDelimiter(line) !== delimiter && delimiter !== '\t') continue
+    const cells = splitTableLine(line, delimiter)
+    if (cells.every((cell) => !cell || /^:?-{3,}:?$/.test(cell))) continue
+    const get = (key) => indexes[key] >= 0 ? plainTableCell(cells[indexes[key]]) : ''
+    const driverName = get('driverName')
+    const registrationParts = get('registrations').split(/[\/;,]+/).map((value) => value.trim().toUpperCase()).filter(Boolean)
+    if (!driverName && !registrationParts.length) continue
+    items.push({
+      id: '', dispatcher: '', carrierName: get('carrierName'), driverName,
+      phone: get('phone').replace(/\s+/g, ''), nationality: 'PL', baseLocation: '',
+      vehicleRegistrationNo: registrationParts[0] || '', vehicleBrand: '',
+      trailerRegistrationNo: registrationParts[1] || '', trailerHeightM: 0,
+      identityDocumentNumber: get('identityDocumentNumber'), hidden: false, confidence: 1,
+    })
+  }
+  if (!items.length) return null
+  if (items.some((item) => !item.carrierName)) warnings.push('Część wierszy nie zawiera nazwy przewoźnika.')
+  return { items, warnings, structured: true }
 }
 
 function tableHeaderKey(value) {
@@ -146,9 +217,9 @@ async function authenticateAdmin(req) {
   const match = authorization.match(/^Bearer\s+(.+)$/i)
   if (!match) throw Object.assign(new Error('Brak tokenu sesji Supabase.'), { statusCode: 401 })
 
-  const supabaseUrl = env('SUPABASE_URL') || env('VITE_SUPABASE_URL') || env('NEXT_PUBLIC_SUPABASE_URL')
-  const anonKey = env('SUPABASE_ANON_KEY') || env('SUPABASE_PUBLISHABLE_KEY') || env('VITE_SUPABASE_ANON_KEY') || env('VITE_SUPABASE_PUBLISHABLE_KEY') || env('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-  if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Brak konfiguracji SUPABASE_URL/SUPABASE_ANON_KEY dla endpointu importu AI.'), { statusCode: 500 })
+  const supabaseUrl = firstValidSupabaseUrl()
+  const anonKey = firstValidSupabaseKey()
+  if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. SUPABASE_URL musi zawierać adres https://…supabase.co, a klucz publikowalny należy ustawić osobno.'), { statusCode: 500 })
 
   const userResponse = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, {
     headers: { apikey: anonKey, Authorization: `Bearer ${match[1]}` },
@@ -178,7 +249,7 @@ function schemaForKind(kind) {
   return `items zawierające planowane relacje z polami: id, dispatcher, loadDate, unloadDate, loadTime, unloadTime, load, loadAddress, unload, unloadAddress, client, approachKm, loadedKm, baseKm, rate, cost, reference, notes, confidence.`
 }
 
-function instructionsForKind(kind) {
+function instructionsForKind(kind, referenceDate = '') {
   return [
     'Jesteś modułem ekstrakcji danych dla Top Dragon TMS.',
     'Zwróć wyłącznie poprawny JSON w formacie {"items":[],"warnings":[]}; bez Markdown, komentarzy i dodatkowych kluczy.',
@@ -187,6 +258,7 @@ function instructionsForKind(kind) {
     schemaForKind(kind),
     kind === 'clients' ? 'Klient jest poprawny tylko wtedy, gdy ma name i address albo jednoznaczny adres z postalCode/city.' : '',
     kind === 'relations' ? 'Relacja jest poprawna tylko wtedy, gdy ma load, unload i datę załadunku.' : '',
+    kind === 'relations' ? `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.` : '',
     kind === 'vehicles' ? 'Zestaw jest poprawny tylko wtedy, gdy ma driverName lub vehicleRegistrationNo.' : '',
   ].filter(Boolean).join('\n')
 }
@@ -222,19 +294,22 @@ export default async function handler(req, res) {
     const kind = String(body.kind || '').trim().toLowerCase()
     const sourceText = String(body.sourceText || '').trim()
     const sourceName = String(body.sourceName || 'import').trim().slice(0, 160)
+    const referenceDate = String(body.referenceDate || '').trim().slice(0, 10)
     if (!ALLOWED_KINDS.has(kind)) return json(res, 400, { ok: false, message: 'Nieobsługiwany rodzaj importu AI.' })
     if (sourceText.length < 3) return json(res, 400, { ok: false, message: 'Brak danych źródłowych do analizy AI.' })
     if (sourceText.length > MAX_SOURCE_LENGTH) return json(res, 413, { ok: false, message: `Dane źródłowe są za długie. Maksimum to ${MAX_SOURCE_LENGTH} znaków.` })
 
     const structuredClients = kind === 'clients' ? parseStructuredClientTable(sourceText) : null
-    if (structuredClients && (structuredClients.items.length || structuredClients.rejectedItems.length)) {
+    const structuredVehicles = kind === 'vehicles' ? parseStructuredVehicleTable(sourceText) : null
+    const structuredResult = structuredClients || structuredVehicles
+    if (structuredResult && (structuredResult.items.length || structuredResult.rejectedItems?.length)) {
       return json(res, 200, {
         ok: true,
         kind,
-        items: normalizeItems(kind, structuredClients.items),
-        rejectedItems: structuredClients.rejectedItems,
-        warnings: structuredClients.warnings,
-        model: 'parser-tabeli-klientow',
+        items: normalizeItems(kind, structuredResult.items),
+        rejectedItems: structuredResult.rejectedItems || [],
+        warnings: structuredResult.warnings || [],
+        model: structuredClients ? 'parser-tabeli-klientow' : 'parser-tabeli-floty',
         structured: true,
         elapsedMs: Date.now() - startedAt,
       })
@@ -254,7 +329,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           model: env('OPENAI_IMPORT_MODEL', 'gpt-4.1-mini'),
           store: false,
-          instructions: instructionsForKind(kind),
+          instructions: instructionsForKind(kind, referenceDate),
           input: `Rodzaj importu: ${kind}\nNazwa źródła: ${sourceName}\n\nDANE ŹRÓDŁOWE:\n${sourceText}`,
           max_output_tokens: kind === 'clients' ? 24000 : 12000,
           text: { format: { type: 'json_object' } },

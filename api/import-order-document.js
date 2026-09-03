@@ -21,6 +21,25 @@ function env(name, fallback = '') {
   return String(process.env?.[name] || fallback || '').trim()
 }
 
+function firstValidSupabaseUrl() {
+  const candidates = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']
+    .map((name) => env(name))
+    .filter(Boolean)
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate)
+      if (url.protocol === 'https:' && /\.supabase\.(co|in)$/i.test(url.hostname)) return url.origin
+    } catch {}
+  }
+  return ''
+}
+
+function firstValidSupabaseKey() {
+  return ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+    .map((name) => env(name))
+    .find((value) => value && !/^https?:\/\//i.test(value)) || ''
+}
+
 function json(res, status, body) {
   res.status(status).json(body)
 }
@@ -67,9 +86,9 @@ async function authenticateOperationalUser(req) {
   const match = authorization.match(/^Bearer\s+(.+)$/i)
   if (!match) throw Object.assign(new Error('Brak tokenu sesji Supabase.'), { statusCode: 401 })
 
-  const supabaseUrl = env('SUPABASE_URL') || env('VITE_SUPABASE_URL') || env('NEXT_PUBLIC_SUPABASE_URL')
-  const anonKey = env('SUPABASE_ANON_KEY') || env('SUPABASE_PUBLISHABLE_KEY') || env('VITE_SUPABASE_ANON_KEY') || env('VITE_SUPABASE_PUBLISHABLE_KEY') || env('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-  if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Brak konfiguracji Supabase dla analizatora zleceń.'), { statusCode: 500 })
+  const supabaseUrl = firstValidSupabaseUrl()
+  const anonKey = firstValidSupabaseKey()
+  if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. SUPABASE_URL musi zawierać adres https://…supabase.co, a klucz publikowalny należy ustawić osobno.'), { statusCode: 500 })
 
   const baseUrl = supabaseUrl.replace(/\/$/, '')
   const headers = { apikey: anonKey, Authorization: `Bearer ${match[1]}` }
