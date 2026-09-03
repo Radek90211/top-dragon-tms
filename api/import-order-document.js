@@ -130,11 +130,12 @@ function analysisInstructions(referenceDate = '') {
     `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.`,
     'Zwróć wyłącznie poprawny JSON bez Markdown i bez dodatkowego tekstu.',
     'Format odpowiedzi:',
-    '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"driverNotes":[],"confidence":0}',
+    '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","clientNip":"","clientAddress":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"driverNotes":[],"confidence":0}',
     'confidence ma być liczbą od 0 do 1. Kwoty i kilometry zwracaj jako liczby. Brakujące wartości pozostaw puste lub ustaw na 0.',
     'W polu city zwróć wyłącznie miejscowość, w postalCode kod pocztowy, a w address dokładny adres: ulicę, numer, nazwę zakładu, bramę lub magazyn, jeżeli występują.',
     'fullAddress ma zawierać pełny, jednoznaczny i możliwy do wyszukania w mapach adres danego punktu: nazwę obiektu, ulicę i numer, kod pocztowy, miejscowość oraz kraj, jeśli są podane.',
     'Jako adres załadunku lub rozładunku wybieraj wyłącznie miejsce wykonania transportu; pomijaj adresy siedziby, fakturowania i dane nagłówkowe klienta. Nie kopiuj adresu z innej ani poprzedniej relacji. Jeżeli przypisanie punktu jest niejednoznaczne, pozostaw pole puste.',
+    'W client podaj pełną nazwę zleceniodawcy, w clientNip jego polski NIP (same cyfry), a w clientAddress adres siedziby klienta, jeśli dokument podaje te dane jednoznacznie.',
     'Wszystkie instrukcje operacyjne, numery kontaktowe, awizacje, wymagania i inne uwagi umieść w extraInfo lub reminders.',
     'Do driverNotes skopiuj wyłącznie informacje potrzebne kierowcy: awizację, kontakt na miejscu, numery załadunkowe/rozładunkowe, godziny, wymagania wjazdowe, wyposażenie i instrukcje wykonania transportu. Nie umieszczaj tam stawki, kosztów, marży, danych księgowych ani wewnętrznych komentarzy spedytora.',
   ].join('\n')
@@ -179,6 +180,8 @@ function normalizeResult(value = {}) {
     pickup: point(value.pickup || value.load || value.loading),
     delivery: point(value.delivery || value.unload || value.unloading),
     client: String(value.client || value.customer || '').trim().slice(0, 500),
+    clientNip: String(value.clientNip || value.nip || value.taxId || '').replace(/\D/g, '').slice(0, 10),
+    clientAddress: String(value.clientAddress || value.customerAddress || '').trim().slice(0, 700),
     reference: String(value.reference || value.orderReference || '').trim().slice(0, 500),
     rate: number(value.rate),
     currency: String(value.currency || '').trim().toUpperCase().slice(0, 10),
@@ -211,12 +214,12 @@ const ORDER_RESPONSE_SCHEMA = {
       },
       required: ['date', 'time', 'city', 'postalCode', 'address', 'fullAddress'],
     },
-    client: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
+    client: { type: 'string' }, clientNip: { type: 'string' }, clientAddress: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
     currency: { type: 'string' }, loadedKm: { type: 'number' }, cost: { type: 'number' },
     oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
     reminders: { type: 'array', items: { type: 'string' } }, driverNotes: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
   },
-  required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'driverNotes', 'confidence'],
+  required: ['pickup', 'delivery', 'client', 'clientNip', 'clientAddress', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'driverNotes', 'confidence'],
 }
 
 export default async function handler(req, res) {
