@@ -3860,7 +3860,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v98-archive-audit-ai-workspaces&startView=${encodeURIComponent(requestedWorkspaceView)}"
+        src="/tms.html?embedded=1&build=request-workflow-v99-ai-document-timeout&startView=${encodeURIComponent(requestedWorkspaceView)}"
         title="Top Dragon TMS"
       ></iframe>
     </main>
