@@ -12,6 +12,12 @@ function env(name, fallback = '') {
   return String(process.env?.[name] || fallback || '').trim()
 }
 
+function configuredGeminiModel() {
+  const configured = env('GEMINI_IMPORT_MODEL', env('GEMINI_MODEL')).replace(/^models\//i, '')
+  if (!configured || configured === 'gemini-2.5-flash') return 'gemini-3.6-flash'
+  return configured
+}
+
 function firstValidSupabaseUrl() {
   const candidates = [
     'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
@@ -325,7 +331,7 @@ export default async function handler(req, res) {
 
     const geminiKey = env('GEMINI_API_KEY')
     if (!geminiKey) return json(res, 503, { ok: false, message: 'Brak GEMINI_API_KEY w konfiguracji wdrożenia. Import AI jest chwilowo niedostępny.' })
-    const geminiModel = env('GEMINI_IMPORT_MODEL', env('GEMINI_MODEL', 'gemini-2.5-flash'))
+    const geminiModel = configuredGeminiModel()
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 75000)
