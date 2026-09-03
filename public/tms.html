@@ -71028,6 +71028,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadHour = formatSmsHour(routeStartHour(route));
       const unloadHour = formatSmsHour(routeEndHour(route));
       const unloadDateSuffix = routeEndDate(route) && routeEndDate(route) !== route.date ? ` (${routeEndDate(route)})` : "";
+      const importedByAi = Boolean(route?.orderImportedAt || route?.aiSourceType);
+      const driverNotes = String(route?.driverNotes ?? route?.aiDriverNotes ?? (importedByAi ? "" : route?.notes || "")).trim();
       const lines = [
         `Trasa: ${routeSmsKm(totalKm(route))} km`,
         ``,
@@ -71039,7 +71041,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         `Rozładunek: ${route.unload || "-"}${route.unloadAddress ? ", " + route.unloadAddress : ""}`,
         `Godzina rozładunku: ${unloadHour}${unloadDateSuffix}`,
         route.secondUnload ? `Drugi rozładunek: ${route.secondUnload}${route.secondUnloadAddress ? ", " + route.secondUnloadAddress : ""}` : "",
-        route.notes ? `Uwagi: ${route.notes}` : ""
+        driverNotes ? `Informacje dla kierowcy: ${driverNotes}` : ""
       ].filter(line => line !== null && line !== undefined && line !== "");
 
       // Link mapy nie jest dołączany do wiadomości SMS.
@@ -77765,7 +77767,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         currency: "",
         confidence: 0,
         notes: "",
-        reminders: ""
+        reminders: "",
+        driverNotes: ""
       };
     }
 
@@ -77905,7 +77908,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const delivery = payload.delivery || payload.unload || payload.unloading || payload.rozladunek || {};
       const listToText = value => Array.isArray(value) ? value.filter(Boolean).join("\n") : String(value || "");
       const cityLabel = point => [point.city, point.postalCode].filter(Boolean).join(" ") || point.city || point.place || point.location || point.fullAddress || "";
-      const addressLabel = point => point.address || [point.street, point.number].filter(Boolean).join(" ") || point.fullAddress || "";
+      const addressLabel = point => point.fullAddress || point.address || [point.street, point.number].filter(Boolean).join(" ") || "";
       return {
         ...defaults,
         loadDate: pickup.date || defaults.loadDate,
@@ -77925,7 +77928,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         currency: String(payload.currency || defaults.currency || "").trim().toUpperCase(),
         confidence: Number(payload.confidence || 0),
         notes: listToText(payload.extraInfo || payload.notes || payload.uwagi) || defaults.notes,
-        reminders: listToText(payload.reminders || payload.przypominajki) || defaults.reminders
+        reminders: listToText(payload.reminders || payload.przypominajki) || defaults.reminders,
+        driverNotes: listToText(payload.driverNotes || payload.driverInstructions) || defaults.driverNotes
       };
     }
 
@@ -78026,6 +78030,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         client: data.client || "Zlecenie z dokumentu",
         rate: Number(data.rate || 0),
         currency: data.currency || "PLN",
+        driverNotes: data.driverNotes || "",
+        aiImported: true,
         visibilityScope: targetProposed ? "all" : "branch"
       };
       state.pdfImportOpen = false;
@@ -78227,6 +78233,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             item.currency && String(item.currency).toUpperCase() !== "PLN" && Number(item.rate || 0) > 0 ? `Stawka z wiadomości: ${item.rate} ${String(item.currency).toUpperCase()}` : "",
             Array.isArray(item.extraInfo || item.notes) ? (item.extraInfo || item.notes).join("\n") : String(item.extraInfo || item.notes || "")
           ].filter(Boolean).join("\n"),
+          driverNotes: (Array.isArray(item.driverNotes || item.driverInstructions) ? (item.driverNotes || item.driverInstructions) : [item.driverNotes || item.driverInstructions])
+            .map(value => String(value || "").trim()).filter(Boolean).join("\n"),
           client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`,
           reference: String(item.reference || ""),
           rate: Number(item.rate || 0),
@@ -78261,6 +78269,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         secondUnload: item.secondUnload || "",
         secondUnloadAddress: item.secondUnloadAddress || "",
         notes: item.notes || "",
+        driverNotes: item.driverNotes || "",
         client: item.client || "Wiadomość tekstowa",
         approachKm,
         loadedKm,
@@ -81485,6 +81494,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (keys.has("notes") && noteText && !String(route.notes || "").includes(noteText)) {
         set("notes", [route.notes, noteText].filter(Boolean).join("\n"));
       }
+      const driverNoteText = Array.from(new Set([data.driverNotes, payload.driverNotes, payload.driverInstructions]
+        .flatMap(value => Array.isArray(value) ? value : String(value || "").split(/\n+/))
+        .map(value => String(value || "").trim())
+        .filter(Boolean)))
+        .join("\n");
+      route.driverNotes = driverNoteText;
+      route.aiDriverNotes = driverNoteText;
       if (loadedKm > 0 && !(carrierCost > 0)) applyAutomaticCarrierCost(route);
       if (keys.has("load") || keys.has("unload")) route.freeDay = false;
       route.orderImportFileName = String(payload.__fileName || route.orderImportFileName || "");
@@ -81810,6 +81826,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <label class="field-label">Uwagi do zlecenia</label>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
               </div>
+              <div>
+                <label class="field-label">Informacje dla kierowcy — dodawane do SMS</label>
+                <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || ""))}</textarea>
+              </div>
             </section>
 
 
@@ -82010,6 +82030,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="compact-comment-field">
                 <label class="field-label">Uwagi do zlecenia</label>
                 <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
+              </div>
+              <div class="compact-comment-field">
+                <label class="field-label">Informacje dla kierowcy — dodawane do SMS</label>
+                <textarea id="new-driver-notes" class="textarea" placeholder="tylko informacje potrzebne kierowcy">${esc(prefill.driverNotes || "")}</textarea>
               </div>
 
               <label class="field-label">Klient</label>
@@ -85741,6 +85765,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const secondUnloadAddressValue = formValue("new-second-unload-address").trim();
       const freeDayValue = isFreeDayText(loadValue) || isFreeDayText(unloadValue);
       const notesValue = formValue("new-notes").trim();
+      const driverNotesValue = formValue("new-driver-notes").trim();
       const clientValue = formValue("new-client").trim();
       const approachValue = Number(formValue("new-approach") || 0);
       const loadedValue = Number(formValue("new-loaded") || 0);
@@ -85772,6 +85797,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadAddressValue,
         secondUnloadAddressValue,
         notesValue,
+        driverNotesValue,
         clientValue
       ].some(Boolean) || approachValue > 0 || loadedValue > 0 || baseValue > 0 || rateValue > 0 || costValue > 0 || oversizedCostValue > 0 || oversizedTransportValue || futureGroupValue || requirements.loadHeightM > 0 || requirements.requirePolishDriver;
 
@@ -85814,6 +85840,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         secondUnload: secondUnloadValue,
         secondUnloadAddress: secondUnloadAddressValue,
         notes: notesValue,
+        driverNotes: driverNotesValue,
+        aiDriverNotes: (state.prefill?.aiImported || state.prefill?.aiSourceType) ? driverNotesValue : "",
+        orderImportedAt: (state.prefill?.aiImported || state.prefill?.aiSourceType) ? new Date().toISOString() : "",
+        aiSourceType: String(state.prefill?.aiSourceType || ""),
         client: clientValue || "Klient testowy",
         clientId: (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(clientValue))?.id || "",
         approachKm: approachValue,
@@ -94922,17 +94952,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @keyframes mapRouteRecentPulse3L66 { 0%,100%{filter:drop-shadow(0 0 0 rgba(37,99,235,0));transform:scale(1)} 50%{filter:drop-shadow(0 0 10px rgba(37,99,235,.9));transform:scale(1.13)} }
     .tms-marker.map-route-recent { animation:mapRouteRecentPulse3L66 1.55s ease-in-out infinite;transform-origin:center; }
     .workspace-window-button { white-space:nowrap; }
-    .stats-hourly-timeline { display:grid;grid-template-columns:repeat(24,minmax(12px,1fr));gap:3px;align-items:end;height:150px;padding:12px 10px 24px;border:1px solid var(--border);border-radius:12px;background:var(--soft);overflow-x:auto; }
-    .stats-hour-column { min-width:12px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;position:relative; }
+    .stats-hourly-period { display:flex;align-items:end;justify-content:flex-end;gap:8px;flex-wrap:wrap; }
+    .stats-hourly-period label { display:grid;gap:4px;font-size:11px;font-weight:800;color:var(--muted); }
+    .stats-hourly-period input { min-height:38px; }
+    .stats-hourly-summary { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0; }
+    .stats-hourly-summary > div { padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--soft); }
+    .stats-hourly-summary span { display:block;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em; }
+    .stats-hourly-summary b { display:block;margin-top:3px;font-size:15px; }
+    .stats-hourly-timeline { display:grid;grid-template-columns:repeat(48,minmax(15px,1fr));gap:3px;align-items:end;height:170px;padding:12px 10px 25px;border:1px solid var(--border);border-radius:12px;background:var(--soft);overflow-x:auto; }
+    .stats-hour-column { min-width:15px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;position:relative; }
     .stats-hour-bar { width:100%;min-height:2px;border-radius:4px 4px 1px 1px;background:linear-gradient(180deg,#60a5fa,#2563eb); }
     .stats-hour-column small { position:absolute;top:100%;margin-top:5px;font-size:7px;color:var(--muted);white-space:nowrap; }
     .stats-hour-column b { font-size:8px;color:var(--text); }
+    .stats-hourly-details { margin-top:10px;border:1px solid var(--border);border-radius:12px;overflow:auto;max-height:290px; }
+    .stats-hourly-details table { width:100%;border-collapse:collapse;font-size:12px; }
+    .stats-hourly-details th,.stats-hourly-details td { padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap; }
+    .stats-hourly-details th { position:sticky;top:0;background:var(--card);z-index:1;color:var(--muted);font-size:10px;text-transform:uppercase; }
+    .stats-hourly-details td:last-child { white-space:normal;min-width:210px; }
     .admin-transfer-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--soft); }
     .future-ai-text-box { display:grid;gap:7px;padding:10px;border:1px solid #bfdbfe;border-radius:12px;background:#eff6ff; }
     .future-ai-text-box textarea { min-height:86px;resize:vertical; }
     .app.dark-mode .future-ai-text-box { background:#172554;border-color:#1d4ed8; }
     body.ai-file-dragover::after { content:"Upuść zlecenie — AI uzupełni relację";position:fixed;inset:14px;z-index:99999;display:grid;place-items:center;border:3px dashed #60a5fa;border-radius:18px;background:rgba(15,23,42,.88);color:#fff;font-size:22px;font-weight:950;text-align:center;pointer-events:none; }
-    @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.stats-hourly-timeline{grid-template-columns:repeat(24,18px)}}
+    @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.stats-hourly-summary{grid-template-columns:1fr}.stats-hourly-period{justify-content:flex-start}.stats-hourly-timeline{grid-template-columns:repeat(48,18px)}}
   </style>
   <script id="targeted-3l66-operations-ai-workspaces-script">
     (() => {
@@ -94957,10 +94999,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function routeExternalPoint3L67(route, kind) {
         if (!route) return null;
+        const config = routePointConfig(kind);
+        const address = String(route?.[config.addressKey] || '').replace(/\s+/g,' ').trim();
+        const location = String(route?.[config.locationKey] || '').replace(/\s+/g,' ').trim();
+        const normalizedAddress = removePolishChars(address);
+        const normalizedLocation = removePolishChars(location);
+        const addressTokens = new Set(normalizedAddress.split(/[^a-z0-9]+/).filter(Boolean));
+        const locationAlreadyIncluded = normalizedLocation.split(/[^a-z0-9]+/).filter(Boolean).every(token => addressTokens.has(token));
+        const label = address
+          ? (location && !locationAlreadyIncluded ? `${address}, ${location}` : address)
+          : location;
+        // Dokładny adres ma pierwszeństwo przed wcześniej zapisanymi współrzędnymi miasta.
+        // Dzięki temu Google Maps i Impargo nie otwierają przybliżonego punktu ani adresu poprzedniej relacji.
+        if (address && label) return { label };
         const point = routePointFromRoute(route, kind);
         if (point) return point;
-        const config = routePointConfig(kind);
-        const label = [route?.[config.addressKey], route?.[config.locationKey]].filter(Boolean).join(', ').trim();
         return label ? { label } : null;
       }
 
@@ -95145,17 +95198,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function statsHourlyTimeline3L66(stats) {
         const dates = new Set(stats?.dates || []);
         const selected = stats?.selectedDispatcher || 'all';
-        const counts = Array.from({length:24},()=>0);
+        const counts = Array.from({length:48},()=>0);
+        const entries = [];
         (state.routes || []).forEach(route => {
           const created = new Date(route.addedToBoardAt || route.createdAt || '');
           if (!Number.isFinite(created.getTime())) return;
           const localDate = `${created.getFullYear()}-${String(created.getMonth()+1).padStart(2,'0')}-${String(created.getDate()).padStart(2,'0')}`;
           if (!dates.has(localDate)) return;
           if (selected !== 'all' && statsRouteDispatcherLogin(route) !== selected) return;
-          counts[created.getHours()] += 1;
+          const bucket = created.getHours() * 2 + (created.getMinutes() >= 30 ? 1 : 0);
+          counts[bucket] += 1;
+          entries.push({ route, created, localDate });
         });
         const max = Math.max(1,...counts);
-        return `<section class="stats-section"><div class="stats-section-head"><div><h3>Godziny dodawania relacji</h3><p>Rozkład aktywności dla wybranego dnia, tygodnia lub miesiąca.</p></div></div><div class="stats-hourly-timeline">${counts.map((count,hour)=>`<div class="stats-hour-column" title="${String(hour).padStart(2,'0')}:00 — ${count} relacji"><b>${count || ''}</b><span class="stats-hour-bar" style="height:${Math.max(2,(count/max)*100)}%"></span><small>${hour % 2 === 0 ? String(hour).padStart(2,'0') : ''}</small></div>`).join('')}</div></section>`;
+        const peakCount = Math.max(0,...counts);
+        const peakBucket = counts.indexOf(peakCount);
+        const bucketLabel = index => `${String(Math.floor(index / 2)).padStart(2,'0')}:${index % 2 ? '30' : '00'}`;
+        const firstDate = stats?.dates?.[0] || state.statsCustomFrom || statsSelectedDate();
+        const lastDate = stats?.dates?.[stats.dates.length - 1] || firstDate;
+        const fromValue = state.statsRange === 'custom' ? (state.statsCustomDraftFrom || firstDate) : firstDate;
+        const toValue = state.statsRange === 'custom' ? (state.statsCustomDraftTo || lastDate) : lastDate;
+        const average = dates.size ? (entries.length / dates.size).toFixed(1).replace('.',',') : '0';
+        const details = entries
+          .sort((a,b)=>b.created-a.created)
+          .map(({route,created,localDate}) => {
+            const time = `${String(created.getHours()).padStart(2,'0')}:${String(created.getMinutes()).padStart(2,'0')}:${String(created.getSeconds()).padStart(2,'0')}`;
+            const dispatcher = statsRouteDispatcherLogin(route) || route.createdBy || route.ownerDispatcher || '—';
+            const relation = [route.load, route.unload].filter(Boolean).join(' → ') || route.client || 'Relacja';
+            return `<tr><td>${esc(localDate)}</td><td><b>${esc(time)}</b></td><td>${esc(dispatcher)}</td><td>${esc(relation)}</td></tr>`;
+          }).join('');
+        return `<section class="stats-section"><div class="stats-section-head"><div><h3>Godziny dodawania relacji</h3><p>Dokładność do 30 minut; poniżej znajduje się także godzina każdej operacji.</p></div><div class="stats-hourly-period"><label>Od<input class="input" type="date" value="${attr(fromValue)}" oninput="setStatsCustomDraft('from',this.value)" /></label><label>Do<input class="input" type="date" value="${attr(toValue)}" oninput="setStatsCustomDraft('to',this.value)" /></label><button type="button" class="btn btn-dark" onclick="applyStatsCustomRange()">Pokaż okres</button></div></div><div class="stats-hourly-summary"><div><span>Liczba relacji</span><b>${entries.length}</b></div><div><span>Szczyt aktywności</span><b>${peakCount ? `${bucketLabel(peakBucket)}–${bucketLabel(peakBucket + 1)}` : 'Brak danych'}</b></div><div><span>Średnio dziennie</span><b>${average}</b></div></div><div class="stats-hourly-timeline">${counts.map((count,index)=>`<div class="stats-hour-column" title="${bucketLabel(index)}–${bucketLabel(index + 1)} — ${count} relacji"><b>${count || ''}</b><span class="stats-hour-bar" style="height:${Math.max(2,(count/max)*100)}%"></span><small>${index % 4 === 0 ? bucketLabel(index) : ''}</small></div>`).join('')}</div><div class="stats-hourly-details"><table><thead><tr><th>Data</th><th>Godzina</th><th>Spedytor</th><th>Relacja</th></tr></thead><tbody>${details || '<tr><td colspan="4">Brak relacji dodanych w wybranym okresie.</td></tr>'}</tbody></table></div></section>`;
       }
       const renderStatsUi3L66 = renderStatsUi;
       renderStatsUi = function() {
