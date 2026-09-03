@@ -130,10 +130,13 @@ function analysisInstructions(referenceDate = '') {
     `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.`,
     'Zwróć wyłącznie poprawny JSON bez Markdown i bez dodatkowego tekstu.',
     'Format odpowiedzi:',
-    '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"confidence":0}',
+    '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"driverNotes":[],"confidence":0}',
     'confidence ma być liczbą od 0 do 1. Kwoty i kilometry zwracaj jako liczby. Brakujące wartości pozostaw puste lub ustaw na 0.',
     'W polu city zwróć wyłącznie miejscowość, w postalCode kod pocztowy, a w address dokładny adres: ulicę, numer, nazwę zakładu, bramę lub magazyn, jeżeli występują.',
-    'fullAddress ma zawierać cały rozpoznany adres danego punktu. Wszystkie instrukcje operacyjne, numery kontaktowe, awizacje, wymagania i inne uwagi umieść w extraInfo lub reminders.',
+    'fullAddress ma zawierać pełny, jednoznaczny i możliwy do wyszukania w mapach adres danego punktu: nazwę obiektu, ulicę i numer, kod pocztowy, miejscowość oraz kraj, jeśli są podane.',
+    'Jako adres załadunku lub rozładunku wybieraj wyłącznie miejsce wykonania transportu; pomijaj adresy siedziby, fakturowania i dane nagłówkowe klienta. Nie kopiuj adresu z innej ani poprzedniej relacji. Jeżeli przypisanie punktu jest niejednoznaczne, pozostaw pole puste.',
+    'Wszystkie instrukcje operacyjne, numery kontaktowe, awizacje, wymagania i inne uwagi umieść w extraInfo lub reminders.',
+    'Do driverNotes skopiuj wyłącznie informacje potrzebne kierowcy: awizację, kontakt na miejscu, numery załadunkowe/rozładunkowe, godziny, wymagania wjazdowe, wyposażenie i instrukcje wykonania transportu. Nie umieszczaj tam stawki, kosztów, marży, danych księgowych ani wewnętrznych komentarzy spedytora.',
   ].join('\n')
 }
 
@@ -184,6 +187,7 @@ function normalizeResult(value = {}) {
     oversizedCost: number(value.oversizedCost || value.gabarytCost),
     extraInfo: textList(value.extraInfo || value.notes),
     reminders: textList(value.reminders),
+    driverNotes: textList(value.driverNotes || value.driverInstructions),
     confidence: Math.max(0, Math.min(1, number(value.confidence))),
   }
 }
@@ -210,9 +214,9 @@ const ORDER_RESPONSE_SCHEMA = {
     client: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
     currency: { type: 'string' }, loadedKm: { type: 'number' }, cost: { type: 'number' },
     oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
-    reminders: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
+    reminders: { type: 'array', items: { type: 'string' } }, driverNotes: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
   },
-  required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'confidence'],
+  required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'driverNotes', 'confidence'],
 }
 
 export default async function handler(req, res) {

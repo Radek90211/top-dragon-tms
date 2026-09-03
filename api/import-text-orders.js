@@ -86,9 +86,11 @@ function instructions(referenceDate = '') {
     'Nie zgaduj danych. Brakujące teksty pozostaw puste, a brakujące liczby ustaw na 0.',
     `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.`,
     'Zwróć wyłącznie poprawny JSON bez Markdown i komentarzy.',
-    'Format: {"routes":[{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"confidence":0}],"warnings":[]}.',
+    'Format: {"routes":[{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"driverNotes":[],"confidence":0}],"warnings":[]}.',
     'Relację zwróć tylko wtedy, gdy można wskazać miejsce załadunku i rozładunku.',
-    'Oddziel miejscowość i kod pocztowy od dokładnego adresu. Ulice, numery, nazwy zakładów, awizacje, kontakty oraz instrukcje operacyjne zachowaj w address, fullAddress lub extraInfo.',
+    'Oddziel miejscowość i kod pocztowy od dokładnego adresu. fullAddress ma być pełnym adresem możliwym do wyszukania w mapach: nazwa obiektu, ulica i numer, kod pocztowy, miejscowość oraz kraj, jeśli są podane.',
+    'Nie przenoś adresu z poprzedniej ani innej relacji. Jeśli nie da się jednoznacznie przypisać adresu do załadunku albo rozładunku, pozostaw go pusty.',
+    'Do driverNotes wpisz tylko informacje potrzebne kierowcy. Pomiń stawkę, koszty, marżę, rozliczenia i komentarze wewnętrzne.',
   ].join('\n')
 }
 
@@ -134,9 +136,9 @@ const TEXT_RESPONSE_SCHEMA = {
           client: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
           currency: { type: 'string' }, loadedKm: { type: 'number' }, cost: { type: 'number' },
           oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
-          confidence: { type: 'number' },
+          driverNotes: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
         },
-        required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'confidence'],
+        required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'driverNotes', 'confidence'],
       },
     },
     warnings: { type: 'array', items: { type: 'string' } },
@@ -196,6 +198,8 @@ function normalizeRoute(value = {}) {
     cost: finiteNumber(value.cost || value.carrierCost || value.transportCost),
     oversizedCost: finiteNumber(value.oversizedCost || value.gabarytCost),
     extraInfo: (Array.isArray(value.extraInfo || value.notes) ? (value.extraInfo || value.notes) : [value.extraInfo || value.notes])
+      .map((item) => String(item || '').trim()).filter(Boolean).slice(0, 30),
+    driverNotes: (Array.isArray(value.driverNotes || value.driverInstructions) ? (value.driverNotes || value.driverInstructions) : [value.driverNotes || value.driverInstructions])
       .map((item) => String(item || '').trim()).filter(Boolean).slice(0, 30),
     confidence: Math.max(0, Math.min(1, finiteNumber(value.confidence))),
   }
