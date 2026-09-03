@@ -38,6 +38,7 @@ let workflowReloadTimer = null
 let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
+let auditedSessionUserId = ''
 // Administrator może przełączyć wyłącznie kontekst podglądu interfejsu. Konto,
 // token Supabase i uprawnienia do operacji administracyjnych pozostają bez zmian.
 let adminPreview = null
@@ -546,15 +547,14 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   app.innerHTML = `
     <main class="admin-shell">
       <header class="admin-header">
-        <div>
-          <div class="admin-eyebrow">Top Dragon TMS</div>
+        <div style="display:flex;align-items:center;gap:18px;">
+          <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
+            <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+          </button>
+          <div>
           <h1>Administracja</h1>
           <p class="muted">Zalogowany: ${escapeHtml(currentProfile.display_name || currentUser.email)}</p>
-        </div>
-        <div class="admin-header-actions">
-          <button id="admin-data-transfer" class="secondary">Import / eksport</button>
-          <button id="admin-refresh" class="secondary">Odśwież dane</button>
-          <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
+          </div>
         </div>
       </header>
 
@@ -708,26 +708,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
     </main>
   `
 
-  document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
-  document.querySelector('#admin-data-transfer')?.addEventListener('click', async () => {
-    if (adminPanelBusy) return
-    adminPreview = null
-    openAdminDataTransferAfterAuth = true
-    await renderDashboard(currentUser)
-  })
+  document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
   wireAdminPreviewControls()
-
-  document.querySelector('#admin-refresh')?.addEventListener('click', async () => {
-    if (adminPanelBusy) return
-    setAdminBusy(true)
-    try {
-      adminCache = await loadAdminData()
-      renderAdminPanelFromCache('Dane zostały odświeżone.')
-    } catch (error) {
-      showAdminMessage(error.message, 'error')
-      setAdminBusy(false)
-    }
-  })
 
   document.querySelector('#branch-create-form')?.addEventListener('submit', async (event) => {
     event.preventDefault()
@@ -741,6 +723,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         method: 'POST',
         body: JSON.stringify({ name }),
       })
+      writeCurrentUserAudit('Dodano oddział', 'branch', result.branch?.id || '', name)
       updateAdminCacheBranch(result.branch)
       renderAdminPanelFromCache('Oddział został dodany.')
     } catch (error) {
@@ -765,6 +748,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           method: 'PATCH',
           body: JSON.stringify({ id, name: name.trim() }),
         })
+        writeCurrentUserAudit('Zmieniono nazwę oddziału', 'branch', id, `${branch.name} → ${name.trim()}`)
         updateAdminCacheBranch(result.branch)
         renderAdminPanelFromCache('Nazwa oddziału została zmieniona.')
       } catch (error) {
@@ -784,6 +768,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           method: 'PATCH',
           body: JSON.stringify({ id, active: !branch.active }),
         })
+        writeCurrentUserAudit(branch.active ? 'Dezaktywowano oddział' : 'Aktywowano oddział', 'branch', id, branch.name)
         updateAdminCacheBranch(result.branch)
         renderAdminPanelFromCache(`Oddział został ${branch.active ? 'dezaktywowany' : 'aktywowany'}.`)
       } catch (error) {
@@ -804,6 +789,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           method: 'DELETE',
           body: JSON.stringify({ id }),
         })
+        writeCurrentUserAudit('Usunięto oddział', 'branch', id, branch.name)
         adminCache.branches = adminCache.branches.filter((item) => item.id !== id)
         renderAdminPanelFromCache(result.message || 'Oddział został usunięty.')
       } catch (error) {
@@ -832,6 +818,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           uiColor: document.querySelector('#invite-ui-color')?.value,
         }),
       })
+      writeCurrentUserAudit('Zaproszono użytkownika', 'user', result.user?.id || '', `${result.user?.display_name || ''} · ${result.user?.role || ''}`)
       updateAdminCacheUser(result.user)
       renderAdminPanelFromCache(result.message || 'Zaproszenie zostało wysłane.')
     } catch (error) {
@@ -873,6 +860,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         if (failed?.error) throw failed.error
       }
       adminCache.carrierRates = await loadAdminCarrierRateData()
+      writeCurrentUserAudit('Zmieniono wspólną stawkę przewoźników', 'carrierRate', effectiveFrom, `${ratePerKm.toFixed(2)} PLN/km · ${carrierIds.length} przewoźników`)
       renderAdminPanelFromCache(`Wspólna stawka ${ratePerKm.toFixed(2).replace('.', ',')} PLN/km została zapisana dla ${carrierIds.length} przewoźników.`)
     } catch (error) {
       showAdminMessage(error?.message || 'Nie udało się zapisać wspólnej stawki przewoźników.', 'error')
@@ -900,6 +888,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
             active: Boolean(row.querySelector('.user-active')?.checked),
           }),
         })
+
+        writeCurrentUserAudit('Zmieniono dane użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${result.user?.role || existing?.role || ''}`)
 
         updateAdminCacheUser({
           ...existing,
@@ -936,18 +926,17 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   app.innerHTML = `
     <main class="admin-shell">
       <header class="admin-header">
-        <div>
-          <div class="admin-eyebrow">Top Dragon TMS</div>
+        <div style="display:flex;align-items:center;gap:18px;">
+          <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+          <div>
           <h1>Administracja</h1>
           <p class="muted">Użytkownicy i oddziały</p>
+          </div>
         </div>
-        <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
       </header>
       <section class="admin-loading">Pobieranie danych…</section>
     </main>
   `
-
-  document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
 
   try {
     adminCache = await loadAdminData()
@@ -956,16 +945,17 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
     app.innerHTML = `
       <main class="admin-shell">
         <header class="admin-header">
-          <div>
-            <div class="admin-eyebrow">Top Dragon TMS</div>
+          <div style="display:flex;align-items:center;gap:18px;">
+            <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
+              <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+            </button>
             <h1>Administracja</h1>
           </div>
-          <button id="back-to-tms" class="secondary">← Wróć do TMS</button>
         </header>
         <div class="error">${escapeHtml(error.message)}</div>
       </main>
     `
-    document.querySelector('#back-to-tms')?.addEventListener('click', () => renderDashboard(currentUser))
+    document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
   }
 }
 
@@ -1238,6 +1228,9 @@ async function syncCentralRelationsToTms() {
 
 async function exportCentralRelationsArchiveToTms(message) {
   const requestId = String(message?.requestId || '')
+  const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').slice(0, 10))
+  const requestedFrom = validDate(message?.dateFrom) ? String(message.dateFrom).slice(0, 10) : ''
+  const requestedTo = validDate(message?.dateTo) ? String(message.dateTo).slice(0, 10) : ''
   const send = (ok, rows = [], errorMessage = '') => {
     activeTmsFrame?.contentWindow?.postMessage({
       type: 'top-dragon-relations-archive-export-data',
@@ -1271,11 +1264,17 @@ async function exportCentralRelationsArchiveToTms(message) {
     if (error) throw error
     const cutoff = new Date()
     cutoff.setUTCDate(cutoff.getUTCDate() - 730)
-    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    const rangeFrom = requestedFrom || cutoff.toISOString().slice(0, 10)
+    const rangeTo = requestedTo || new Date().toISOString().slice(0, 10)
     const rows = (data || []).filter((row) => {
-      const date = String(row?.payload?.date || '').slice(0, 10)
+      const startDate = String(row?.payload?.date || '').slice(0, 10)
+      const endDate = String(row?.payload?.endDate || startDate).slice(0, 10)
       const roleVisible = !hasRole('dispatcher') || sameName(row?.payload?.ownerDispatcher || row?.payload?.createdBy, currentActorLogin())
-      return row?.payload && row?.relation_ref && roleVisible && (!date || date >= cutoffIso)
+      const overlapsRange = /^\d{4}-\d{2}-\d{2}$/.test(startDate)
+        && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+        && startDate <= rangeTo
+        && endDate >= rangeFrom
+      return row?.payload && row?.relation_ref && roleVisible && overlapsRange
     }).map((row) => ({
       id: String(row.relation_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -2360,18 +2359,20 @@ async function upsertCentralLoadRequestFromTms(message) {
 
 async function loadCentralAudit() {
   if (!currentProfile || currentProfile.role !== 'admin') return []
-
-  const { data, error } = await supabase
-    .from('operation_audit')
-    .select('id, actor_id, actor_name, actor_role, branch_id, branch_name, action, entity_type, entity_id, details, created_at')
-    .order('created_at', { ascending: false })
-    .limit(2500)
-
-  if (error) {
-    throw new Error(`Nie udało się pobrać historii operacji: ${error.message}`)
+  const allRows = []
+  const pageSize = 1000
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('operation_audit')
+      .select('id, actor_id, actor_name, actor_role, branch_id, branch_name, action, entity_type, entity_id, details, created_at')
+      .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1)
+    if (error) throw new Error(`Nie udało się pobrać historii operacji: ${error.message}`)
+    allRows.push(...(data || []))
+    if (!data || data.length < pageSize) break
   }
 
-  return (data || []).map((row) => ({
+  return allRows.map((row) => ({
     id: String(row.id ?? ''),
     actorId: String(row.actor_id || ''),
     actorName: String(row.actor_name || ''),
@@ -2446,6 +2447,22 @@ async function writeCentralAuditFromTms(message) {
     if (currentProfile.role === 'admin') {
       scheduleCentralAuditReload(40)
     }
+  } catch (error) {
+    console.error('Nie udało się zapisać historii operacji:', error)
+  }
+}
+
+async function writeCurrentUserAudit(action, entityType, entityId = '', details = '') {
+  if (!currentProfile || !action || !entityType) return
+  try {
+    const { error } = await supabase.rpc('write_tms_operation_audit', {
+      p_action: String(action),
+      p_entity_type: String(entityType),
+      p_entity_id: String(entityId || '') || null,
+      p_details: String(details || '') || null,
+    })
+    if (error) throw error
+    if (currentProfile.role === 'admin') scheduleCentralAuditReload(40)
   } catch (error) {
     console.error('Nie udało się zapisać historii operacji:', error)
   }
@@ -3717,19 +3734,20 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
 function renderAdminPreviewBar() {
   if (!isActualAdmin()) return ''
   return `
-    <section id="admin-role-preview" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
-      <div style="flex:1 1 320px;min-width:260px;"><strong>Podgląd funkcji kategorii</strong></div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;line-height:1;">Kategoria
-        <select id="admin-preview-role" style="box-sizing:border-box;min-width:220px;height:44px;margin:0;padding:0 38px 0 14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
+    <section id="admin-role-preview" style="display:grid;grid-template-columns:minmax(250px,1fr) auto auto auto;align-items:center;gap:12px;padding:14px 18px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
+      <div style="display:flex;align-items:center;min-height:44px;"><strong>Podgląd funkcji kategorii</strong></div>
+      <label style="display:flex;align-items:center;gap:10px;min-height:44px;font-size:12px;line-height:1;font-weight:800;text-transform:uppercase;color:#64748b;">Kategoria
+        <select id="admin-preview-role" style="box-sizing:border-box;min-width:274px;height:44px;margin:0;padding:0 38px 0 14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;text-transform:none;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
           <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
           <option value="accounting" ${adminPreview?.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
           <option value="dispatcher" ${adminPreview?.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
           <option value="branch_manager" ${adminPreview?.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
         </select>
       </label>
-      <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;padding:0 18px;align-self:center;">Pokaż funkcje</button>
+      <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;padding:0 22px;align-self:center;">Pokaż funkcje</button>
       ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;align-self:center;">Wróć do Administratora</button>' : ''}
     </section>
+    <style>@media(max-width:900px){#admin-role-preview{grid-template-columns:1fr!important}#admin-role-preview label{justify-content:space-between}#admin-preview-role{min-width:0!important;flex:1}}</style>
   `
 }
 
@@ -3825,7 +3843,14 @@ async function renderDashboard(user) {
 
   currentUser = user
   currentProfile = profile
+  if (auditedSessionUserId !== String(user.id || '')) {
+    auditedSessionUserId = String(user.id || '')
+    writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
+  }
 
+  const requestedWorkspaceView = ['plan', 'map'].includes(new URLSearchParams(window.location.search).get('tmsView'))
+    ? new URLSearchParams(window.location.search).get('tmsView')
+    : ''
   app.innerHTML = `
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite">
@@ -3835,7 +3860,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-        src="/tms.html?embedded=1&build=request-workflow-v97-client-map-compact-routes"
+        src="/tms.html?embedded=1&build=request-workflow-v98-archive-audit-ai-workspaces&startView=${encodeURIComponent(requestedWorkspaceView)}"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4254,6 +4279,8 @@ async function bootstrap() {
     }
 
     if (event.data?.type === 'top-dragon-request-signout') {
+      await writeCurrentUserAudit('Wylogowanie', 'session', currentUser?.id || '', '')
+      auditedSessionUserId = ''
       await supabase.auth.signOut({ scope: 'local' })
     }
   })
