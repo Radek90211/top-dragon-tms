@@ -1,10 +1,12 @@
 /*
  * Chroniony endpoint analizy tekstowych wiadomości ze zleceniami transportowymi.
- * Token użytkownika jest weryfikowany w Supabase, a klucz OpenAI pozostaje
+ * Token użytkownika jest weryfikowany w Supabase, a klucz Gemini pozostaje
  * wyłącznie po stronie serwera.
  */
 
 const MAX_TEXT_LENGTH = 80000
+
+export const maxDuration = 120
 
 function env(name, fallback = '') {
   return String(process.env?.[name] || fallback || '').trim()
@@ -86,11 +88,60 @@ function instructions(referenceDate = '') {
     'Zwróć wyłącznie poprawny JSON bez Markdown i komentarzy.',
     'Format: {"routes":[{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"confidence":0}],"warnings":[]}.',
     'Relację zwróć tylko wtedy, gdy można wskazać miejsce załadunku i rozładunku.',
+    'Oddziel miejscowość i kod pocztowy od dokładnego adresu. Ulice, numery, nazwy zakładów, awizacje, kontakty oraz instrukcje operacyjne zachowaj w address, fullAddress lub extraInfo.',
   ].join('\n')
 }
 
 function outputText(data) {
-  return String(data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
+  const interactionText = data?.steps
+    ?.flatMap((step) => step?.content || [])
+    ?.filter((item) => item?.type === 'text')
+    ?.map((item) => item?.text || '')
+    ?.join('')
+  return String(data?.output_text || interactionText || data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function shouldRetryGemini(status) {
+  return [429, 500, 502, 503, 504].includes(Number(status))
+}
+
+const TEXT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    routes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          pickup: {
+            type: 'object',
+            properties: {
+              date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+              postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' },
+            },
+            required: ['date', 'time', 'city', 'postalCode', 'address', 'fullAddress'],
+          },
+          delivery: {
+            type: 'object',
+            properties: {
+              date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+              postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' },
+            },
+            required: ['date', 'time', 'city', 'postalCode', 'address', 'fullAddress'],
+          },
+          client: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
+          currency: { type: 'string' }, loadedKm: { type: 'number' }, cost: { type: 'number' },
+          oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
+          confidence: { type: 'number' },
+        },
+        required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'confidence'],
+      },
+    },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['routes', 'warnings'],
 }
 
 function parseJsonOutput(data) {
@@ -170,19 +221,28 @@ export default async function handler(req, res) {
     const geminiModel = configuredGeminiModel()
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 75000)
+    const timeout = setTimeout(() => controller.abort(), 110000)
     let geminiResponse
     try {
-      geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-        signal: controller.signal,
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: instructions(referenceDate) }] },
-          contents: [{ role: 'user', parts: [{ text }] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 12000, temperature: 0 },
-        }),
+      const requestBody = JSON.stringify({
+        model: geminiModel,
+        system_instruction: instructions(referenceDate),
+        input: [{ type: 'text', text }],
+        response_format: { type: 'text', mime_type: 'application/json', schema: TEXT_RESPONSE_SCHEMA },
+        generation_config: { max_output_tokens: 5000, thinking_level: 'minimal' },
+        store: false,
       })
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey, 'Api-Revision': '2026-05-20' },
+          signal: controller.signal,
+          body: requestBody,
+        })
+        if (!shouldRetryGemini(geminiResponse.status) || attempt === 1) break
+        await geminiResponse.body?.cancel?.().catch(() => {})
+        await delay(700 + Math.floor(Math.random() * 350))
+      }
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('Analiza wiadomości trwała zbyt długo. Spróbuj ponownie lub podziel tekst na mniejsze części.')
       throw error

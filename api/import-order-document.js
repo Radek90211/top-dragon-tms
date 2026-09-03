@@ -1,6 +1,6 @@
 /*
  * Chroniony endpoint analizy zleceń transportowych zapisanych jako PDF lub Word.
- * Plik jest przekazywany do OpenAI jako input_file; klucz API pozostaje wyłącznie
+ * Plik jest przekazywany do Gemini jako dokument; klucz API pozostaje wyłącznie
  * po stronie serwera.
  */
 
@@ -132,7 +132,15 @@ function analysisInstructions(referenceDate = '') {
     'Format odpowiedzi:',
     '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"confidence":0}',
     'confidence ma być liczbą od 0 do 1. Kwoty i kilometry zwracaj jako liczby. Brakujące wartości pozostaw puste lub ustaw na 0.',
+    'W polu city zwróć wyłącznie miejscowość, w postalCode kod pocztowy, a w address dokładny adres: ulicę, numer, nazwę zakładu, bramę lub magazyn, jeżeli występują.',
+    'fullAddress ma zawierać cały rozpoznany adres danego punktu. Wszystkie instrukcje operacyjne, numery kontaktowe, awizacje, wymagania i inne uwagi umieść w extraInfo lub reminders.',
   ].join('\n')
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function shouldRetryGemini(status) {
+  return [429, 500, 502, 503, 504].includes(Number(status))
 }
 
 function outputText(data) {
@@ -236,22 +244,28 @@ export default async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), 110000)
     let geminiResponse
     try {
-      geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey, 'Api-Revision': '2026-05-20' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: geminiModel,
-          system_instruction: analysisInstructions(referenceDate),
-          input: [
-            { type: 'text', text: `Nazwa pliku: ${fileName}\nWyodrębnij dane z załączonego zlecenia transportowego.` },
-            { type: 'document', data: file.toString('base64'), mime_type: mimeType },
-          ],
-          response_format: { type: 'text', mime_type: 'application/json', schema: ORDER_RESPONSE_SCHEMA },
-          generation_config: { max_output_tokens: 1200, thinking_level: 'minimal' },
-          store: false,
-        }),
+      const requestBody = JSON.stringify({
+        model: geminiModel,
+        system_instruction: analysisInstructions(referenceDate),
+        input: [
+          { type: 'text', text: `Nazwa pliku: ${fileName}\nWyodrębnij dane z załączonego zlecenia transportowego.` },
+          { type: 'document', data: file.toString('base64'), mime_type: mimeType },
+        ],
+        response_format: { type: 'text', mime_type: 'application/json', schema: ORDER_RESPONSE_SCHEMA },
+        generation_config: { max_output_tokens: 1200, thinking_level: 'minimal' },
+        store: false,
       })
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey, 'Api-Revision': '2026-05-20' },
+          signal: controller.signal,
+          body: requestBody,
+        })
+        if (!shouldRetryGemini(geminiResponse.status) || attempt === 1) break
+        await geminiResponse.body?.cancel?.().catch(() => {})
+        await delay(700 + Math.floor(Math.random() * 350))
+      }
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('Analiza dokumentu trwała zbyt długo. Spróbuj ponownie.')
       throw error
