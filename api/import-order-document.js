@@ -17,6 +17,10 @@ export const config = {
   api: { bodyParser: false },
 }
 
+// Analiza dokumentu może przekroczyć domyślny limit funkcji przy pierwszym
+// (zimnym) uruchomieniu Gemini. Vercel odczytuje tę wartość podczas wdrożenia.
+export const maxDuration = 120
+
 function env(name, fallback = '') {
   return String(process.env?.[name] || fallback || '').trim()
 }
@@ -229,7 +233,7 @@ export default async function handler(req, res) {
     const geminiModel = configuredGeminiModel()
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 55000)
+    const timeout = setTimeout(() => controller.abort(), 110000)
     let geminiResponse
     try {
       geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
@@ -244,7 +248,7 @@ export default async function handler(req, res) {
             { type: 'document', data: file.toString('base64'), mime_type: mimeType },
           ],
           response_format: { type: 'text', mime_type: 'application/json', schema: ORDER_RESPONSE_SCHEMA },
-          generation_config: { max_output_tokens: 2200, thinking_level: 'minimal' },
+          generation_config: { max_output_tokens: 1200, thinking_level: 'minimal' },
           store: false,
         }),
       })
