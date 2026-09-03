@@ -132,7 +132,12 @@ function analysisInstructions(referenceDate = '') {
 }
 
 function outputText(data) {
-  return String(data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
+  const interactionText = data?.steps
+    ?.flatMap((step) => step?.content || [])
+    ?.filter((item) => item?.type === 'text')
+    ?.map((item) => item?.text || '')
+    ?.join('')
+  return String(data?.output_text || interactionText || data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
 }
 
 function parseJsonOutput(data) {
@@ -171,6 +176,33 @@ function normalizeResult(value = {}) {
   }
 }
 
+const ORDER_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    pickup: {
+      type: 'object',
+      properties: {
+        date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+        postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' },
+      },
+      required: ['date', 'time', 'city', 'postalCode', 'address', 'fullAddress'],
+    },
+    delivery: {
+      type: 'object',
+      properties: {
+        date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+        postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' },
+      },
+      required: ['date', 'time', 'city', 'postalCode', 'address', 'fullAddress'],
+    },
+    client: { type: 'string' }, reference: { type: 'string' }, rate: { type: 'number' },
+    currency: { type: 'string' }, loadedKm: { type: 'number' }, cost: { type: 'number' },
+    oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
+    reminders: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
+  },
+  required: ['pickup', 'delivery', 'client', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'confidence'],
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -197,20 +229,23 @@ export default async function handler(req, res) {
     const geminiModel = configuredGeminiModel()
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 85000)
+    const timeout = setTimeout(() => controller.abort(), 55000)
     let geminiResponse
     try {
-      geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
+      geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey, 'Api-Revision': '2026-05-20' },
         signal: controller.signal,
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: analysisInstructions(referenceDate) }] },
-          contents: [{ role: 'user', parts: [
-            { inlineData: { mimeType, data: file.toString('base64') } },
-            { text: `Nazwa pliku: ${fileName}\nPrzeanalizuj załączone zlecenie transportowe.` },
-          ] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 5000, temperature: 0 },
+          model: geminiModel,
+          system_instruction: analysisInstructions(referenceDate),
+          input: [
+            { type: 'text', text: `Nazwa pliku: ${fileName}\nWyodrębnij dane z załączonego zlecenia transportowego.` },
+            { type: 'document', data: file.toString('base64'), mime_type: mimeType },
+          ],
+          response_format: { type: 'text', mime_type: 'application/json', schema: ORDER_RESPONSE_SCHEMA },
+          generation_config: { max_output_tokens: 2200, thinking_level: 'minimal' },
+          store: false,
         }),
       })
     } catch (error) {
