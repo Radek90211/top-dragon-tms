@@ -77968,7 +77968,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           file: state.pdfImportFile,
           fileName: state.pdfImportFileName || "zlecenie.pdf",
           referenceDate: state.reportDate || currentAppDate()
-        }, 70000);
+        }, 130000);
         state.pdfImportData = normalizePdfOrderAnalysis(payload);
         const confidence = Number(state.pdfImportData?.confidence || 0);
         state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
@@ -81588,7 +81588,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           file,
           fileName: entry.fileName,
           referenceDate: route.date || state.reportDate || currentAppDate()
-        }, 90000);
+        }, 130000);
         payload.__fileName = entry.fileName;
         const result = applyRouteOrderAnalysis(route, payload);
         entry.fields = result.fields;
