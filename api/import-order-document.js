@@ -22,7 +22,11 @@ function env(name, fallback = '') {
 }
 
 function firstValidSupabaseUrl() {
-  const candidates = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']
+  const candidates = [
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ]
     .map((name) => env(name))
     .filter(Boolean)
   for (const candidate of candidates) {
@@ -35,7 +39,11 @@ function firstValidSupabaseUrl() {
 }
 
 function firstValidSupabaseKey() {
-  return ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+  return [
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+  ]
     .map((name) => env(name))
     .find((value) => value && !/^https?:\/\//i.test(value)) || ''
 }
@@ -121,6 +129,15 @@ function outputText(data) {
   return String(data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
 }
 
+function parseJsonOutput(data) {
+  const raw = outputText(data).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  try { return JSON.parse(raw) } catch {}
+  const objectStart = raw.indexOf('{')
+  const objectEnd = raw.lastIndexOf('}')
+  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(raw.slice(objectStart, objectEnd + 1))
+  throw new Error('Model Gemini zwrócił niepoprawny format danych.')
+}
+
 function normalizeResult(value = {}) {
   const point = (input = {}) => ({
     date: String(input?.date || '').slice(0, 10),
@@ -201,8 +218,7 @@ export default async function handler(req, res) {
     if (!geminiResponse.ok) {
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)}` })
     }
-    let parsed
-    try { parsed = JSON.parse(outputText(geminiData)) } catch { throw new Error('Model Gemini zwrócił niepoprawny format danych.') }
+    const parsed = parseJsonOutput(geminiData)
     return json(res, 200, {
       ok: true,
       ...normalizeResult(parsed),

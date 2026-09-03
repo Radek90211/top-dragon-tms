@@ -11,7 +11,11 @@ function env(name, fallback = '') {
 }
 
 function firstValidSupabaseUrl() {
-  const candidates = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']
+  const candidates = [
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ]
     .map((name) => env(name))
     .filter(Boolean)
   for (const candidate of candidates) {
@@ -24,7 +28,11 @@ function firstValidSupabaseUrl() {
 }
 
 function firstValidSupabaseKey() {
-  return ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+  return [
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+  ]
     .map((name) => env(name))
     .find((value) => value && !/^https?:\/\//i.test(value)) || ''
 }
@@ -77,6 +85,19 @@ function instructions(referenceDate = '') {
 
 function outputText(data) {
   return String(data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
+}
+
+function parseJsonOutput(data) {
+  const raw = outputText(data).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  try { return JSON.parse(raw) } catch {}
+  for (const [startChar, endChar] of [['{', '}'], ['[', ']']]) {
+    const start = raw.indexOf(startChar)
+    const end = raw.lastIndexOf(endChar)
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(raw.slice(start, end + 1)) } catch {}
+    }
+  }
+  throw new Error('Model Gemini zwrócił niepoprawny format danych.')
 }
 
 function normalizeDate(value) {
@@ -168,8 +189,7 @@ export default async function handler(req, res) {
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)}` })
     }
 
-    let parsed
-    try { parsed = JSON.parse(outputText(geminiData)) } catch { throw new Error('Model Gemini zwrócił niepoprawny format danych.') }
+    const parsed = parseJsonOutput(geminiData)
     const sourceRoutes = Array.isArray(parsed) ? parsed : (parsed?.routes || parsed?.relations || parsed?.loads || parsed?.items || [])
     const routes = (Array.isArray(sourceRoutes) ? sourceRoutes : []).slice(0, 500).map(normalizeRoute).filter(Boolean)
     const warnings = (Array.isArray(parsed?.warnings) ? parsed.warnings : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100)

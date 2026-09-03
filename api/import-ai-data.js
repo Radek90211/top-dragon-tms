@@ -13,7 +13,11 @@ function env(name, fallback = '') {
 }
 
 function firstValidSupabaseUrl() {
-  const candidates = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']
+  const candidates = [
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ]
     .map((name) => env(name))
     .filter(Boolean)
   for (const candidate of candidates) {
@@ -26,7 +30,11 @@ function firstValidSupabaseUrl() {
 }
 
 function firstValidSupabaseKey() {
-  return ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']
+  return [
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+  ]
     .map((name) => env(name))
     .find((value) => value && !/^https?:\/\//i.test(value)) || ''
 }
@@ -345,9 +353,19 @@ export default async function handler(req, res) {
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${providerMessage}` })
     }
 
-    const outputText = String(geminiData?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
+    const outputText = String(geminiData?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '')
+      .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
     let parsed
-    try { parsed = JSON.parse(outputText) } catch { throw new Error('Model Gemini zwrócił niepoprawny JSON. Spróbuj ponownie z krótszym lub bardziej uporządkowanym źródłem.') }
+    try { parsed = JSON.parse(outputText) } catch {
+      const start = outputText.indexOf('{')
+      const end = outputText.lastIndexOf('}')
+      try {
+        if (start < 0 || end <= start) throw new Error('brak JSON')
+        parsed = JSON.parse(outputText.slice(start, end + 1))
+      } catch {
+        throw new Error('Model Gemini zwrócił niepoprawny JSON. Spróbuj ponownie z krótszym lub bardziej uporządkowanym źródłem.')
+      }
+    }
     const items = normalizeItems(kind, parsed?.items)
     const warnings = (Array.isArray(parsed?.warnings) ? parsed.warnings : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 100)
     return json(res, 200, {
