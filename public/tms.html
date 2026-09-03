@@ -68760,6 +68760,11 @@
       const databaseTypeRaw = String(item.databaseType ?? item.database_type ?? item.baseType ?? "operations").trim().toLowerCase();
       const databaseType = databaseTypeRaw === "assigned" ? "assigned" : "operations";
       if (!name || !address || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      const coDispatchers = Array.from(new Set([
+        item.dispatcher,
+        ...(Array.isArray(item.coDispatchers) ? item.coDispatchers : []),
+        ...(Array.isArray(item.dispatchers) ? item.dispatchers : [])
+      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean)));
       return {
         id: String(item.id || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
         databaseType,
@@ -68769,6 +68774,7 @@
         cargoTypes: String(item.cargoTypes ?? item.cargo_types ?? "").trim(),
         businessType: String(item.businessType ?? item.business_type ?? item.activityType ?? "").trim(),
         dispatcher: String(item.dispatcher || "").trim(),
+        coDispatchers,
         lat,
         lng,
         approximate: Boolean(item.approximate),
@@ -70385,6 +70391,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return (state.routes || [])
         .filter(candidate => {
           if (!candidate || candidate.id === route.id || isFreeDayRoute(candidate)) return false;
+          if (!operationalDrivers().some(driver => String(driver.id) === String(candidate.driverId))) return false;
           if (routeDispatcherLogin(candidate) === dispatcher) return false;
           const unloadDay = String(routeEndDate(candidate) || candidate.endDate || candidate.date || "").slice(0, 10);
           return unloadDay === loadDay;
@@ -74087,8 +74094,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!Array.isArray(point) || !point.every(Number.isFinite)) return null;
           const directKm = haversineKm(queryPoint.coords, point);
           if (!Number.isFinite(directKm) || directKm > TRUCK_SEARCH_RADIUS_KM) return null;
-          return { source, coords:{ lat:Number(point[0]), lng:Number(point[1]) } };
-        }).filter(Boolean);
+          return { source, coords:{ lat:Number(point[0]), lng:Number(point[1]) }, directKm };
+        }).filter(Boolean).sort((a,b) => a.directKm - b.directKm).slice(0, 80);
 
         const routed = [];
         for (let offset = 0; offset < shortlist.length; offset += 90) {
@@ -74461,7 +74468,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const CENTRAL_ARCHIVE_EXPORT_PENDING = new Map();
 
-    function requestCentralArchiveExport(timeoutMs = 20000) {
+    function requestCentralArchiveExport(dateFrom = "", dateTo = "", timeoutMs = 20000) {
+      if (typeof dateFrom === "number") { timeoutMs = dateFrom; dateFrom = ""; dateTo = ""; }
       if (!EMBEDDED_MODE || !state.user) return Promise.resolve([]);
       const requestId = `archive-export-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
       return new Promise((resolve, reject) => {
@@ -74470,7 +74478,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           reject(new Error("Przekroczono czas pobierania archiwum relacji."));
         }, Math.max(5000, Number(timeoutMs) || 20000));
         CENTRAL_ARCHIVE_EXPORT_PENDING.set(requestId, { resolve, reject, timer });
-        window.parent?.postMessage({ type:"top-dragon-relations-archive-export-request", requestId }, window.location.origin);
+        window.parent?.postMessage({ type:"top-dragon-relations-archive-export-request", requestId, dateFrom, dateTo }, window.location.origin);
       });
     }
 
@@ -74484,15 +74492,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       else pending.reject(new Error(String(message?.message || "Nie udało się pobrać archiwum relacji.")));
     }
 
-    function centralArchiveRowsForExcel(rows = []) {
+    function centralArchiveRowsForExcel(rows = [], dateFrom = "", dateTo = "") {
       const today = currentAppDate();
       const cutoff = addDaysToIso(today, -730);
+      const rangeFrom = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) ? dateFrom : cutoff;
+      const rangeTo = /^\d{4}-\d{2}-\d{2}$/.test(dateTo) ? dateTo : today;
       return (rows || []).map(row => {
         const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
         return { ...payload, _centralBranchId: String(row?.branchId || ""), _centralActive: Boolean(row?.active), updatedAt: String(row?.updatedAt || payload?.updatedAt || "") };
       }).filter(item => {
-        const date = String(item?.date || "").slice(0,10);
-        return date && date >= cutoff && date <= today;
+        const startDate = String(item?.date || "").slice(0,10);
+        const endDate = String(item?.endDate || startDate).slice(0,10);
+        return startDate && endDate && startDate <= rangeTo && endDate >= rangeFrom;
       }).sort((a,b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
     }
 
@@ -75045,6 +75056,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
     }
 
+    function clientOwnerLogins(client) {
+      return Array.from(new Set([
+        client?.dispatcher,
+        ...(Array.isArray(client?.coDispatchers) ? client.coDispatchers : [])
+      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean)));
+    }
+
+    function clientOwnerBadges(client) {
+      const owners = clientOwnerLogins(client);
+      return owners.length
+        ? owners.map(owner => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>`).join(" ")
+        : "—";
+    }
+
     function renderClientDatabase() {
       const allClients = (state.clients || []).slice();
       const ownerFilter = ["all", "assigned", "unassigned"].includes(state.clientDirectoryFilter) ? state.clientDirectoryFilter : "all";
@@ -75057,13 +75082,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (ownerFilter === "assigned" && !assigned) return false;
         if (ownerFilter === "unassigned" && assigned) return false;
         if (dispatcherFilter === "unassigned" && assigned) return false;
-        if (dispatcherFilter !== "all" && dispatcherFilter !== "unassigned" && client.dispatcher !== dispatcherFilter) return false;
+        if (dispatcherFilter !== "all" && dispatcherFilter !== "unassigned" && !clientOwnerLogins(client).includes(dispatcherFilter)) return false;
         if (!queryKey) return true;
-        const haystack = removePolishChars([client.name, client.nip, client.address, client.dispatcher].filter(Boolean).join(" "));
+        const haystack = removePolishChars([client.name, client.nip, client.address, ...clientOwnerLogins(client)].filter(Boolean).join(" "));
         return haystack.includes(queryKey);
       };
       const matchingClientCount = visibleClients.filter(clientDirectoryMatches).length;
       const editClient = allClients.find(client => client.id === state.clientEditId) || null;
+      const editClientOwners = new Set(clientOwnerLogins(editClient));
       const assignedCount = allClients.filter(client => client.dispatcher).length;
       const unassignedCount = allClients.length - assignedCount;
       const canEditClients = ["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""));
@@ -75087,7 +75113,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Nazwa klienta</label><input id="client-name" class="input" required value="${attr(editClient?.name || "")}" placeholder="np. Klient ABC" /></div>
               <div><label class="field-label" style="margin-top:0;">NIP</label><input id="client-nip" class="input" inputmode="numeric" maxlength="10" value="${attr(editClient?.nip || "")}" placeholder="10 cyfr" /></div>
               <div><label class="field-label" style="margin-top:0;">Adres klienta</label><div class="single-suggestion-wrap"><input id="client-address" class="input" required value="${attr(editClient?.address || "")}" placeholder="kod, miejscowość, ulica i numer" autocomplete="off" oninput="updateNewRouteLocationSuggestion('client-address')" onkeydown="handleNewRouteLocationSuggestionKey(event,'client-address')" onblur="hideNewRouteLocationSuggestionSoon('client-address')" /><button type="button" id="client-address-suggestion" class="single-suggestion-button" onpointerdown="acceptNewRouteLocationSuggestion(event,'client-address')"></button></div></div>
-              <div><label class="field-label" style="margin-top:0;">Osoba prowadząca klienta</label><select id="client-dispatcher" class="select dispatcher-color-select" style="${attr(dispatcherOptionStyle(editClient?.dispatcher || ""))}" onchange="applyDispatcherSelectColor(this)"><option value="">— bez przypisanego spedytora —</option>${queueDispatchers().map(dispatcher => `<option value="${attr(dispatcher)}" style="${attr(dispatcherOptionStyle(dispatcher))}" ${editClient?.dispatcher === dispatcher ? "selected" : ""}>${esc(dispatcher)}</option>`).join("")}</select></div>
+              <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label><select id="client-dispatcher" class="select dispatcher-color-select" style="${attr(dispatcherOptionStyle(editClient?.dispatcher || ""))}" onchange="applyDispatcherSelectColor(this)"><option value="">— bez przypisanego spedytora —</option>${queueDispatchers().map(dispatcher => `<option value="${attr(dispatcher)}" style="${attr(dispatcherOptionStyle(dispatcher))}" ${editClient?.dispatcher === dispatcher ? "selected" : ""}>${esc(dispatcher)}</option>`).join("")}</select></div>
+              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie</label><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) ? "checked" : ""} /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
             </div>
             <div class="client-db-form-actions">${editClient ? `<button type="button" class="btn" onclick="cancelClientEdit()">Anuluj</button>` : ""}<button type="submit" class="btn btn-dark">${editClient ? "Zapisz zmiany" : "Dodaj klienta"}</button></div>
@@ -75096,12 +75123,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="client-db-list" id="client-directory-list">
             <div id="client-directory-empty" class="hint" ${matchingClientCount ? "hidden" : ""}>Brak klientów spełniających wybrane kryteria.</div>
             ${visibleClients.map(client => {
-              const searchText = removePolishChars([client.name, client.nip, client.address, client.dispatcher].filter(Boolean).join(" "));
+              const searchText = removePolishChars([client.name, client.nip, client.address, ...clientOwnerLogins(client)].filter(Boolean).join(" "));
               const ownerType = client.dispatcher ? "assigned" : "unassigned";
               return `
-              <div class="client-row" data-client-search="${attr(searchText)}" data-client-owner="${ownerType}" data-client-dispatcher="${attr(client.dispatcher || "")}" ${clientDirectoryMatches(client) ? "" : "hidden"}>
+              <div class="client-row" data-client-search="${attr(searchText)}" data-client-owner="${ownerType}" data-client-dispatcher="${attr(client.dispatcher || "")}" data-client-dispatchers="${attr(`|${clientOwnerLogins(client).join("|")}|`)}" ${clientDirectoryMatches(client) ? "" : "hidden"}>
                 <div class="client-row-head"><div class="client-owner-inline">${clientNameLink(client)}</div><div class="client-row-actions">${canEditClients && clientEditableByCurrentUser(client) ? `<button type="button" class="btn-mini" onclick="beginClientEdit('${attr(client.id)}')">Edytuj</button>` : ""}${canDeleteClients ? `<button type="button" class="btn-mini" onclick="deleteClient('${attr(client.id)}')">Usuń</button>` : ""}</div></div>
-                <div class="client-row-meta"><span><b>NIP:</b> ${esc(client.nip || "—")}</span><span><b>Adres:</b> ${esc(client.address || "—")}</span><span><b>Osoba prowadząca:</b> ${client.dispatcher ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(client.dispatcher)}">${esc(client.dispatcher)}</span>` : "—"}</span></div>
+                <div class="client-row-meta"><span><b>NIP:</b> ${esc(client.nip || "—")}</span><span><b>Adres:</b> ${esc(client.address || "—")}</span><span><b>Opiekunowie:</b> ${clientOwnerBadges(client)}</span></div>
               </div>`;
             }).join("")}
           </div>
@@ -75127,7 +75154,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       document.querySelectorAll("#client-directory-list .client-row[data-client-search]").forEach(row => {
         const matchesOwner = ownerFilter === "all" || row.dataset.clientOwner === ownerFilter;
         const matchesDispatcher = dispatcherFilter === "all"
-          || (dispatcherFilter === "unassigned" ? !row.dataset.clientDispatcher : row.dataset.clientDispatcher === dispatcherFilter);
+          || (dispatcherFilter === "unassigned" ? !row.dataset.clientDispatcher : String(row.dataset.clientDispatchers || "").includes(`|${dispatcherFilter}|`));
         const matchesText = !query || String(row.dataset.clientSearch || "").includes(query);
         row.hidden = !(matchesOwner && matchesDispatcher && matchesText);
         if (!row.hidden) visible += 1;
@@ -75226,7 +75253,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const existing = (state.clients || []).find(client => client.id === state.clientEditId);
       const cargoTypes = existing?.cargoTypes || "";
       const businessType = existing?.businessType || "";
-      const dispatcher = String(document.getElementById("client-dispatcher")?.value || "").trim();
+      const selectedPrimaryDispatcher = String(document.getElementById("client-dispatcher")?.value || "").trim().toUpperCase();
+      const selectedCoDispatchers = Array.from(new Set([
+        selectedPrimaryDispatcher,
+        ...Array.from(document.querySelectorAll('input[name="client-co-dispatcher"]:checked')).map(input => String(input.value || "").trim())
+      ].map(value => value.toUpperCase()).filter(Boolean)));
+      const dispatcher = selectedPrimaryDispatcher || selectedCoDispatchers[0] || "";
+      const coDispatchers = Array.from(new Set([dispatcher, ...selectedCoDispatchers].filter(Boolean)));
       const databaseType = dispatcher ? "assigned" : "operations";
       const cooperationNotes = String(document.getElementById("client-cooperation-notes")?.value || "").trim();
       if (!name || !address) { showAppMessage("Uzupełnij klienta", "Podaj nazwę i adres klienta."); return; }
@@ -75245,7 +75278,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const saved = normalizeStoredClient({
         id: existing?.id || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        databaseType, name, nip, address, cargoTypes, businessType, dispatcher,
+        databaseType, name, nip, address, cargoTypes, businessType, dispatcher, coDispatchers,
         qualityRating: existing?.qualityRating || 3, paymentDays: existing?.paymentDays || 30, cooperationNotes,
         lastContactAt: existing?.lastContactAt || "",
         lat: Number(target.coords[0]), lng: Number(target.coords[1]), approximate,
@@ -77726,6 +77759,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         client: "",
         reference: "",
         rate: 0,
+        loadedKm: 0,
+        cost: 0,
+        oversizedCost: 0,
         currency: "",
         confidence: 0,
         notes: "",
@@ -77883,6 +77919,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         client: String(payload.client || payload.customer || defaults.client || "").trim(),
         reference: String(payload.reference || payload.orderReference || defaults.reference || "").trim(),
         rate: Number(payload.rate || defaults.rate || 0),
+        loadedKm: Number(payload.loadedKm || payload.distanceKm || payload.kilometers || defaults.loadedKm || 0),
+        cost: Number(payload.cost || payload.carrierCost || payload.transportCost || defaults.cost || 0),
+        oversizedCost: Number(payload.oversizedCost || payload.gabarytCost || defaults.oversizedCost || 0),
         currency: String(payload.currency || defaults.currency || "").trim().toUpperCase(),
         confidence: Number(payload.confidence || 0),
         notes: listToText(payload.extraInfo || payload.notes || payload.uwagi) || defaults.notes,
@@ -78188,6 +78227,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`,
           reference: String(item.reference || ""),
           rate: (!item.currency || String(item.currency).toUpperCase() === "PLN") ? Number(item.rate || 0) : 0,
+          loadedKm: Number(item.loadedKm || item.distanceKm || item.kilometers || 0) > 0
+            ? Math.ceil(Number(item.loadedKm || item.distanceKm || item.kilometers || 0) / 10) * 10
+            : 0,
+          cost: Number(item.cost || item.carrierCost || item.transportCost || 0),
+          oversizedCost: Number(item.oversizedCost || item.gabarytCost || 0),
           currency: String(item.currency || "").toUpperCase(),
           confidence: Number(item.confidence || 0)
         };
@@ -80754,8 +80798,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <span class="client-owner-inline">${clientNameLink(client)}</span><br>
           ${esc(client.address)}<br>
           <span class="small">${ownerText}${orderText ? `<br>${orderText}` : ""}</span>
+          ${isAdminUser() ? `<div style="margin-top:9px;"><button type="button" class="btn-mini map-client-delete" onclick="deleteClientFromMap('${attr(client.id || "")}')">Usuń klienta</button></div>` : ""}
         </div>
       `;
+    }
+
+    function deleteClientFromMap(clientId) {
+      if (!isAdminUser()) return;
+      try { state.leafletMap?.closePopup?.(); } catch (error) {}
+      deleteClient(clientId);
     }
 
     function driverBaseMapPoints() {
@@ -81084,10 +81135,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           client: resolved.client || targetClient,
           requestClientId: resolved.requestClientId,
           ownerDispatcher: resolved.ownerDispatcher,
-          coords: { lat: Number(coords[0]), lng: Number(coords[1]) }
+          coords: { lat: Number(coords[0]), lng: Number(coords[1]) },
+          straightKm
         });
       });
-      return Array.from(deduped.values());
+      // Do dokładnego routera wysyłamy najbliższą geograficznie pulę. Widok pokazuje
+      // maksymalnie 30 wyników, więc liczenie setek dalszych punktów tylko wydłużało oczekiwanie.
+      return Array.from(deduped.values()).sort((a, b) => a.straightKm - b.straightKm).slice(0, 60);
     }
 
     async function loadTruckQuickClients(route) {
@@ -81112,8 +81166,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       try {
         const routed = [];
-        for (let offset = 0; offset < candidates.length; offset += 90) {
-          const chunk = candidates.slice(offset, offset + 90);
+        for (let offset = 0; offset < candidates.length; offset += 60) {
+          const chunk = candidates.slice(offset, offset + 60);
           const matrix = await requestTruckRouting("matrix", {
             origin,
             destinations: chunk.map(item => item.coords)
@@ -81183,7 +81237,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rows = Array.isArray(search.rows) ? search.rows : [];
       const login = String(state.user?.login || "").toUpperCase();
       const body = search.status === "loading"
-        ? `<div class="route-context-empty">Wczytywanie</div>`
+        ? `<div class="route-context-empty">Wczytywanie...</div>`
         : search.status === "error"
           ? `<div class="route-context-empty">${esc(search.error || "Nie udało się wyznaczyć odległości po drogach.")}<br><button type="button" onclick="loadTruckQuickClients(state.routes.find(item=>item.id==='${attr(route.id)}'))">Spróbuj ponownie</button></div>`
           : rows.length ? `
@@ -81385,7 +81439,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadedKm = numberFromPayload("loadedKm", "distanceKm", "kilometers", "kilometry");
       const carrierCost = numberFromPayload("cost", "carrierCost", "transportCost");
       const oversizedCost = numberFromPayload("oversizedCost", "gabarytCost");
-      if (keys.has("loadedKm") && loadedKm > 0) set("loadedKm", loadedKm);
+      if (keys.has("loadedKm") && loadedKm > 0) set("loadedKm", Math.ceil(loadedKm / 10) * 10);
       if (keys.has("cost") && carrierCost > 0) set("cost", carrierCost);
       if (keys.has("oversizedCost") && oversizedCost > 0) {
         set("oversizedCost", oversizedCost);
@@ -81402,6 +81456,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route.orderImportedAt = new Date().toISOString();
       route.orderAiConfidence = Number(data.confidence || 0);
       route.orderAiExtractedFields = fields.map(({ key, label, value }) => ({ key, label, value }));
+      route.orderAiPendingFields = Array.from(new Set(fields.map(field => field.key).filter(key => ["loadedKm", "rate", "cost"].includes(key))));
+      route.orderAiAcceptedFields = Array.isArray(route.orderAiAcceptedFields) ? route.orderAiAcceptedFields.filter(key => !route.orderAiPendingFields.includes(key)) : [];
       invalidateRouteSmsGeneration(route, true);
       scheduleRouteHistoryCapture(route);
       scheduleSavedRoutePointGeocodes(route);
@@ -81425,7 +81481,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <b>${busy ? "AI analizuje zlecenie…" : entry?.fileName ? esc(entry.fileName) : "Upuść tutaj zlecenie PDF lub Word"}</b>
           <button class="btn btn-ai-action" type="button" ${busy ? "disabled" : ""} onclick="event.stopPropagation();document.getElementById('route-order-file-${attr(route.id)}')?.click()">${entry?.fileName ? "Zmień plik" : "Wybierz plik"}</button>
         </div>
-        <div class="route-order-dropzone-copy">Po upuszczeniu AI automatycznie uzupełni rozpoznane dane tej relacji. Oryginalny dokument pozostanie obok do weryfikacji.</div>
         ${status ? `<div class="route-order-status-line ${entry?.warning ? "warning" : ""}">${busy ? `<span class="route-order-spinner" aria-hidden="true"></span>` : ""}<span>${esc(status)}</span></div>` : ""}
       </section>`;
     }
@@ -81755,7 +81810,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
               <div class="grid-2" style="margin-top:10px;">
                 <button class="btn sms-copy-button ${state.copiedRouteId === route.id ? "btn-dark" : ""}" onclick="copySms('${attr(route.id)}')">Kopiuj SMS</button>
-                <a class="btn" data-sms-open-route="${attr(route.id)}" href="${attr(smsHref)}">Otwórz SMS</a>
+                <button class="btn" type="button" data-sms-open-route="${attr(route.id)}" data-sms-href="${attr(smsHref)}" onclick="openRouteSms('${attr(route.id)}')">Otwórz SMS</button>
               </div>
             </section>
 
@@ -81783,11 +81838,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function numberInput(route, field, label) {
       const disabled = financeDisabledAttr(route);
-      const value = field === "cost" ? routeAutoCost(route) : Number(route[field] || 0);
+      const value = field === "cost" ? carrierCost(route) : Number(route[field] || 0);
+      const aiPending = Array.isArray(route.orderAiPendingFields) && route.orderAiPendingFields.includes(field);
+      const aiAccepted = Array.isArray(route.orderAiAcceptedFields) && route.orderAiAcceptedFields.includes(field);
       return `
         <div>
           <label class="field-label" style="margin-top:0;">${esc(label)}</label>
-          <input id="route-number-${attr(route.id)}-${attr(field)}" data-route-number-field="${attr(field)}" class="input" type="number" value="${attr(value)}" ${disabled} oninput="updateRouteNumber('${attr(route.id)}','${attr(field)}',this.value)" onchange="commitRouteNumber('${attr(route.id)}','${attr(field)}')" />
+          <input id="route-number-${attr(route.id)}-${attr(field)}" data-route-number-field="${attr(field)}" class="input ${aiPending ? "ai-value-pending" : aiAccepted ? "ai-value-accepted" : ""}" type="number" value="${attr(value)}" ${disabled} onclick="confirmAiRouteField('${attr(route.id)}','${attr(field)}',this)" oninput="updateRouteNumber('${attr(route.id)}','${attr(field)}',this.value)" onchange="commitRouteNumber('${attr(route.id)}','${attr(field)}')" />
         </div>
       `;
     }
@@ -83926,7 +83983,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const textarea = document.querySelector(`[data-details-sms-textarea="${CSS.escape(String(route.id))}"]`);
       if (textarea && !route.smsManualEdited) textarea.value = sms;
       const smsLink = document.querySelector(`[data-sms-open-route="${CSS.escape(String(route.id))}"]`);
-      if (smsLink) smsLink.href = `sms:${driver.phone}?&body=${encodeURIComponent(sms)}`;
+      if (smsLink) smsLink.dataset.smsHref = `sms:${driver.phone}?&body=${encodeURIComponent(sms)}`;
     }
 
     function pointsAlmostEqual(a, b) {
@@ -85423,9 +85480,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         else blockForeignRouteEditMessage();
         return;
       }
-      if (field !== "cost") route[field] = numericValue;
+      route[field] = numericValue;
       if (field === "oversizedCost") route.oversizedTransport = numericValue > 0;
-      applyAutomaticCarrierCost(route);
+      if (field !== "cost") applyAutomaticCarrierCost(route);
       invalidateRouteSmsGeneration(route, true);
       syncRouteFinancePreview(route);
       clearTimeout(state.routeNumberCommitTimer);
@@ -85928,7 +85985,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route.smsTextOverride = String(value || "");
       const driver = driverById(route.driverId);
       const open = document.querySelector(`[data-sms-open-route="${routeId}"]`);
-      if (open && driver) open.href = `sms:${driver.phone}?&body=${encodeURIComponent(routeSms(route, driver))}`;
+      if (open && driver) open.dataset.smsHref = `sms:${driver.phone}?&body=${encodeURIComponent(routeSms(route, driver))}`;
     }
 
     function resetRouteSmsText(routeId) {
@@ -85961,12 +86018,34 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       state.copiedRouteId = routeId;
-      syncDetailsPanel();
+      const button = document.querySelector(`.sms-copy-button[onclick*="${CSS.escape(String(routeId))}"]`);
+      const ok = document.getElementById(`copy-ok-${routeId}`);
+      button?.classList.add("btn-dark");
+      if (ok) ok.style.display = "inline-flex";
       setTimeout(() => {
         if (state.copiedRouteId !== routeId) return;
         state.copiedRouteId = null;
-        syncDetailsPanel();
+        button?.classList.remove("btn-dark");
+        if (ok) ok.style.display = "none";
       }, 1800);
+    }
+
+    function openRouteSms(routeId) {
+      const route = state.routes.find(item => item.id === routeId);
+      const driver = route ? driverById(route.driverId) : null;
+      if (!route || !driver?.phone) return;
+      const href = `sms:${driver.phone}?&body=${encodeURIComponent(routeSms(route, driver))}`;
+      const popup = window.open(href, "_blank", "noopener,noreferrer");
+      if (!popup) {
+        const link = document.createElement("a");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
     }
 
     function runInternalTests() {
@@ -87304,7 +87383,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const CUSTOM_FLEET_STORAGE_KEY = "topDragonCustomFleetV1";
       const DRIVER_RELATION_HISTORY_KEY = "topDragonDriverRelationHistoryV1";
       const AUDIT_STORAGE_KEY = "topDragonAuditLogV1";
-      const AUDIT_MAX_ROWS = 2500;
+      const AUDIT_MAX_ROWS = 100000;
 
       function loadDriverRelationHistory() {
         try {
@@ -89063,6 +89142,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       state.auditLog = loadAuditLog();
       state.auditFilters = { query:"", actor:"", action:"", dateFrom:"", dateTo:"" };
+      state.auditDisplayLimit = 500;
       state.commercialRatesSearched = false;
       state.fleetDispatcherFilter = "";
       rememberAllCurrentDriverRelationUsage();
@@ -89368,12 +89448,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.setAuditFilter = function(field, value) {
         if (!isAdminUser()) return;
         state.auditFilters = { ...(state.auditFilters || {}), [field]:String(value || "") };
+        state.auditDisplayLimit = 500;
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "audit") host.innerHTML = renderAuditHistory();
       };
 
       window.clearAuditFilters = function() {
         state.auditFilters = { query:"", actor:"", action:"", dateFrom:"", dateTo:"" };
+        state.auditDisplayLimit = 500;
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host) host.innerHTML = renderAuditHistory();
       };
@@ -89381,6 +89463,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.clearAuditHistory = function() {
         if (!isAdminUser()) return;
         showAppMessage("Historia chroniona", "Centralna historia operacji nie może być usuwana z aplikacji.", "info");
+      };
+
+      window.showMoreAuditHistory = function() {
+        if (!isAdminUser()) return;
+        state.auditDisplayLimit = Math.min(auditRowsFiltered().length, Number(state.auditDisplayLimit || 500) + 500);
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "audit") host.innerHTML = renderAuditHistory();
       };
 
       window.exportAuditHistory = function() {
@@ -89414,7 +89503,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn" type="button" onclick="clearAuditFilters()">Wyczyść filtry</button><button class="btn" type="button" onclick="window.parent?.postMessage({type:'top-dragon-audit-request'},window.location.origin)">Odśwież</button><button class="btn" type="button" onclick="exportAuditHistory()">Eksport</button></div>
           </div>
           <div class="small" style="margin-bottom:7px;">${rows.length} operacji</div>
-          <div class="audit-list">${rows.length ? rows.slice(0,1000).map(item => `<div class="audit-row"><span>${esc(new Date(item.at).toLocaleString("pl-PL"))}</span><span>${queueDispatchers().includes(item.actor) ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.actor)}">${esc(item.actor)}</span>` : `<b>${esc(item.actor)}</b>`}</span><span class="audit-action">${esc(item.action)}</span><span class="audit-details">${esc(item.details || `${item.entityType} ${item.entityId}`.trim())}</span></div>`).join("") : `<div class="commercial-empty">Brak zapisanych operacji spełniających filtry.</div>`}</div>
+          <div class="audit-list">${rows.length ? rows.slice(0,state.auditDisplayLimit || 500).map(item => `<div class="audit-row"><span>${esc(new Date(item.at).toLocaleString("pl-PL"))}</span><span>${queueDispatchers().includes(item.actor) ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.actor)}">${esc(item.actor)}</span>` : `<b>${esc(item.actor)}</b>`}</span><span class="audit-action">${esc(item.action)}</span><span class="audit-details">${esc(item.details || `${item.entityType} ${item.entityId}`.trim())}</span></div>`).join("") : `<div class="commercial-empty">Brak zapisanych operacji spełniających filtry.</div>`}</div>
+          ${rows.length > Number(state.auditDisplayLimit || 500) ? `<div style="display:flex;justify-content:center;margin-top:10px;"><button type="button" class="btn" onclick="showMoreAuditHistory()">Pokaż kolejne 500</button></div>` : ""}
         </div>`;
       };
 
@@ -91378,10 +91468,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const visibleDriverIds=new Set(visibleDriversForCurrentUser().map(driver=>driver.id));
         const dates=dateList();
         await ensureBoardWeeklyForExport3L36(dates);
-        const headers=['Typ wpisu','Data start','Data koniec','Godz. start','Godz. koniec','Spedytor','Oddział','Przewoźnik','Kierowca','Naczepa','Narodowość','Baza','Załadunek','Drugi załadunek','Rozładunek','Drugi rozładunek','Dolot km','Kilometry','Razem km','Stawka PLN','Koszt przewoźnika','Zysk','PLN/km','Status spedytora','Status rozliczeń','Link trasy','Podsumowanie tygodniowe'];
-        const rows=activeRoutes().filter(route=>route.approvalStatus!=='rejected').filter(route=>visibleDriverIds.has(route.driverId)).filter(route=>dates.some(date=>routeOverlapsDate(route,date))).sort((a,b)=>routeGlobalStart(a)-routeGlobalStart(b)).map(route=>{
+        const rangeFrom=dates[0]||START_DATE;
+        const rangeTo=dates[dates.length-1]||rangeFrom;
+        let relationRows=activeRoutes().filter(route=>visibleDriverIds.has(route.driverId)).map(route=>({...route,_centralActive:true}));
+        if(EMBEDDED_MODE) {
+          try {
+            relationRows=centralArchiveRowsForExcel(await requestCentralArchiveExport(rangeFrom,rangeTo,30000),rangeFrom,rangeTo);
+          } catch(error) {
+            console.warn('Nie udało się pobrać relacji usuniętych do eksportu:',error);
+            showAppMessage('Eksport bez archiwum','Nie udało się pobrać relacji usuniętych. Raport zawiera dane aktywne.', 'info');
+          }
+        }
+        const dedupedRelations=Array.from(new Map(relationRows.map(route=>[String(route.id||route.relationRef||Math.random()),route])).values());
+        const headers=['Typ wpisu','Data start','Data koniec','Godz. start','Godz. koniec','Spedytor','Oddział','Przewoźnik','Kierowca','Naczepa','Narodowość','Baza','Załadunek','Drugi załadunek','Rozładunek','Drugi rozładunek','Dolot km','Kilometry','Razem km','Stawka PLN','Koszt przewoźnika','Zysk','PLN/km','Status spedytora','Status rozliczeń','Link trasy','Podsumowanie tygodniowe','Stan relacji'];
+        const rows=dedupedRelations.filter(route=>String(route.date||'').slice(0,10)<=rangeTo && String(route.endDate||route.date||'').slice(0,10)>=rangeFrom).sort((a,b)=>routeGlobalStart(a)-routeGlobalStart(b)).map(route=>{
           const driver=driverById(route.driverId)||{};
-          return ['RELACJA',formatDateForInput(route.date||START_DATE),formatDateForInput(routeEndDate(route)),hourLabel(routeStartHour(route)),hourLabel(routeEndHour(route)===24?24:routeEndHour(route)),driver.dispatcher||route.ownerDispatcher||'',driver.branch||'',driver.carrier||'',driver.driver||'',driver.trailerReg||'',driverNationality(driver),driverBaseLabel(driver),route.load||'',route.secondLoad||'',route.unload||'',route.secondUnload||'',Number(route.approachKm||0),Number(route.loadedKm||0),totalKm(route),Number(route.rate||0),carrierCost(route),profit(route),perKm(route).toFixed(2),route.dispatcherStatus||'',route.accountingStatus||'Nowe',route.routeLink||route.googleMapsLink||'',''];
+          return ['RELACJA',formatDateForInput(route.date||START_DATE),formatDateForInput(routeEndDate(route)),hourLabel(routeStartHour(route)),hourLabel(routeEndHour(route)===24?24:routeEndHour(route)),driver.dispatcher||route.ownerDispatcher||route.createdBy||'',driver.branch||route._centralBranchId||'',driver.carrier||route.carrier||'',driver.driver||route.driverName||'',driver.trailerReg||route.trailerReg||'',driverNationality(driver),driverBaseLabel(driver),route.load||'',route.secondLoad||'',route.unload||'',route.secondUnload||'',Number(route.approachKm||0),Number(route.loadedKm||0),totalKm(route),Number(route.rate||0),carrierCost(route),profit(route),perKm(route).toFixed(2),route.dispatcherStatus||'',route.accountingStatus||'Nowe',route.routeLink||route.googleMapsLink||'','',route._centralActive===false?'USUNIĘTA':'AKTYWNA'];
         });
         visibleWeekStarts3L36(dates).forEach(weekStart=>{
           const data=weekData3L36(weekStart); if(!data) return;
@@ -91389,18 +91491,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           (data.carrierAdjustments||[]).forEach(item=>{
             const driver=visibleDriversForCurrentUser().find(d=>String(d.driverEntityId||'')===String(item.driverId||'')) || null;
             const effect=-Number(item.amount||0);
-            rows.push(['WYRÓWNANIE PRZEWOŹNIKA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',driver?.dispatcher||'',driver?.branch||'',item.carrierName||driver?.carrier||'',item.driverName||driver?.driver||'','','','', '', '', '', '', '', '', '', '',Number(item.amount||0),effect,'','','','','',`Wyrównanie przewoźnika: ${effect>0?'+':''}${Math.round(effect)} PLN${item.comment?` · ${item.comment}`:''}`]);
+            rows.push(['WYRÓWNANIE PRZEWOŹNIKA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',driver?.dispatcher||'',driver?.branch||'',item.carrierName||driver?.carrier||'',item.driverName||driver?.driver||'','','','', '', '', '', '', '', '', '', '',Number(item.amount||0),effect,'','','','','',`Wyrównanie przewoźnika: ${effect>0?'+':''}${Math.round(effect)} PLN${item.comment?` · ${item.comment}`:''}`,'']);
           });
           (data.transfers||[]).forEach(item=>{
             const from=USERS.find(u=>String(u.supabaseId||'')===String(item.fromDispatcherId||''));
             const to=USERS.find(u=>String(u.supabaseId||'')===String(item.toDispatcherId||''));
             const status=transferStatusText3L36(item);
             const applied=item.status==='accepted';
-            rows.push(['PRZELEW — NADAWCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',from?.name||from?.login||'',from?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?-Number(item.amount||0):0,'','','','','',`-${Math.round(Number(item.amount||0))} PLN dla ${to?.name||to?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`]);
-            rows.push(['PRZELEW — ODBIORCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',to?.name||to?.login||'',to?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?Number(item.amount||0):0,'','','','','',`+${Math.round(Number(item.amount||0))} PLN od ${from?.name||from?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`]);
+            rows.push(['PRZELEW — NADAWCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',from?.name||from?.login||'',from?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?-Number(item.amount||0):0,'','','','','',`-${Math.round(Number(item.amount||0))} PLN dla ${to?.name||to?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`,'']);
+            rows.push(['PRZELEW — ODBIORCA',formatDateForInput(weekStart),formatDateForInput(weekEnd),'','',to?.name||to?.login||'',to?.branch||'','','','','','', '', '', '', '', '', '', '', '', '',applied?Number(item.amount||0):0,'','','','','',`+${Math.round(Number(item.amount||0))} PLN od ${from?.name||from?.login||'spedytora'} · ${status}${item.comment?` · ${item.comment}`:''}`,'']);
           });
         });
         downloadCsvFile(`plan-kierowcow-${dates[0]||START_DATE}-${dates[dates.length-1]||START_DATE}.csv`,headers,rows);
+        recordAuditOperation?.('Eksport planu kierowców','relations','',`${rows.length} wierszy · ${rangeFrom}–${rangeTo}`);
       };
 
       window.addEventListener('message',event=>{
@@ -94761,5 +94864,210 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .time-route.compact-content .route-dispatcher-chip { min-width:15px; max-width:25px; padding:0 1px; margin-right:0; font-size:6.5px; flex:0 0 auto; }
     .time-route.compact-content .time-route-sub { padding-left:1px; padding-right:1px; text-align:center; }
   </style>
+  <style id="targeted-3l66-operations-ai-workspaces">
+    .profitability-status { display:none !important; }
+    .client-coowners { display:flex;flex-wrap:wrap;gap:7px;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--soft); }
+    .client-coowners label { display:inline-flex;align-items:center;gap:5px;cursor:pointer; }
+    .client-coowners input { width:16px;height:16px;accent-color:#2563eb; }
+    .input.ai-value-pending { background:#ffedd5 !important;border-color:#f59e0b !important;box-shadow:0 0 0 2px rgba(245,158,11,.14) !important; }
+    .input.ai-value-accepted { background:#dcfce7 !important;border-color:#22c55e !important;box-shadow:0 0 0 2px rgba(34,197,94,.12) !important; }
+    .app.dark-mode .input.ai-value-pending { background:#4a2d0b !important;color:#ffedd5 !important; }
+    .app.dark-mode .input.ai-value-accepted { background:#12351f !important;color:#dcfce7 !important; }
+    .route-external-links { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
+    .route-external-links .btn { justify-content:center;text-align:center; }
+    .map-client-delete { color:#b91c1c !important;border-color:#fecaca !important; }
+    .map-client-delete:hover { background:#fee2e2 !important; }
+    @keyframes mapRouteRecentPulse3L66 { 0%,100%{filter:drop-shadow(0 0 0 rgba(37,99,235,0));transform:scale(1)} 50%{filter:drop-shadow(0 0 10px rgba(37,99,235,.9));transform:scale(1.13)} }
+    .tms-marker.map-route-recent { animation:mapRouteRecentPulse3L66 1.55s ease-in-out infinite;transform-origin:center; }
+    .workspace-window-button { white-space:nowrap; }
+    .stats-hourly-timeline { display:grid;grid-template-columns:repeat(24,minmax(12px,1fr));gap:3px;align-items:end;height:150px;padding:12px 10px 24px;border:1px solid var(--border);border-radius:12px;background:var(--soft);overflow-x:auto; }
+    .stats-hour-column { min-width:12px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;position:relative; }
+    .stats-hour-bar { width:100%;min-height:2px;border-radius:4px 4px 1px 1px;background:linear-gradient(180deg,#60a5fa,#2563eb); }
+    .stats-hour-column small { position:absolute;top:100%;margin-top:5px;font-size:7px;color:var(--muted);white-space:nowrap; }
+    .stats-hour-column b { font-size:8px;color:var(--text); }
+    .admin-transfer-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--soft); }
+    @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.stats-hourly-timeline{grid-template-columns:repeat(24,18px)}}
+  </style>
+  <script id="targeted-3l66-operations-ai-workspaces-script">
+    (() => {
+      function confirmAiRouteField(routeId, field, input) {
+        const route = state.routes.find(item => String(item.id) === String(routeId));
+        if (!route || !canEditBoardRoute(route)) return;
+        const pending = new Set(Array.isArray(route.orderAiPendingFields) ? route.orderAiPendingFields : []);
+        if (!pending.has(field)) return;
+        pending.delete(field);
+        const accepted = new Set(Array.isArray(route.orderAiAcceptedFields) ? route.orderAiAcceptedFields : []);
+        accepted.add(field);
+        route.orderAiPendingFields = Array.from(pending);
+        route.orderAiAcceptedFields = Array.from(accepted);
+        input?.classList?.remove('ai-value-pending');
+        input?.classList?.add('ai-value-accepted');
+        scheduleCentralRelationsDiff(0);
+        recordAuditOperation?.('Zatwierdzono wartość z AI','route',route.id,field);
+      }
+      window.confirmAiRouteField = confirmAiRouteField;
+      window.openRouteSms = openRouteSms;
+      window.deleteClientFromMap = deleteClientFromMap;
+
+      function routeNavigationPoints3L66(route) {
+        if (!route) return [];
+        const previous = previousRouteBeforeRoute(route);
+        const previousUnload = previous ? routePointFromRoute(previous, 'unload') : null;
+        const load = routePointFromRoute(route, 'load');
+        const unload = routePointFromRoute(route, 'unload');
+        return dedupeRoutePlannerPoints([previousUnload, load, unload]);
+      }
+
+      function impargoStopValue3L66(point) {
+        const label = String(point?.label || '').replace(/\s+/g,' ').trim();
+        const encodedLabel = encodeURIComponent(label);
+        return `${encodedLabel},${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`;
+      }
+
+      function buildImpargoUrl3L66(points) {
+        const valid = (points || []).filter(validRoutePlannerPoint);
+        if (valid.length < 2) return '';
+        const params = new URLSearchParams({ considerTraffic:'false', maxAxle:'8', maxHeight:'4', routingMode:'shortest', shippedHazardousGoods:'' });
+        valid.forEach((point,index) => {
+          params.set(`stops[${index}]`, impargoStopValue3L66(point));
+          params.set(`waitingTimes[${index}]`, '0');
+        });
+        return `https://apps.impargo.de/planner?${params.toString()}`;
+      }
+
+      function openRouteExternal3L66(routeId, provider) {
+        const route = state.routes.find(item => String(item.id) === String(routeId));
+        const points = routeNavigationPoints3L66(route);
+        const url = provider === 'impargo'
+          ? buildImpargoUrl3L66(points)
+          : (points.length >= 2 ? buildGoogleDirectionsUrl(points[0], points[points.length - 1], points.slice(1,-1)) : '');
+        if (!url) {
+          showAppMessage('Brak punktów trasy','Uzupełnij poprzedni rozładunek, załadunek i rozładunek, aby otworzyć mapę.');
+          return;
+        }
+        window.open(url,'_blank','noopener,noreferrer');
+        recordAuditOperation?.(`Otwarto trasę ${provider === 'impargo' ? 'Impargo' : 'Google Maps'}`,'route',routeId,'');
+      }
+      window.openRouteExternal3L66 = openRouteExternal3L66;
+
+      const renderSidePanel3L66 = renderSidePanel;
+      renderSidePanel = function() {
+        let html = renderSidePanel3L66.apply(this, arguments);
+        const route = state.routes.find(item => item.id === state.selectedRouteId);
+        if (!route) return html;
+        const controls = `<section class="section"><div class="details-section-title">Nawigacja trasy</div><div class="route-external-links"><button type="button" class="btn" onclick="openRouteExternal3L66('${attr(route.id)}','google')">Otwórz Google Maps</button><button type="button" class="btn btn-ai-action" onclick="openRouteExternal3L66('${attr(route.id)}','impargo')">Otwórz Impargo</button></div></section>`;
+        return html.replace('<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">', `${controls}<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">`);
+      };
+
+      function openWorkspaceWindow3L66(view) {
+        let url;
+        try { url = new URL(window.parent.location.href); } catch (error) { url = new URL(window.location.href); }
+        url.searchParams.set('tmsView', view === 'map' ? 'map' : 'plan');
+        const name = view === 'map' ? 'top-dragon-map' : 'top-dragon-plan';
+        window.open(url.toString(), name, 'noopener,resizable=yes,scrollbars=yes');
+      }
+      window.openWorkspaceWindow3L66 = openWorkspaceWindow3L66;
+
+      const renderUnloadMapCard3L66 = renderUnloadMapCard;
+      renderUnloadMapCard = function() {
+        const html = renderUnloadMapCard3L66.apply(this, arguments);
+        return html.replace('<h2>Mapa rozładunków</h2>', '<h2>Mapa rozładunków</h2><button type="button" class="btn workspace-window-button" onclick="openWorkspaceWindow3L66(\'map\')">Otwórz w osobnym oknie</button>');
+      };
+      const renderBoard3L66 = renderBoard;
+      renderBoard = function() {
+        const html = renderBoard3L66.apply(this, arguments);
+        return html.replace('<h2>Plan kierowców</h2>', '<h2>Plan kierowców</h2><button type="button" class="btn workspace-window-button" onclick="openWorkspaceWindow3L66(\'plan\')">Otwórz w osobnym oknie</button>');
+      };
+
+      const applyAuthenticatedUser3L66 = applyAuthenticatedUser;
+      applyAuthenticatedUser = function(user) {
+        const result = applyAuthenticatedUser3L66.apply(this, arguments);
+        const startView = new URLSearchParams(window.location.search).get('startView');
+        if (!['plan','map'].includes(startView)) return result;
+        setTimeout(() => {
+          state.unloadPanelCollapsed = startView !== 'map';
+          render();
+          requestAnimationFrame(() => document.querySelector(startView === 'map' ? '.map-card' : '.board-wrap')?.scrollIntoView?.({block:'start'}));
+        }, 0);
+        return result;
+      };
+
+      const renderLeafletMarkerIcon3L66 = renderLeafletMarkerIcon;
+      renderLeafletMarkerIcon = function(group) {
+        let html = renderLeafletMarkerIcon3L66.apply(this, arguments);
+        const recent = (group?.points || []).some(point => {
+          const route = state.routes.find(item => String(item.id) === String(point.routeId));
+          return route && routeFreshMinutes(route) < 20;
+        });
+        if (recent) html = html.replace('class="tms-marker ', 'class="tms-marker map-route-recent ');
+        return html;
+      };
+
+      function statsHourlyTimeline3L66(stats) {
+        const dates = new Set(stats?.dates || []);
+        const selected = stats?.selectedDispatcher || 'all';
+        const counts = Array.from({length:24},()=>0);
+        (state.routes || []).forEach(route => {
+          const created = new Date(route.addedToBoardAt || route.createdAt || '');
+          if (!Number.isFinite(created.getTime())) return;
+          const localDate = `${created.getFullYear()}-${String(created.getMonth()+1).padStart(2,'0')}-${String(created.getDate()).padStart(2,'0')}`;
+          if (!dates.has(localDate)) return;
+          if (selected !== 'all' && statsRouteDispatcherLogin(route) !== selected) return;
+          counts[created.getHours()] += 1;
+        });
+        const max = Math.max(1,...counts);
+        return `<section class="stats-section"><div class="stats-section-head"><div><h3>Godziny dodawania relacji</h3><p>Rozkład aktywności dla wybranego dnia, tygodnia lub miesiąca.</p></div></div><div class="stats-hourly-timeline">${counts.map((count,hour)=>`<div class="stats-hour-column" title="${String(hour).padStart(2,'0')}:00 — ${count} relacji"><b>${count || ''}</b><span class="stats-hour-bar" style="height:${Math.max(2,(count/max)*100)}%"></span><small>${hour % 2 === 0 ? String(hour).padStart(2,'0') : ''}</small></div>`).join('')}</div></section>`;
+      }
+      const renderStatsUi3L66 = renderStatsUi;
+      renderStatsUi = function() {
+        let html = renderStatsUi3L66.apply(this, arguments);
+        if (!state.statsPanelOpen) return html;
+        const stats = statsSnapshot();
+        return html.replace(/<\/div>\s*<\/aside>\s*$/, `${statsHourlyTimeline3L66(stats)}</div></aside>`);
+      };
+
+      const renderCommercialBody3L66 = renderCommercialBody;
+      renderCommercialBody = function() {
+        if (state.commercialView === 'transfer') return `<div class="admin-transfer-entry"><div><b>Import / eksport danych</b><div class="small">Relacje, klienci i flota — narzędzia dostępne wyłącznie dla administratora.</div></div><button type="button" class="btn btn-dark" onclick="openAdminDataTransfer()">Otwórz narzędzia</button></div>`;
+        return renderCommercialBody3L66.apply(this, arguments);
+      };
+      const renderCommercialIntelligence3L66 = renderCommercialIntelligence;
+      renderCommercialIntelligence = function() {
+        let html = renderCommercialIntelligence3L66.apply(this, arguments);
+        if (!isAdminUser()) return html;
+        const button = `<button type="button" class="commercial-tab ${state.commercialView === 'transfer' ? 'active' : ''}" onclick="setCommercialView('transfer')">Import / eksport</button>`;
+        return html.replace('</div><div class="commercial-body" data-role="commercial-body">', `${button}</div><div class="commercial-body" data-role="commercial-body">`);
+      };
+      const setCommercialView3L66 = setCommercialView;
+      setCommercialView = function(view) {
+        if (view !== 'transfer') return setCommercialView3L66.apply(this, arguments);
+        if (!isAdminUser()) return;
+        state.commercialView = 'transfer';
+        state.commercialPanelOpen = true;
+        syncCommercialIntelligenceSection();
+      };
+
+      function wrapAudit3L66(name, action, entityType, detailsFn) {
+        const original = window[name];
+        if (typeof original !== 'function') return;
+        window[name] = function() {
+          const args = Array.from(arguments);
+          const result = original.apply(this,args);
+          Promise.resolve(result).then(() => {
+            const info = typeof detailsFn === 'function' ? detailsFn(args) : {id:String(args[0] || ''),details:''};
+            recordAuditOperation?.(action,entityType,info?.id || '',info?.details || '');
+          }).catch(()=>{});
+          return result;
+        };
+      }
+      wrapAudit3L66('setRouteStatus','Zmieniono status relacji','route',args=>({id:args[0],details:String(args[1]||'')}));
+      wrapAudit3L66('approveRoute','Zaakceptowano relację','route',args=>({id:args[0]}));
+      wrapAudit3L66('rejectRoute','Odrzucono relację','route',args=>({id:args[0]}));
+      wrapAudit3L66('addFleetDriver','Dodano kierowcę lub pojazd','fleet',()=>({details:'Formularz floty'}));
+      wrapAudit3L66('saveFleetDriverEdit','Edytowano kierowcę lub pojazd','fleet',()=>({id:String(state.fleetEditDriverId||'')}));
+      wrapAudit3L66('restoreHiddenDriver','Przywrócono ukrytego kierowcę','fleet',args=>({id:args[0]}));
+      wrapAudit3L66('removeFleetDriver','Usunięto pojazd z aktywnej floty','fleet',args=>({id:args[0]}));
+    })();
+  </script>
 </body>
 </html>
