@@ -6688,7 +6688,6 @@
     .driver-base-popup-list { margin-top: 6px; display: grid; gap: 3px; max-height: 180px; overflow: auto; }
     .driver-base-popup-row { display: flex; align-items: center; gap: 5px; }
 
-    .btn-ai-home,
     .btn-ai-action,
     .text-ai-import-btn {
       min-width: 46px;
@@ -6699,17 +6698,14 @@
       letter-spacing: .02em;
       box-shadow: 0 8px 22px rgba(79, 70, 229, .24);
     }
-    .btn-ai-home:hover,
     .btn-ai-action:hover,
     .text-ai-import-btn:hover {
       background: linear-gradient(135deg, #6d28d9 0%, #1d4ed8 55%, #0e7490 100%);
       border-color: #4338ca;
       color: #fff;
     }
-    .btn-ai-home:disabled,
     .btn-ai-action:disabled,
     .text-ai-import-btn:disabled { opacity:.58; cursor:wait; }
-    .app.dark-mode .btn-ai-home,
     .app.dark-mode .btn-ai-action,
     .app.dark-mode .text-ai-import-btn {
       background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 58%, #06b6d4 100%);
@@ -69697,6 +69693,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       pdfImportStatus: "Wgraj PDF lub Word ze zleceniem, a następnie uruchom analizę. Po sprawdzeniu danych przeniesiesz je do formularza relacji.",
       pdfImportWarning: false,
       pdfImportData: null,
+      aiAnalyzerMinimized: false,
+      aiAnalyzerDockVisible: false,
+      aiAnalyzerStatus: "paused",
+      aiAnalyzerReadyKind: "",
+      queueAddMenuTarget: "",
       textImportOpen: false,
       textImportText: "",
       textImportStatus: "Wklej wiadomość od klienta z jedną lub wieloma relacjami. Po analizie ładunki trafią do zakładki Wolne ładunki.",
@@ -72228,9 +72229,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         { key: "fleet-list", title: "Edycja i widoczność floty", text: "Spedytor może edytować i ukrywać własne pojazdy. Ukryty pojazd znika z planu i dopasowań, ale pozostaje na liście floty, skąd można go ponownie pokazać.", selector: '.fleet-list' },
       ];
       if (topic === "ai") return [
-          { key: "ai-open", title: "Otwórz AI", text: "Kliknij AI, aby zaimportować zlecenie z PDF lub Word albo przeanalizować tekst wiadomości klienta.", selector: 'button.btn-ai-home', clickAdvance: true },
-        { key: "ai-target", title: "Wybierz miejsce docelowe", text: "Określ, czy przygotowana relacja ma trafić do Planowanych relacji, czy do Wolnych ładunków.", selector: '.pdf-import-modal .ai-import-target' },
-          { key: "ai-source", title: "PDF, Word lub wiadomość", text: "Wybierz plik PDF lub Word albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem — zawsze zweryfikuj wynik.", selector: '.pdf-import-modal .ai-import-source-grid' },
+        { key: "ai-queue", title: "Wybierz listę relacji", text: "Otwórz Planowane relacje albo Wolne ładunki. Analizator zapisze przygotowaną relację właśnie na wybranej liście.", selector: '.future-tab, .proposed-tab', clickAdvance: true },
+        { key: "ai-add", title: "Dodaj relację", text: "Jeden przycisk pozwala wprowadzić relację ręcznie albo przygotować ją na podstawie dokumentu lub wiadomości klienta.", selector: 'button[data-queue-add]', clickAdvance: true },
+        { key: "ai-open", title: "Uruchom analizator AI", text: "Wybierz PDF, Word lub tekst. Analizator pojawi się dyskretnie po prawej stronie i możesz go zminimalizować podczas pracy.", selector: 'button[data-queue-ai]', clickAdvance: true },
+        { key: "ai-source", title: "PDF, Word lub wiadomość", text: "Wybierz plik albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem — zawsze zweryfikuj wynik.", selector: '.ai-analyzer-panel .ai-import-source-grid' },
       ];
       if (topic === "assistant") return [
         { key: "assistant-main", title: "Asystent spedytora", text: "Ten moduł łączy historię relacji, wyszukiwanie klientów w rejonie, zapytania o ładunek oraz zarządzanie flotą.", selector: '#commercial-intelligence' },
@@ -72564,9 +72566,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
               <div class="header-actions">
                 <div class="header-account-actions">
-                  <div class="header-view-nav" aria-label="Widok aplikacji">
-                    ${canUseOperationalAi() ? `<button class="btn btn-ai-home" type="button" onclick="openPdfImport(event)" title="Import zlecenia lub analiza wiadomości klienta">AI</button>` : ""}
-                  </div>
                   ${(state.user.actualSupabaseRole || state.user.supabaseRole) === "admin" ? `<button type="button" class="btn" onclick="openAdministrationPanel()" title="Zarządzaj użytkownikami i oddziałami">Administracja</button>` : ""}
                   <div class="badge" style="gap:8px;"><span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">${esc(state.user.login)}</span><span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span></div>
                   ${state.user.role === "rozliczenia" ? `<span class="theme-pill">Widok rozliczeń</span>` : ""}
@@ -72596,6 +72595,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${state.appView === "plan" ? renderStatsUi() : ""}
           ${state.appView === "plan" ? renderPdfImportUi() : ""}
           ${state.appView === "plan" ? renderTextImportUi() : ""}
+          ${state.appView === "plan" ? renderAiAnalyzerDock() : ""}
           ${state.appView === "plan" ? renderMapToggleTab() : ""}
           ${renderRouteContextMenu()}
           ${state.addOpen ? renderAddModal() : ""}
@@ -76834,6 +76834,38 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       </details>`;
     }
 
+    function renderQueueAddControl(target) {
+      if (!["spedytor","kierownik","admin"].includes(state.user?.role)) return "";
+      const normalizedTarget = target === "proposed" ? "proposed" : "future";
+      const menuOpen = state.queueAddMenuTarget === normalizedTarget;
+      const manualLabel = normalizedTarget === "proposed" ? "Wprowadź wolny ładunek" : "Wprowadź planowaną relację";
+      return `<div class="queue-import-actions"><div class="queue-add-control"><button class="btn btn-dark" type="button" data-queue-add="${normalizedTarget}" onclick="toggleQueueAddMenu(event,'${normalizedTarget}')">+ Dodaj relację</button>${menuOpen ? `<div class="queue-add-menu"><button class="btn" type="button" onclick="openQueueManualAdd(event,'${normalizedTarget}')">${esc(manualLabel)}</button>${canUseOperationalAi() ? `<button class="btn btn-ai-action" type="button" data-queue-ai="${normalizedTarget}" onclick="openQueueAiAnalyzer(event,'${normalizedTarget}')">✦ PDF, Word lub tekst</button>` : ""}</div>` : ""}</div></div>`;
+    }
+
+    function toggleQueueAddMenu(event, target) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const normalizedTarget = target === "proposed" ? "proposed" : "future";
+      state.queueAddMenuTarget = state.queueAddMenuTarget === normalizedTarget ? "" : normalizedTarget;
+      if (normalizedTarget === "proposed") syncProposedPanel();
+      else syncFuturePanel();
+    }
+
+    function openQueueManualAdd(event, target) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      state.queueAddMenuTarget = "";
+      if (target === "proposed") openProposedAdd(event);
+      else openFutureAdd(event);
+    }
+
+    function openQueueAiAnalyzer(event, target) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      state.queueAddMenuTarget = "";
+      openPdfImport(event, target === "proposed" ? "proposed" : "future");
+    }
+
     function renderProposedLoadsUi() {
       if (!state.user) return "";
       const date = state.reportDate || START_DATE;
@@ -76864,11 +76896,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <button class="btn" type="button" onclick="toggleProposedPanel(false)">Zamknij</button>
           </div>
           <div class="proposed-drawer-body">
-            ${["spedytor","kierownik","admin"].includes(state.user.role) ? `
-              <div class="queue-import-actions">
-                <button class="btn btn-dark" type="button" onclick="openProposedAdd(event)">+ Dodaj wolny ładunek</button>
-              </div>
-            ` : ""}
+            ${renderQueueAddControl("proposed")}
             ${renderExpiredProposedLoadStats3L44()}
             <div class="queue-drop-zone" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Upuść tutaj wolny ładunek, aby przenieść go do Planowanych relacji">Przenieś do Planowane relacje</div>
             ${loads.length ? loads.map(renderProposedLoadCard).join("") : `<div class="hint">Brak wolnych ładunków.</div>`}
@@ -77741,7 +77769,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderPdfImportTab() {
-      // Przycisk AI znajduje się w głównym nagłówku aplikacji.
+      // Analizator jest dostępny wyłącznie z prawych list relacji.
       return "";
     }
 
@@ -77759,6 +77787,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadCity: "",
         unloadAddress: "",
         client: "",
+        clientNip: "",
+        clientAddress: "",
         reference: "",
         rate: 0,
         loadedKm: 0,
@@ -77788,21 +77818,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderPdfImportModal() {
       const target = state.aiImportTarget === "proposed" ? "proposed" : "future";
+      const targetLabel = target === "proposed" ? "Wolne ładunki" : "Planowane relacje";
       const aiBusy = Boolean(state.aiAnalyzerBusyKind);
       const documentBusy = state.aiAnalyzerBusyKind === "document";
       const textBusy = state.aiAnalyzerBusyKind === "text";
+      const resultReady = !aiBusy && ["document", "text"].includes(state.aiAnalyzerReadyKind);
       return `
-        <div class="pdf-import-backdrop" onclick="closePdfImportOnBackdrop(event)">
-          <section class="pdf-import-modal" onclick="event.stopPropagation()" aria-label="Asystent AI relacji">
+        <div class="pdf-import-backdrop ai-analyzer-backdrop" onclick="closePdfImportOnBackdrop(event)">
+          <section class="pdf-import-modal ai-analyzer-panel" onclick="event.stopPropagation()" aria-label="Asystent AI relacji">
             <div class="pdf-import-head">
-              <div><h2>AI</h2><div class="small">Importuj zlecenie PDF lub Word albo przeanalizuj wiadomość klienta.</div></div>
-              <button class="btn" type="button" onclick="closePdfImport()">Zamknij</button>
+              <div><h2>Analizator AI</h2><div class="ai-analyzer-target">Dodawanie do: ${esc(targetLabel)}</div></div>
+              <div class="ai-analyzer-head-actions"><button class="btn" type="button" onclick="minimizeAiAnalyzer()">Minimalizuj</button><button class="btn" type="button" onclick="closePdfImport()">Zamknij</button></div>
             </div>
             <div class="pdf-import-body">
-              <div class="ai-import-target" role="radiogroup" aria-label="Miejsce docelowe relacji">
-                <label><input type="radio" name="ai-import-target" value="future" ${target === "future" ? "checked" : ""} onchange="setAiImportTarget('future')" /> Planowane relacje</label>
-                <label><input type="radio" name="ai-import-target" value="proposed" ${target === "proposed" ? "checked" : ""} onchange="setAiImportTarget('proposed')" /> Wolne ładunki</label>
-              </div>
               <div class="ai-import-source-grid">
                 <section class="ai-import-source-card">
                   <h3>Import zlecenia</h3>
@@ -77817,6 +77845,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj tekst"}</button>
                 </section>
               </div>
+              ${resultReady ? `<div style="display:flex;justify-content:flex-end;margin-top:9px;"><button class="btn btn-ai-action" type="button" onclick="continueAiAnalyzerResult()">Sprawdź i uzupełnij relację</button></div>` : ""}
             </div>
           </section>
         </div>`;
@@ -77835,6 +77864,39 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncPdfImportUi() {
       replaceTransientElement(".pdf-import-tab", renderPdfImportTab());
       replaceTransientElement(".pdf-import-backdrop", state.pdfImportOpen ? renderPdfImportModal() : "");
+      replaceTransientElement(".ai-analyzer-dock", renderAiAnalyzerDock());
+    }
+
+    function aiAnalyzerStatusMeta() {
+      const status = state.aiAnalyzerBusyKind ? "busy" : (state.aiAnalyzerStatus || "paused");
+      if (status === "busy") return { status, mark:"●", label:"Analiza trwa", hint:"Kliknij, aby otworzyć" };
+      if (status === "error") return { status, mark:"!", label:"Błąd", hint:"Sprawdź analizator" };
+      if (status === "ready") return { status, mark:"✓", label:"Gotowe", hint:"Wynik jest gotowy" };
+      return { status:"paused", mark:"Ⅱ", label:"Pauza", hint:"Analizator zminimalizowany" };
+    }
+
+    function renderAiAnalyzerDock() {
+      if (!canUseOperationalAi() || state.pdfImportOpen || !state.aiAnalyzerDockVisible) return "";
+      const meta = aiAnalyzerStatusMeta();
+      return `<button type="button" class="ai-analyzer-dock status-${meta.status}" onclick="restoreAiAnalyzer(event)" title="${attr(meta.hint)}"><span class="ai-analyzer-dock-icon">AI</span><span class="ai-analyzer-dock-state"><b>${esc(meta.label)}</b><small>${esc(state.aiImportTarget === "proposed" ? "Wolne ładunki" : "Planowane relacje")}</small></span><span class="ai-analyzer-dock-mark">${esc(meta.mark)}</span></button>`;
+    }
+
+    function minimizeAiAnalyzer() {
+      state.pdfImportOpen = false;
+      state.textImportOpen = false;
+      state.aiAnalyzerMinimized = true;
+      state.aiAnalyzerDockVisible = true;
+      if (!state.aiAnalyzerBusyKind && !["ready","error"].includes(state.aiAnalyzerStatus)) state.aiAnalyzerStatus = "paused";
+      syncTextImportUi();
+      syncPdfImportUi();
+    }
+
+    function restoreAiAnalyzer(event) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      state.aiAnalyzerMinimized = false;
+      state.pdfImportOpen = true;
+      syncPdfImportUi();
     }
 
     function openPdfImport(event, target = "future") {
@@ -77842,6 +77904,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!canUseOperationalAi()) return;
       state.aiImportTarget = target === "proposed" ? "proposed" : "future";
       state.aiImportMode = "combined";
+      state.queueAddMenuTarget = "";
+      state.aiAnalyzerMinimized = false;
+      state.aiAnalyzerDockVisible = true;
+      if (!state.aiAnalyzerBusyKind) state.aiAnalyzerStatus = "paused";
+      if (!state.aiAnalyzerBusyKind) state.aiAnalyzerReadyKind = "";
       state.pdfImportOpen = true;
       if (!state.pdfImportData) state.pdfImportData = pdfImportDefaults();
       state.pdfImportStatus = state.pdfImportFileName
@@ -77853,6 +77920,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function closePdfImport() {
       state.pdfImportOpen = false;
+      state.aiAnalyzerMinimized = Boolean(state.aiAnalyzerBusyKind);
+      state.aiAnalyzerDockVisible = Boolean(state.aiAnalyzerBusyKind);
+      if (!state.aiAnalyzerBusyKind) {
+        state.aiAnalyzerStatus = "paused";
+        state.aiAnalyzerReadyKind = "";
+      }
       syncPdfImportUi();
     }
 
@@ -77867,6 +77940,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.pdfImportData = pdfImportDefaults();
       state.pdfImportStatus = "Wgraj PDF lub Word ze zleceniem, a następnie uruchom analizę.";
       state.pdfImportWarning = false;
+      state.aiAnalyzerReadyKind = "";
+      state.aiAnalyzerStatus = "paused";
       syncPdfImportUi();
     }
 
@@ -77881,6 +77956,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ? "Nieprawidłowy format. Wybierz zlecenie PDF, DOC lub DOCX."
           : "Nie wybrano pliku.";
       state.pdfImportWarning = Boolean(file && !valid);
+      state.aiAnalyzerReadyKind = "";
+      state.aiAnalyzerStatus = file && !valid ? "error" : "paused";
       syncPdfImportUi();
     }
 
@@ -77920,6 +77997,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadCity: cityLabel(delivery) || defaults.unloadCity,
         unloadAddress: addressLabel(delivery) || defaults.unloadAddress,
         client: String(payload.client || payload.customer || defaults.client || "").trim(),
+        clientNip: normalizeClientNip(payload.clientNip || payload.nip || payload.taxId || defaults.clientNip || ""),
+        clientAddress: String(payload.clientAddress || payload.customerAddress || defaults.clientAddress || "").trim(),
         reference: String(payload.reference || payload.orderReference || defaults.reference || "").trim(),
         rate: Number(payload.rate || defaults.rate || 0),
         loadedKm: Number(payload.loadedKm || payload.distanceKm || payload.kilometers || defaults.loadedKm || 0),
@@ -77933,6 +78012,86 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
     }
 
+    function existingClientForAiData(data = {}) {
+      const name = String(data.client || "").trim();
+      const nip = normalizeClientNip(data.clientNip || "");
+      return (state.clients || []).find(client =>
+        (nip && normalizeClientNip(client.nip || "") === nip)
+        || (name && removePolishChars(client.name) === removePolishChars(name))
+      ) || null;
+    }
+
+    async function offerAiClientFromAnalysis(data = {}) {
+      if (state.user?.role !== "spedytor") return false;
+      const name = String(data.client || "").trim();
+      const nip = normalizeClientNip(data.clientNip || "");
+      if (!name || /^wiadomość tekstowa|^zlecenie z dokumentu/i.test(name)) return false;
+      const existing = existingClientForAiData({ client:name, clientNip:nip });
+      if (existing) {
+        data.client = existing.name;
+        data.clientNip = existing.nip || nip;
+        return false;
+      }
+
+      const address = String(data.clientAddress || data.loadAddress || data.load || data.loadCity || "").trim();
+      const confirmed = await showStyledConfirm({
+        title: "Dodać klienta do bazy?",
+        text: "AI rozpoznało nowego klienta. Sprawdź dane przed zapisaniem.",
+        details: `<div style="display:grid;gap:5px;text-align:left;"><b>${esc(name)}</b><span>NIP: ${esc(nip || "nie rozpoznano")}</span><span>Adres: ${esc(address || "nie rozpoznano")}</span></div>`,
+        confirmText: "Dodaj klienta",
+        cancelText: "Nie dodawaj"
+      });
+      if (!confirmed) return false;
+      if (!address) {
+        showAppMessage("Brak adresu klienta", "Klient nie został dodany. Uzupełnij jego adres później w Bazie klientów.", "info");
+        return false;
+      }
+
+      let target = coordsFromSearchText(address);
+      let approximate = !searchTextNeedsPreciseGeocode(address);
+      if (searchTextNeedsPreciseGeocode(address)) {
+        const exact = cachedGeocodeResult(address) || await geocodePolandAddress(address);
+        if (exact) {
+          const lat = Number(exact.lat ?? exact.coords?.[0]);
+          const lng = Number(exact.lng ?? exact.coords?.[1]);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            target = { coords:[lat,lng], city:exact.city || cityFromText(address) };
+            approximate = false;
+          }
+        }
+      }
+      if (!target?.coords) {
+        showAppMessage("Nie rozpoznano adresu klienta", "Klient nie został dodany automatycznie. Dodaj go później w Bazie klientów po sprawdzeniu adresu.", "info");
+        return false;
+      }
+
+      const dispatcher = String(state.user.login || "").trim();
+      const client = normalizeStoredClient({
+        id:`client-ai-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+        databaseType:"assigned", name, nip, address, dispatcher, coDispatchers:[dispatcher],
+        businessType:"", cargoTypes:"", lat:Number(target.coords[0]), lng:Number(target.coords[1]),
+        approximate, sample:false, updatedAt:new Date().toISOString()
+      });
+      if (!client) return false;
+      state.clients = [...(state.clients || []), client];
+      saveClientDatabaseToStorage();
+      scheduleCentralClientsDiff(0);
+      data.client = client.name;
+      data.clientNip = client.nip;
+      showAppMessage("Dodano klienta", `${client.name}${client.nip ? ` · NIP ${client.nip}` : ""} został zapisany w bazie.`, "success");
+      return true;
+    }
+
+    async function offerAiClientsFromAnalysis(items = []) {
+      const seen = new Set();
+      for (const item of items || []) {
+        const key = normalizeClientNip(item?.clientNip || "") || removePolishChars(item?.client || "");
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        await offerAiClientFromAnalysis(item);
+      }
+    }
+
     function aiElapsedLabel(value) {
       const ms = Math.max(0, Number(value || 0));
       if (!(ms > 0)) return "";
@@ -77941,8 +78100,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function setAiAnalyzerBusy(kind = "") {
       state.aiAnalyzerBusyKind = String(kind || "");
+      if (state.aiAnalyzerBusyKind) state.aiAnalyzerStatus = "busy";
       syncTextImportUi();
       syncPdfImportUi();
+    }
+
+    async function continueAiAnalyzerResult() {
+      if (state.aiAnalyzerBusyKind) return;
+      const kind = String(state.aiAnalyzerReadyKind || "");
+      if (kind === "document") {
+        await offerAiClientFromAnalysis(state.pdfImportData || {});
+        state.aiAnalyzerReadyKind = "";
+        state.aiAnalyzerDockVisible = false;
+        state.aiAnalyzerStatus = "paused";
+        applyPdfImportToRouteForm();
+        return;
+      }
+      if (kind === "text") {
+        await offerAiClientsFromAnalysis(state.textImportBatch || []);
+        state.aiAnalyzerReadyKind = "";
+        state.aiAnalyzerDockVisible = false;
+        state.aiAnalyzerStatus = "paused";
+        openAiTextImportBatchItem(0);
+      }
     }
 
     async function analyzePdfOrder() {
@@ -77950,6 +78130,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.pdfImportFile) {
         state.pdfImportStatus = "Najpierw wybierz plik PDF, DOC lub DOCX ze zleceniem.";
         state.pdfImportWarning = true;
+        state.aiAnalyzerStatus = "error";
+        state.aiAnalyzerDockVisible = true;
         syncPdfImportUi();
         return;
       }
@@ -77957,6 +78139,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!EMBEDDED_MODE) {
         state.pdfImportStatus = "Analizator AI jest dostępny w zalogowanej wersji produkcyjnej TMS.";
         state.pdfImportWarning = true;
+        state.aiAnalyzerStatus = "error";
+        state.aiAnalyzerDockVisible = true;
         syncPdfImportUi();
         return;
       }
@@ -77964,6 +78148,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       state.pdfImportStatus = "Analizuję dokument przez AI…";
       state.pdfImportWarning = false;
+      state.aiAnalyzerReadyKind = "";
       setAiAnalyzerBusy("document");
       const clientStartedAt = performance.now();
 
@@ -77981,10 +78166,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ? `Analiza zakończona${elapsed ? ` w ${elapsed}` : ""} · pewność ${Math.round(confidence * 100)}%. Sprawdź dane w formularzu.`
           : `Analiza zakończona${elapsed ? ` w ${elapsed}` : ""}. Sprawdź dane w formularzu.`;
         state.pdfImportWarning = false;
-        applyPdfImportToRouteForm();
+        state.aiAnalyzerStatus = "ready";
+        state.aiAnalyzerReadyKind = "document";
+        setAiAnalyzerBusy("");
+        if (state.aiAnalyzerMinimized) syncPdfImportUi();
+        else await continueAiAnalyzerResult();
       } catch (error) {
         state.pdfImportStatus = `Nie udało się przeanalizować dokumentu: ${error?.message || error}.`;
         state.pdfImportWarning = true;
+        state.aiAnalyzerStatus = "error";
+        state.aiAnalyzerReadyKind = "";
+        state.aiAnalyzerDockVisible = true;
       } finally {
         setAiAnalyzerBusy("");
       }
@@ -78028,6 +78220,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           data.reminders
         ].filter(Boolean).join("\n"),
         client: data.client || "Zlecenie z dokumentu",
+        clientNip: data.clientNip || "",
+        clientAddress: data.clientAddress || "",
         rate: Number(data.rate || 0),
         currency: data.currency || "PLN",
         driverNotes: data.driverNotes || "",
@@ -78236,6 +78430,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           driverNotes: (Array.isArray(item.driverNotes || item.driverInstructions) ? (item.driverNotes || item.driverInstructions) : [item.driverNotes || item.driverInstructions])
             .map(value => String(value || "").trim()).filter(Boolean).join("\n"),
           client: item.client || item.customer || `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`,
+          clientNip: normalizeClientNip(item.clientNip || item.nip || item.taxId || ""),
+          clientAddress: String(item.clientAddress || item.customerAddress || "").trim(),
           reference: String(item.reference || ""),
           rate: Number(item.rate || 0),
           loadedKm: Number(item.loadedKm || item.distanceKm || item.kilometers || 0) > 0
@@ -78271,6 +78467,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         notes: item.notes || "",
         driverNotes: item.driverNotes || "",
         client: item.client || "Wiadomość tekstowa",
+        clientNip: item.clientNip || "",
+        clientAddress: item.clientAddress || "",
         approachKm,
         loadedKm,
         baseKm: Number(item.baseKm || 0),
@@ -78440,8 +78638,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!textValue) { showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą."); return; }
       if (state.aiAnalyzerBusyKind) return;
       let parsed = [];
+      state.aiAnalyzerDockVisible = true;
       state.textImportStatus = "Analizuję wiadomość przez AI…";
       state.textImportWarning = false;
+      state.aiAnalyzerReadyKind = "";
       setAiAnalyzerBusy("text");
       const clientStartedAt = performance.now();
       try {
@@ -78456,29 +78656,42 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!parsed.length) {
           state.textImportStatus = "AI nie rozpoznało poprawnej relacji. Uzupełnij tekst o miejsce załadunku i rozładunku.";
           state.textImportWarning = true;
+          state.aiAnalyzerStatus = "error";
+          state.aiAnalyzerReadyKind = "";
           showAppMessage("Nie rozpoznano relacji", "Uzupełnij tekst o miejsce załadunku i rozładunku.");
           return;
         }
 
         const elapsed = aiElapsedLabel(state.aiAnalyzerLastElapsedMs);
         state.textImportStatus = `Rozpoznano ${parsed.length} ${parsed.length === 1 ? "relację" : "relacji"}${elapsed ? ` w ${elapsed}` : ""}.`;
+        state.aiAnalyzerStatus = "ready";
         state.textImportBatch = parsed;
         state.textImportBatchIndex = 0;
         state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
-        openAiTextImportBatchItem(0);
+        state.aiAnalyzerReadyKind = "text";
+        setAiAnalyzerBusy("");
+        if (state.aiAnalyzerMinimized) syncPdfImportUi();
+        else await continueAiAnalyzerResult();
       } catch (error) {
         const fallback = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text-fallback" }));
         if (fallback.length) {
           state.textImportStatus = `Gemini jest chwilowo przeciążone. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
           state.textImportWarning = true;
+          state.aiAnalyzerStatus = "ready";
           state.textImportBatch = fallback;
           state.textImportBatchIndex = 0;
           state.textImportBatchTarget = state.aiImportTarget === "proposed" ? "proposed" : "future";
-          openAiTextImportBatchItem(0);
+          state.aiAnalyzerReadyKind = "text";
+          setAiAnalyzerBusy("");
+          if (state.aiAnalyzerMinimized) syncPdfImportUi();
+          else await continueAiAnalyzerResult();
           showAppMessage("Użyto szybkiej analizy lokalnej", "Gemini było chwilowo przeciążone. Sprawdź uzupełnione pola przed zapisaniem.", "info");
         } else {
           state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
           state.textImportWarning = true;
+          state.aiAnalyzerStatus = "error";
+          state.aiAnalyzerReadyKind = "";
+          state.aiAnalyzerDockVisible = true;
           showAppMessage("Błąd analizy", String(error?.message || error));
         }
       } finally {
@@ -78897,7 +79110,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <button class="btn" type="button" onclick="toggleFuturePanel(false)">Zamknij</button>
           </div>
           <div class="future-drawer-body">
-            ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<div class="queue-import-actions"><button class="btn btn-dark" type="button" onclick="openFutureAdd(event)">+ Dodaj planowaną relację</button></div>` : ""}
+            ${renderQueueAddControl("future")}
             <div class="queue-drop-zone" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Upuść tutaj planowaną relację, aby przenieść ją do Wolnych ładunków">Przenieś do Wolne ładunki</div>
             ${groups.length ? groups.map(renderFutureGroupBlock).join("") : `<div class="hint" style="padding:10px;">Brak planowanych relacji.</div>`}
           </div>
@@ -81404,6 +81617,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const deliveryDate = routeOrderFirstValue(delivery.date, payload.unloadDate, payload.deliveryDate);
       const deliveryTime = routeOrderFirstValue(delivery.time, delivery.hour, payload.unloadTime, payload.deliveryTime);
       const client = routeOrderFirstValue(payload.client, payload.customer, payload.customerName);
+      const clientNip = routeOrderFirstValue(payload.clientNip, payload.nip, payload.taxId);
+      const clientAddress = routeOrderFirstValue(payload.clientAddress, payload.customerAddress);
       const reference = routeOrderFirstValue(payload.reference, payload.orderReference, payload.orderNumber);
       const rate = routeOrderFirstValue(payload.rate, payload.price, payload.freightRate);
       const currency = routeOrderFirstValue(payload.currency, payload.rateCurrency);
@@ -81425,6 +81640,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       add("unloadDate", "Data rozładunku", deliveryDate, data.unloadDate || deliveryDate);
       add("unloadTime", "Godzina rozładunku", deliveryTime, data.unloadTime || deliveryTime);
       add("client", "Klient", client, data.client || client);
+      add("clientNip", "NIP klienta", clientNip, data.clientNip || clientNip);
+      add("clientAddress", "Adres klienta", clientAddress, data.clientAddress || clientAddress);
       add("reference", "Numer zlecenia", reference, data.reference || reference);
       if (Number(rate) > 0) add("rate", "Stawka", rate, `${Number(rate)}${currency ? ` ${String(currency).toUpperCase()}` : ""}`);
       if (Number(loadedKm) > 0) add("loadedKm", "Kilometry", loadedKm, `${Number(loadedKm)} km`);
@@ -81434,7 +81651,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return fields;
     }
 
-    function applyRouteOrderAnalysis(route, payload = {}) {
+    async function applyRouteOrderAnalysis(route, payload = {}) {
       const data = normalizePdfOrderAnalysis(payload);
       const fields = routeOrderExtractedFields(payload, data);
       const keys = new Set(fields.map(field => field.key));
@@ -81460,9 +81677,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (keys.has("unloadTime")) set("endHour", pdfImportHour(data.unloadTime, route.endHour ?? 10));
       if (keys.has("client")) {
         set("client", data.client);
-        const client = (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(data.client));
+        const client = existingClientForAiData(data);
         route.clientId = client?.id || "";
       }
+      if (keys.has("clientNip")) set("clientNip", data.clientNip);
+      if (keys.has("clientAddress")) set("clientAddress", data.clientAddress);
       if (keys.has("reference")) set("orderReference", data.reference);
 
       const currency = String(data.currency || payload.currency || "").trim().toUpperCase();
@@ -81509,6 +81728,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route.orderAiExtractedFields = fields.map(({ key, label, value }) => ({ key, label, value }));
       route.orderAiPendingFields = Array.from(new Set(fields.map(field => field.key).filter(key => ["loadedKm", "rate", "cost"].includes(key))));
       route.orderAiAcceptedFields = Array.isArray(route.orderAiAcceptedFields) ? route.orderAiAcceptedFields.filter(key => !route.orderAiPendingFields.includes(key)) : [];
+      await offerAiClientFromAnalysis({
+        ...data,
+        load: route.load,
+        loadCity: route.load,
+        loadAddress: route.loadAddress
+      });
+      const matchedClient = existingClientForAiData(data);
+      if (matchedClient) {
+        route.client = matchedClient.name;
+        route.clientId = matchedClient.id;
+        route.clientNip = matchedClient.nip || route.clientNip || "";
+      }
       invalidateRouteSmsGeneration(route, true);
       scheduleRouteHistoryCapture(route);
       scheduleSavedRoutePointGeocodes(route);
@@ -81642,7 +81873,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           referenceDate: route.date || state.reportDate || currentAppDate()
         }, 130000);
         payload.__fileName = entry.fileName;
-        const result = applyRouteOrderAnalysis(route, payload);
+        const result = await applyRouteOrderAnalysis(route, payload);
         entry.fields = result.fields;
         entry.activeField = 0;
         entry.busy = false;
@@ -85845,6 +86076,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         orderImportedAt: (state.prefill?.aiImported || state.prefill?.aiSourceType) ? new Date().toISOString() : "",
         aiSourceType: String(state.prefill?.aiSourceType || ""),
         client: clientValue || "Klient testowy",
+        clientNip: normalizeClientNip(state.prefill?.clientNip || ""),
+        clientAddress: String(state.prefill?.clientAddress || "").trim(),
         clientId: (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(clientValue))?.id || "",
         approachKm: approachValue,
         loadedKm: loadedValue,
@@ -85955,13 +86188,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const savedProposedItems = state.proposedEditId
           ? (state.proposedLoads || []).filter(item => item.id === route.id)
           : (state.proposedLoads || []).slice(-bulkCountValue);
+        if (!state.proposedEditId) savedProposedItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedProposedItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { proposed:true }));
         state.reportDate = route.date || state.reportDate || START_DATE;
-        // Po zapisie wolnego ładunku panel ma pozostać zamknięty.
-        // Jest otwierany wyłącznie ręcznie z prawej zakładki.
-        // Ma to też znaczenie przy imporcie AI wielu relacji: renderowanie pełnego
-        // drawera po każdym zapisie potrafiło blokować główny wątek przeglądarki.
-        state.proposedPanelOpen = false;
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
         state.proposedEditId = null;
@@ -85973,9 +86202,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.prefill = null;
           syncAddModal();
         }
-        // Wolny ładunek nie zmienia tablicy kierowców ani mapy. Aktualizujemy tylko
-        // lekką, zamkniętą zakładkę. Cięższe wyliczenie dopasowań wykonujemy raz
-        // po zakończeniu całej serii AI, a nie po każdej pozycji.
+        // Podczas wieloelementowego importu nie przebudowujemy pełnego drawera po
+        // każdym zapisie. Po ostatniej pozycji (oraz po zapisie ręcznym) lista
+        // pozostaje otwarta, aby nowy wolny ładunek był od razu widoczny.
+        state.proposedPanelOpen = !continueAiBatch || !aiBatchHasNext;
+        syncCentralLoadQueueDiff();
         scheduleUiSync({ proposed: true });
         if (!continueAiBatch || !aiBatchHasNext) {
           setTimeout(() => notifyProposedLoadsIfNeeded(), 0);
@@ -86007,6 +86238,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const savedFutureItems = state.futureEditId
           ? (state.futureRoutes || []).filter(item => item.id === route.id)
           : (state.futureRoutes || []).slice(-bulkCountValue);
+        if (!state.futureEditId) savedFutureItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedFutureItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { future:true }));
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
@@ -86019,6 +86251,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.prefill = null;
           syncAddModal();
         }
+        syncCentralLoadQueueDiff();
         // Planowana relacja również nie wymaga przebudowy całej tablicy przy każdym
         // kroku importu AI. Aktualizujemy tylko jej prawą zakładkę.
         scheduleUiSync({ future: true });
@@ -86930,6 +87163,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const localDirty = Boolean(local) && (baseline === undefined || localFingerprint !== baseline);
         const pending = CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key);
         const route = (pending || localDirty) && local ? local : payload;
+        if (local?._centralLocalCreatedAt) delete local._centralLocalCreatedAt;
 
         try {
           Object.defineProperty(route, "_centralBranchId", {
@@ -86948,7 +87182,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       currentByKey.forEach((route, key) => {
         if (remoteKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
-        if (!wasReady || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) addMerged(route, centralLoadQueueKind(route));
+        const locallyCreatedRecently = Number(route?._centralLocalCreatedAt || 0) > Date.now() - 30000;
+        if (!wasReady || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key) || !CENTRAL_LOAD_QUEUE_BASELINE.has(key) || locallyCreatedRecently) {
+          addMerged(route, centralLoadQueueKind(route));
+        }
       });
 
       for (const key of Array.from(CENTRAL_LOAD_QUEUE_BASELINE.keys())) {
@@ -94951,7 +95188,30 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .map-client-delete:hover { background:#fee2e2 !important; }
     @keyframes mapRouteRecentPulse3L66 { 0%,100%{filter:drop-shadow(0 0 0 rgba(37,99,235,0));transform:scale(1)} 50%{filter:drop-shadow(0 0 10px rgba(37,99,235,.9));transform:scale(1.13)} }
     .tms-marker.map-route-recent { animation:mapRouteRecentPulse3L66 1.55s ease-in-out infinite;transform-origin:center; }
-    .workspace-window-button { white-space:nowrap; }
+    .queue-add-control { display:grid;gap:7px;width:100%; }
+    .queue-add-control > .btn { width:100%;justify-content:center; }
+    .queue-add-menu { display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:8px;border:1px solid var(--border);border-radius:11px;background:var(--soft); }
+    .queue-add-menu .btn { min-height:38px;justify-content:center;font-size:11px; }
+    .queue-add-menu .btn-ai-action { box-shadow:none; }
+    .ai-analyzer-backdrop { place-items:end !important;align-items:end !important;padding:16px 74px 16px 16px !important;background:rgba(15,23,42,.08) !important;backdrop-filter:none !important;pointer-events:none; }
+    .ai-analyzer-panel { width:min(560px,calc(100vw - 100px)) !important;max-height:min(72vh,690px) !important;overflow:hidden !important;border-radius:16px !important;box-shadow:0 16px 45px rgba(15,23,42,.2) !important;pointer-events:auto; }
+    .ai-analyzer-panel .pdf-import-head { padding:11px 13px;align-items:center; }
+    .ai-analyzer-panel .pdf-import-body { padding:11px 13px 13px; }
+    .ai-analyzer-target { display:inline-flex;align-items:center;gap:6px;margin-top:4px;color:var(--muted);font-size:10px;font-weight:850; }
+    .ai-analyzer-target::before { content:"";width:7px;height:7px;border-radius:50%;background:#8b5cf6; }
+    .ai-analyzer-head-actions { display:flex;gap:6px;align-items:center; }
+    .ai-analyzer-dock { position:fixed;right:14px;bottom:18px;z-index:7420;display:flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:999px;padding:5px 8px 5px 5px;background:var(--card);color:var(--text);box-shadow:0 10px 28px rgba(15,23,42,.16);cursor:pointer;font:inherit; }
+    .ai-analyzer-dock:hover { transform:translateY(-1px);box-shadow:0 13px 32px rgba(15,23,42,.2); }
+    .ai-analyzer-dock-icon { width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#4338ca,#7c3aed 55%,#0891b2);color:#fff;font-size:12px;font-weight:950;letter-spacing:-.04em; }
+    .ai-analyzer-dock-state { display:grid;line-height:1.05;text-align:left; }
+    .ai-analyzer-dock-state b { font-size:10px; }
+    .ai-analyzer-dock-state small { margin-top:3px;font-size:8px;color:var(--muted); }
+    .ai-analyzer-dock-mark { min-width:15px;height:15px;border-radius:50%;display:grid;place-items:center;background:#94a3b8;color:#fff;font-size:9px;font-weight:950; }
+    .ai-analyzer-dock.status-busy .ai-analyzer-dock-mark { background:#2563eb;animation:aiDockPulse 1s ease-in-out infinite; }
+    .ai-analyzer-dock.status-error .ai-analyzer-dock-mark { background:#dc2626; }
+    .ai-analyzer-dock.status-ready .ai-analyzer-dock-mark { background:#16a34a; }
+    .ai-analyzer-dock.status-paused .ai-analyzer-dock-mark { background:#64748b; }
+    @keyframes aiDockPulse { 0%,100%{transform:scale(.82);opacity:.65}50%{transform:scale(1);opacity:1} }
     .stats-hourly-period { display:flex;align-items:end;justify-content:flex-end;gap:8px;flex-wrap:wrap; }
     .stats-hourly-period label { display:grid;gap:4px;font-size:11px;font-weight:800;color:var(--muted); }
     .stats-hourly-period input { min-height:38px; }
@@ -94970,11 +95230,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .stats-hourly-details th { position:sticky;top:0;background:var(--card);z-index:1;color:var(--muted);font-size:10px;text-transform:uppercase; }
     .stats-hourly-details td:last-child { white-space:normal;min-width:210px; }
     .admin-transfer-entry { display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--soft); }
-    .future-ai-text-box { display:grid;gap:7px;padding:10px;border:1px solid #bfdbfe;border-radius:12px;background:#eff6ff; }
-    .future-ai-text-box textarea { min-height:86px;resize:vertical; }
-    .app.dark-mode .future-ai-text-box { background:#172554;border-color:#1d4ed8; }
     body.ai-file-dragover::after { content:"Upuść zlecenie — AI uzupełni relację";position:fixed;inset:14px;z-index:99999;display:grid;place-items:center;border:3px dashed #60a5fa;border-radius:18px;background:rgba(15,23,42,.88);color:#fff;font-size:22px;font-weight:950;text-align:center;pointer-events:none; }
-    @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.stats-hourly-summary{grid-template-columns:1fr}.stats-hourly-period{justify-content:flex-start}.stats-hourly-timeline{grid-template-columns:repeat(48,18px)}}
+    @media(max-width:720px){.route-external-links{grid-template-columns:1fr}.queue-add-menu{grid-template-columns:1fr}.ai-analyzer-backdrop{padding:8px !important}.ai-analyzer-panel{width:100% !important;max-height:82vh !important}.ai-analyzer-dock{right:8px;bottom:10px}.stats-hourly-summary{grid-template-columns:1fr}.stats-hourly-period{justify-content:flex-start}.stats-hourly-timeline{grid-template-columns:repeat(48,18px)}}
   </style>
   <script id="targeted-3l66-operations-ai-workspaces-script">
     (() => {
@@ -95082,49 +95339,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return html.replace('<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">', `${controls}<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">`);
       };
 
-      function openWorkspaceWindow3L66(view) {
-        let url;
-        try { url = new URL(window.parent.location.href); } catch (error) { url = new URL(window.location.href); }
-        url.searchParams.set('tmsView', view === 'map' ? 'map' : 'plan');
-        const name = view === 'map' ? 'top-dragon-map' : 'top-dragon-plan';
-        window.open(url.toString(), name, 'noopener,resizable=yes,scrollbars=yes');
-      }
-      window.openWorkspaceWindow3L66 = openWorkspaceWindow3L66;
-
-      const renderUnloadMapCard3L66 = renderUnloadMapCard;
-      renderUnloadMapCard = function() {
-        const html = renderUnloadMapCard3L66.apply(this, arguments);
-        return html.replace('<h2>Mapa rozładunków</h2>', '<h2>Mapa rozładunków</h2><button type="button" class="btn workspace-window-button" onclick="openWorkspaceWindow3L66(\'map\')">Otwórz w osobnym oknie</button>');
-      };
-      const renderBoard3L66 = renderBoard;
-      renderBoard = function() {
-        const html = renderBoard3L66.apply(this, arguments);
-        return html.replace('<h2>Plan kierowców</h2>', '<h2>Plan kierowców</h2><button type="button" class="btn workspace-window-button" onclick="openWorkspaceWindow3L66(\'plan\')">Otwórz w osobnym oknie</button>');
-      };
-
-      window.analyzeFutureText3L67 = function(event) {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        const text = String(document.getElementById('future-ai-text-3l67')?.value || state.textImportText || '').trim();
-        if (!text) {
-          showAppMessage('Brak tekstu','Wklej wiadomość klienta przed analizą.');
-          return;
-        }
-        state.textImportText = text;
-        state.aiImportTarget = 'future';
-        state.textImportOpen = true;
-        syncTextImportUi();
-        setTimeout(() => analyzeTextOrdersToQueue(), 0);
-      };
-
-      const renderFutureDrawer3L67 = renderFutureDrawer;
-      renderFutureDrawer = function() {
-        let html = renderFutureDrawer3L67.apply(this, arguments);
-        if (!canUseOperationalAi()) return html;
-        const textBox = `<section class="future-ai-text-box"><b>Analizuj wiadomość klienta</b><textarea id="future-ai-text-3l67" class="textarea" placeholder="Wklej treść zlecenia lub relacji…" oninput="state.textImportText=this.value">${esc(state.textImportText || '')}</textarea><button type="button" class="btn btn-ai-action" onclick="analyzeFutureText3L67(event)">Analizuj i uzupełnij relację</button></section>`;
-        return html.replace('<div class="queue-drop-zone"', `${textBox}<div class="queue-drop-zone"`);
-      };
-
       let aiFileDragDepth3L67 = 0;
       function isFileDrag3L67(event) {
         return Array.from(event?.dataTransfer?.types || []).includes('Files');
@@ -95160,29 +95374,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           analyzeRouteOrderFile(route.id, file);
           return;
         }
-        state.aiImportTarget = 'future';
+        if (!state.futurePanelOpen && !state.proposedPanelOpen) {
+          showAppMessage('Wybierz listę relacji','Otwórz po prawej stronie Planowane relacje albo Wolne ładunki, a następnie upuść dokument ponownie.','info');
+          return;
+        }
+        state.aiImportTarget = state.proposedPanelOpen ? 'proposed' : 'future';
         state.pdfImportFile = file;
         state.pdfImportFileName = String(file.name || 'zlecenie.pdf');
         state.pdfImportData = pdfImportDefaults();
         state.pdfImportStatus = `Plik ${state.pdfImportFileName} został upuszczony. Rozpoczynam analizę…`;
         state.pdfImportWarning = false;
+        state.aiAnalyzerMinimized = false;
+        state.aiAnalyzerDockVisible = true;
+        state.aiAnalyzerStatus = 'busy';
         state.pdfImportOpen = true;
         syncPdfImportUi();
         setTimeout(() => analyzePdfOrder(), 0);
       });
-
-      const applyAuthenticatedUser3L66 = applyAuthenticatedUser;
-      applyAuthenticatedUser = function(user) {
-        const result = applyAuthenticatedUser3L66.apply(this, arguments);
-        const startView = new URLSearchParams(window.location.search).get('startView');
-        if (!['plan','map'].includes(startView)) return result;
-        setTimeout(() => {
-          state.unloadPanelCollapsed = startView !== 'map';
-          render();
-          requestAnimationFrame(() => document.querySelector(startView === 'map' ? '.map-card' : '.board-wrap')?.scrollIntoView?.({block:'start'}));
-        }, 0);
-        return result;
-      };
 
       const renderLeafletMarkerIcon3L66 = renderLeafletMarkerIcon;
       renderLeafletMarkerIcon = function(group) {
