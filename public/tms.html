@@ -71458,9 +71458,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.appMessage) return "";
       const message = state.appMessage;
 
-      if (message.type === "transfer-approval") {
-        return `<div class="app-message-backdrop" onclick="closeAppMessage()"><div class="app-message transfer-approval-modal" onclick="event.stopPropagation()"><div class="app-message-icon">$</div><h3>Transfer wyniku oczekuje na decyzję</h3><p><b>${esc(message.from || "Spedytor")}</b> przekazuje Ci <b>${esc(statsMoney(Number(message.amount || 0)))}</b>.</p>${message.comment ? `<div class="small">${esc(message.comment)}</div>` : ""}<div class="app-confirm-actions"><button type="button" class="btn btn-red" onclick="respondWeeklyDispatcherTransfer('${attr(message.transferId)}','rejected','${attr(message.weekStart)}');closeAppMessage()">Odrzuć</button><button type="button" class="btn btn-green" onclick="respondWeeklyDispatcherTransfer('${attr(message.transferId)}','accepted','${attr(message.weekStart)}');closeAppMessage()">Akceptuj transfer</button></div></div></div>`;
-      }
+      if (message.type === "transfer-approval") return "";
 
       if (message.type === "freight-rating") {
         const route = state.routes.find(item => item.id === message.routeId);
@@ -79846,7 +79844,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function currentBoardRouteFontBoost() {
       const scale = currentBoardScale();
-      return scale < 1 ? Math.min(2, Number((1 / scale).toFixed(3))) : 1;
+      return scale < 1 ? Number((1 + (1 - scale) * 1.2).toFixed(3)) : 1;
     }
 
     function changeBoardScale(direction) {
@@ -95913,15 +95911,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return String(user?.name || user?.login || fallback || "Spedytor");
       }
       function notifyPendingTransfersV103(weeks) {
-        if (state.user?.role !== "spedytor") return;
-        const currentId = String(state.user?.supabaseId || "");
-        if (!currentId) return;
-        const rows = (weeks || []).flatMap(week => (week?.transfers || []).map(item => ({ ...item, weekStart:item.weekStart || week.weekStart })));
-        const pending = rows.find(item => String(item?.toDispatcherId || "") === currentId && String(item?.status || "pending") === "pending" && !item?.recipientApprovedAt && !state.seenPendingTransferNotices.has(String(item.id || "")));
-        if (!pending) return;
-        state.seenPendingTransferNotices.add(String(pending.id || ""));
-        state.appMessage = { type:"transfer-approval", transferId:String(pending.id || ""), weekStart:String(pending.weekStart || ""), from:dispatcherLabelV103(pending.fromDispatcherId, pending.fromDispatcherName || pending.fromDispatcherLogin), amount:Number(pending.amount || 0), comment:String(pending.comment || "") };
-        syncAppMessage();
+        // Transfer nadal jest widoczny pod ikoną $, ale nie przerywa pracy modalem.
+        return;
       }
       window.addEventListener("message", event => {
         if (event.origin !== window.location.origin || event.source !== window.parent) return;
@@ -95939,6 +95930,40 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .board .time-route[data-width-mode="auto30"] .time-route-sub { font-size:calc(10.5px * var(--route-font-boost,1)) !important; }
     .board .time-route .route-dispatcher-chip { font-size:calc(7px * var(--route-font-boost,1)) !important; }
     .board .time-route .route-commercial-warning { font-size:calc(9px * var(--route-font-boost,1)) !important; }
+    .board .time-route.continuous,
+    .board .time-route.continuous.load-visible {
+      top:3px !important;
+      bottom:3px !important;
+      height:auto !important;
+      min-height:0 !important;
+      display:flex !important;
+      flex-direction:column !important;
+      justify-content:center !important;
+      padding-top:2px !important;
+      padding-bottom:2px !important;
+      overflow:hidden !important;
+    }
+    .board .time-route-title {
+      flex:0 1 auto;
+      min-height:0;
+      line-height:1.02 !important;
+      white-space:normal !important;
+      overflow:hidden !important;
+    }
+    .board .time-route-title .route-unload-label {
+      flex:1 1 auto;
+      min-width:0;
+      white-space:normal !important;
+      overflow:hidden !important;
+      text-overflow:clip !important;
+      overflow-wrap:anywhere;
+      display:-webkit-box !important;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:3;
+      line-clamp:3;
+      line-height:1.02;
+    }
+    .board .time-route-sub { flex:0 0 auto; margin-top:2px; }
     .time-route.status-empty-tile { background:#f8fafc !important; border:2px dashed #94a3b8 !important; color:#475569 !important; }
     .time-route.status-empty-tile .time-route-title,
     .time-route.status-empty-tile .time-route-sub { color:#475569 !important; }
