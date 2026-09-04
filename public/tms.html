@@ -2950,6 +2950,12 @@
     }
 
     .route-order-field-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .route-order-selection-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 8px; }
+    .route-order-selection-actions .danger { color:#991b1b; border-color:#fecaca; background:#fff1f2; }
+    .route-order-selection-actions .danger:disabled { opacity:.45; cursor:not-allowed; }
+    .route-order-field-choice { display:grid; grid-template-columns:auto minmax(0,1fr); gap:5px; align-items:center; border:1px solid transparent; border-radius:10px; padding:3px; }
+    .route-order-field-choice.selected { border-color:#f59e0b; background:#fffbeb; }
+    .route-order-field-choice > input { width:15px; height:15px; margin:0 0 0 2px; accent-color:#d97706; }
     .route-order-field {
       border: 1px solid #f59e0b;
       border-radius: 8px;
@@ -71036,20 +71042,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (route?.smsManualEdited) return stripGoogleMapsLinksFromSms(route.smsTextOverride || "");
       const loadHour = formatSmsHour(routeStartHour(route));
       const unloadHour = formatSmsHour(routeEndHour(route));
-      const unloadDate = routeEndDate(route) || route.date;
+      const unloadDateSuffix = routeEndDate(route) && routeEndDate(route) !== route.date ? ` (${routeEndDate(route)})` : "";
       const importedByAi = Boolean(route?.orderImportedAt || route?.aiSourceType);
       const driverNotes = String(route?.driverNotes ?? route?.aiDriverNotes ?? (importedByAi ? "" : route?.notes || "")).trim();
-      const compactDriverNotes = driverNotes.replace(/\s+/g, " ").trim();
-      const shortDriverNotes = compactDriverNotes.length > 240
-        ? `${compactDriverNotes.slice(0, 237).replace(/\s+\S*$/, "")}...`
-        : compactDriverNotes;
-      const pointLabel = (location, address) => [String(location || "").trim(), String(address || "").trim()].filter((value, index, values) => value && values.indexOf(value) === index).join(", ") || "-";
       const lines = [
-        `Załadunek ${route.date || "-"}, ${loadHour}: ${pointLabel(route.load, route.loadAddress)}`,
-        route.secondLoad ? `Drugi załadunek: ${pointLabel(route.secondLoad, route.secondLoadAddress)}` : "",
-        `Rozładunek ${unloadDate || "-"}, ${unloadHour}: ${pointLabel(route.unload, route.unloadAddress)}`,
-        route.secondUnload ? `Drugi rozładunek: ${pointLabel(route.secondUnload, route.secondUnloadAddress)}` : "",
-        shortDriverNotes ? `Uwagi: ${shortDriverNotes}` : ""
+        `Trasa: ${routeSmsKm(totalKm(route))} km`,
+        ``,
+        `Cześć ${driver?.driver?.split(" ")[0] || ""},`,
+        `Dane trasy na ${route.date}:`,
+        `Załadunek: ${route.load || "-"}${route.loadAddress ? ", " + route.loadAddress : ""}`,
+        `Godzina załadunku: ${loadHour}`,
+        route.secondLoad ? `Drugi załadunek: ${route.secondLoad}${route.secondLoadAddress ? ", " + route.secondLoadAddress : ""}` : "",
+        `Rozładunek: ${route.unload || "-"}${route.unloadAddress ? ", " + route.unloadAddress : ""}`,
+        `Godzina rozładunku: ${unloadHour}${unloadDateSuffix}`,
+        route.secondUnload ? `Drugi rozładunek: ${route.secondUnload}${route.secondUnloadAddress ? ", " + route.secondUnloadAddress : ""}` : "",
+        driverNotes ? `Informacje dla kierowcy: ${driverNotes}` : ""
       ].filter(line => line !== null && line !== undefined && line !== "");
 
       // Link mapy nie jest dołączany do wiadomości SMS.
@@ -80263,7 +80270,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 </div>
                 <button type="button" data-action="toggle-map-clients" class="btn map-client-toggle ${state.showClientsOnMap ? "btn-dark" : ""}" onclick="toggleClientsOnMap(event)">${state.showClientsOnMap ? "Ukryj wszystkich klientów" : "Wszyscy klienci"} (${allClientMapCount()})</button>
                 <button type="button" data-action="toggle-map-unassigned-clients" class="btn map-client-toggle ${state.showUnassignedClientsOnMap ? "btn-dark" : ""}" onclick="toggleUnassignedClientsOnMap(event)">${state.showUnassignedClientsOnMap ? "Ukryj klientów z relacją" : "Klienci z relacją w okresie"}</button>
-                <button type="button" data-action="toggle-map-driver-bases" class="btn map-client-toggle ${state.showDriverBasesOnMap ? "btn-dark" : ""}" onclick="toggleDriverBasesOnMap(event)">${state.showDriverBasesOnMap ? "Ukryj bazy kierowców" : "Bazy kierowców"} (${driverBaseMapPoints().length})</button>
+                <button type="button" data-action="toggle-map-driver-bases" class="btn map-client-toggle map-driver-bases-toggle ${state.showDriverBasesOnMap ? "btn-dark" : ""}" aria-pressed="${state.showDriverBasesOnMap ? "true" : "false"}" onclick="toggleDriverBasesOnMap(event)">Bazy kierowców (${driverBaseMapPoints().length})</button>
                 </div>
                 <div class="map-toolbar-secondary">
                 <label class="map-client-period" title="Klienci z co najmniej jedną relacją od dzisiaj wstecz">
@@ -80631,12 +80638,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.leafletMap.on("popupopen", adjustLeafletPopupIntoView);
           state.leafletMap.on("click", event => {
             const target = event?.originalEvent?.target;
-            if (!target?.closest?.(".leaflet-marker-icon,.leaflet-popup")) state.unloadRoutePreviewLayer?.clearLayers?.();
-            setTimeout(() => {
-              try {
-                if (!state.leafletMap?._popup) centerLeafletMapHome();
-              } catch (error) {}
-            }, 40);
+            const clickedEmptyMap = !target?.closest?.(".leaflet-marker-icon,.leaflet-popup");
+            if (!clickedEmptyMap) return;
+            state.unloadRoutePreviewLayer?.clearLayers?.();
+            try { state.leafletMap?.closePopup?.(); } catch (error) {}
+            setTimeout(centerLeafletMapHome, 40);
           });
 
           state.leafletTileErrorCount = 0;
@@ -81268,7 +81274,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const button = document.querySelector('[data-action="toggle-map-driver-bases"]');
       if (button) {
         button.classList.toggle("btn-dark", state.showDriverBasesOnMap);
-        button.textContent = `${state.showDriverBasesOnMap ? "Ukryj bazy kierowców" : "Bazy kierowców"} (${driverBaseMapPoints().length})`;
+        button.setAttribute("aria-pressed", state.showDriverBasesOnMap ? "true" : "false");
+        button.textContent = `Bazy kierowców (${driverBaseMapPoints().length})`;
       }
       const model = unloadMapViewModel(mapRoutesForReportDate());
       scheduleLeafletMapSync(model.leafletPayload);
@@ -81899,8 +81906,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderRouteOrderDropzone(route, canEdit) {
-      if (!canEdit || !canUseOperationalAi()) return "";
       const entry = ROUTE_ORDER_IMPORTS.get(route.id) || null;
+      const storedDocument = Boolean(route?.orderDocumentDataUrl);
+      if (!canEdit || !canUseOperationalAi()) {
+        if (!storedDocument) return "";
+        if (entry?.previewUrl) return "";
+        return `<section class="section route-order-dropzone route-order-saved-document">
+          <div class="route-order-dropzone-head">
+            <div><b>Zlecenie zapisane przy relacji</b><div class="small">${esc(route.orderImportFileName || "zlecenie.pdf")}</div></div>
+            <button class="btn" type="button" onclick="showRouteOrderPreview('${attr(route.id)}')">Pokaż podgląd</button>
+          </div>
+        </section>`;
+      }
       const busy = Boolean(entry?.busy);
       const status = String(entry?.status || "");
       return `<section class="section route-order-dropzone ${busy ? "is-busy" : ""}"
@@ -81911,7 +81928,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <input id="route-order-file-${attr(route.id)}" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx" hidden onchange="routeOrderFileSelected(event,'${attr(route.id)}')" />
         <div class="route-order-dropzone-head">
           <b>${busy ? "AI analizuje zlecenie…" : entry?.fileName ? esc(entry.fileName) : "Upuść tutaj zlecenie PDF lub Word"}</b>
-          <button class="btn btn-ai-action" type="button" ${busy ? "disabled" : ""} onclick="event.stopPropagation();document.getElementById('route-order-file-${attr(route.id)}')?.click()">${entry?.fileName ? "Zmień plik" : "Wybierz plik"}</button>
+          <div class="route-order-dropzone-actions">
+            ${storedDocument && !entry?.previewUrl ? `<button class="btn" type="button" onclick="showRouteOrderPreview('${attr(route.id)}')">Pokaż podgląd</button>` : ""}
+            <button class="btn btn-ai-action" type="button" ${busy ? "disabled" : ""} onclick="event.stopPropagation();document.getElementById('route-order-file-${attr(route.id)}')?.click()">${entry?.fileName ? "Zmień plik" : "Wybierz plik"}</button>
+          </div>
         </div>
         ${status ? `<div class="route-order-status-line ${entry?.warning ? "warning" : ""}">${busy ? `<span class="route-order-spinner" aria-hidden="true"></span>` : ""}<span>${esc(status)}</span></div>` : ""}
       </section>`;
@@ -81923,24 +81943,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `${entry?.previewUrl || ""}#toolbar=1&navpanes=0${search ? `&search=${encodeURIComponent(search)}` : ""}`;
     }
 
-    function renderRouteOrderVerification(routeId, entry) {
+    function renderRouteOrderVerification(routeId, entry, canEdit = false) {
       if (!entry?.previewUrl) return "";
       const fields = Array.isArray(entry.fields) ? entry.fields : [];
+      const selectedFields = new Set(Array.isArray(entry.selectedFields) ? entry.selectedFields.map(Number) : []);
       const documentType = String(entry.documentType || orderDocumentFileType(entry.file) || "pdf");
       const isPdf = documentType === "pdf";
       return `<section class="route-order-verification" aria-label="Weryfikacja zlecenia">
         <div class="route-order-verification-head">
           <div><h3>Oryginalne zlecenie</h3><div class="small">${esc(entry.fileName || "zlecenie.pdf")}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-            ${entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
+            ${canEdit && entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
             <a class="btn" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz dokument</a>
             <button class="btn" type="button" onclick="clearRouteOrderImport('${attr(routeId)}')">Usuń podgląd</button>
           </div>
         </div>
         <div class="route-order-extracted">
           <div class="route-order-extracted-copy">Żółte pola to dane pobrane przez AI.${isPdf ? " Kliknij wartość, aby wyszukać ją w oryginalnym PDF." : " Porównaj je z otwartym dokumentem Word."}</div>
+          ${canEdit && fields.length ? `<div class="route-order-selection-actions"><button class="btn-mini" type="button" onclick="selectAllRouteOrderFields('${attr(routeId)}',true)">Zaznacz wszystkie</button><button class="btn-mini" type="button" onclick="selectAllRouteOrderFields('${attr(routeId)}',false)">Wyczyść zaznaczenie</button><button class="btn-mini danger" data-route-order-delete-selected="${attr(routeId)}" type="button" onclick="deleteSelectedRouteOrderFields('${attr(routeId)}')" ${selectedFields.size ? "" : "disabled"}>Usuń zaznaczone (${selectedFields.size})</button></div>` : ""}
           <div class="route-order-field-list">
-            ${fields.length ? fields.map((field, index) => `<button class="route-order-field ${Number(entry.activeField || 0) === index ? "active" : ""}" type="button" onclick="focusRouteOrderField('${attr(routeId)}',${index})"><b>${esc(field.label)}</b>${esc(field.value)}</button>`).join("") : `<span class="small">AI nie wskazało jeszcze żadnych danych.</span>`}
+            ${fields.length ? fields.map((field, index) => `<div class="route-order-field-choice ${selectedFields.has(index) ? "selected" : ""}" data-route-order-field-choice="${attr(`${routeId}:${index}`)}">${canEdit ? `<input type="checkbox" data-route-order-field-checkbox="${attr(`${routeId}:${index}`)}" aria-label="Zaznacz ${attr(field.label)}" ${selectedFields.has(index) ? "checked" : ""} onchange="toggleRouteOrderFieldSelection('${attr(routeId)}',${index},this.checked)" />` : ""}<button class="route-order-field ${Number(entry.activeField || 0) === index ? "active" : ""}" type="button" onclick="focusRouteOrderField('${attr(routeId)}',${index})"><b>${esc(field.label)}</b>${esc(field.value)}</button></div>`).join("") : `<span class="small">AI nie wskazało jeszcze żadnych danych.</span>`}
           </div>
         </div>
         ${isPdf
@@ -82001,6 +82023,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         documentType: String(route.orderDocumentType || "pdf"),
         previewUrl: String(route.orderDocumentDataUrl),
         fields: Array.isArray(route.orderAiExtractedFields) ? route.orderAiExtractedFields : [],
+        selectedFields: [],
         activeField: 0,
         busy: false,
         warning: false,
@@ -82032,6 +82055,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         documentType,
         previewUrl: URL.createObjectURL(file),
         fields: [],
+        selectedFields: [],
         activeField: 0,
         busy: true,
         warning: false,
@@ -82042,6 +82066,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const startedAt = performance.now();
       try {
         const persistentDataUrl = await routeOrderFileDataUrl(file);
+        route.orderDocumentDataUrl = persistentDataUrl;
+        route.orderDocumentType = documentType;
+        route.orderImportFileName = entry.fileName;
+        entry.status = "Plik zapisany przy relacji. Trwa analiza dokumentu…";
+        scheduleCentralRelationsDiff(0);
+        syncDetailsPanel();
         const payload = await requestAiAnalyzer("document", {
           file,
           fileName: entry.fileName,
@@ -82049,11 +82079,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }, 130000);
         payload.__fileName = entry.fileName;
         const result = await applyRouteOrderAnalysis(route, payload);
-        route.orderDocumentDataUrl = persistentDataUrl;
-        route.orderDocumentType = documentType;
-        route.orderImportFileName = entry.fileName;
         scheduleCentralRelationsDiff(0);
         entry.fields = result.fields;
+        entry.selectedFields = [];
         entry.activeField = 0;
         entry.busy = false;
         const requiredComplete = result.fields.some(field => field.key === "load") && result.fields.some(field => field.key === "unload");
@@ -82085,6 +82113,67 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (String(entry.documentType || "pdf") !== "pdf") return;
       const frame = document.querySelector(`[data-route-order-document="${CSS.escape(String(routeId))}"]`);
       if (frame) frame.src = routeOrderPdfUrl(entry);
+    }
+
+    function toggleRouteOrderFieldSelection(routeId, index, checked) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (!entry?.fields?.[index]) return;
+      const selected = new Set(Array.isArray(entry.selectedFields) ? entry.selectedFields.map(Number) : []);
+      if (checked) selected.add(Number(index));
+      else selected.delete(Number(index));
+      entry.selectedFields = Array.from(selected).sort((a, b) => a - b);
+      const choice = document.querySelector(`[data-route-order-field-choice="${CSS.escape(`${routeId}:${index}`)}"]`);
+      choice?.classList.toggle("selected", Boolean(checked));
+      const deleteButton = document.querySelector(`[data-route-order-delete-selected="${CSS.escape(String(routeId))}"]`);
+      if (deleteButton) {
+        deleteButton.disabled = selected.size === 0;
+        deleteButton.textContent = `Usuń zaznaczone (${selected.size})`;
+      }
+    }
+
+    function selectAllRouteOrderFields(routeId, selected) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (!entry) return;
+      entry.selectedFields = selected ? entry.fields.map((field, index) => index) : [];
+      document.querySelectorAll('[data-route-order-field-checkbox]').forEach((checkbox, index) => {
+        if (!String(checkbox.getAttribute("data-route-order-field-checkbox") || "").startsWith(`${routeId}:`)) return;
+        checkbox.checked = Boolean(selected);
+        checkbox.closest(".route-order-field-choice")?.classList.toggle("selected", Boolean(selected));
+      });
+      const deleteButton = document.querySelector(`[data-route-order-delete-selected="${CSS.escape(String(routeId))}"]`);
+      if (deleteButton) {
+        deleteButton.disabled = !selected || !entry.fields.length;
+        deleteButton.textContent = `Usuń zaznaczone (${entry.selectedFields.length})`;
+      }
+    }
+
+    function deleteSelectedRouteOrderFields(routeId) {
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      const route = state.routes.find(item => String(item.id) === String(routeId));
+      if (!entry || !route || !canEditBoardRoute(route)) return;
+      const selected = new Set(Array.isArray(entry.selectedFields) ? entry.selectedFields.map(Number) : []);
+      if (!selected.size) return;
+      const removedKeys = new Set(entry.fields.filter((field, index) => selected.has(index)).map(field => String(field.key || "")));
+      entry.fields = entry.fields.filter((field, index) => !selected.has(index));
+      entry.selectedFields = [];
+      entry.activeField = 0;
+      route.orderAiExtractedFields = entry.fields.map(({ key, label, value }) => ({ key, label, value }));
+      route.orderAiPendingFields = (route.orderAiPendingFields || []).filter(key => !removedKeys.has(String(key)));
+      route.orderAiAcceptedFields = (route.orderAiAcceptedFields || []).filter(key => !removedKeys.has(String(key)));
+      scheduleCentralRelationsDiff(0);
+      syncDetailsPanel();
+    }
+
+    function showRouteOrderPreview(routeId) {
+      const route = state.routes.find(item => String(item.id) === String(routeId));
+      if (!route?.orderDocumentDataUrl) return;
+      hydrateRouteOrderImport(route);
+      const entry = ROUTE_ORDER_IMPORTS.get(routeId);
+      if (!entry) return;
+      entry.previewUrl = String(route.orderDocumentDataUrl);
+      entry.status = "Zlecenie zapisane przy relacji. Dokument jest dostępny dla użytkowników mających dostęp do tej relacji.";
+      entry.warning = false;
+      syncDetailsPanel();
     }
 
     function clearRouteOrderImport(routeId) {
@@ -82128,7 +82217,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canAccept = state.user.role === "spedytor" && route.ownerDispatcher === state.user.login && route.createdBy !== state.user.login && route.approvalStatus === "pending";
       hydrateRouteOrderImport(route);
       const orderImport = ROUTE_ORDER_IMPORTS.get(route.id) || null;
-      const hasOrderPreview = Boolean(canUseOperationalAi() && canEdit && orderImport?.previewUrl);
+      const hasOrderPreview = Boolean(orderImport?.previewUrl);
 
       return `
         ${state.detailsOpen ? `<div class="details-backdrop" onclick="closeDetails()"></div>` : ""}
@@ -82290,7 +82379,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             ${canDelete ? `<div class="details-delete-row"><button type="button" class="details-delete-icon" onclick="deleteRoute('${attr(route.id)}')" title="Usuń relację" aria-label="Usuń relację"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg></button></div>` : ""}
           </div>
-          ${hasOrderPreview ? renderRouteOrderVerification(route.id, orderImport) : ""}
+          ${hasOrderPreview ? renderRouteOrderVerification(route.id, orderImport, canEdit) : ""}
           </div>
         </aside>
       `;
@@ -82339,7 +82428,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const modalHint = aiBatchActive ? `Analizator AI · relacja ${aiBatchIndex + 1} z ${aiBatchTotal}. Sprawdź dane przed zapisem.` : "";
       return `
         <div class="modal-backdrop" onclick="saveNewRouteOnBackdrop(event)">
-          <form class="modal" onsubmit="saveNewRoute(event)" onclick="event.stopPropagation()">
+          <form class="modal route-details-add-form" aria-label="Dodaj trasę" onsubmit="saveNewRoute(event)" onclick="event.stopPropagation()">
             <div class="modal-head">
               <div>
                 <h2 style="margin:0;">${modalTitle}</h2>
@@ -83308,7 +83397,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const basesToggle = card.querySelector('[data-action="toggle-map-driver-bases"]');
       if (basesToggle) {
         basesToggle.classList.toggle("btn-dark", state.showDriverBasesOnMap);
-        basesToggle.textContent = `${state.showDriverBasesOnMap ? "Ukryj bazy kierowców" : "Bazy kierowców"} (${driverBaseMapPoints().length})`;
+        basesToggle.setAttribute("aria-pressed", state.showDriverBasesOnMap ? "true" : "false");
+        basesToggle.textContent = `Bazy kierowców (${driverBaseMapPoints().length})`;
       }
 
       const missing = card.querySelector('[data-role="unload-missing"]');
@@ -86585,8 +86675,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Budziszewice mają współrzędne", Array.isArray(getCoords("Budziszewice")));
       assert("Rawa Mazowiecka ma współrzędne", Array.isArray(getCoords("Rawa Mazowiecka")));
       assert("Suma km r1 = 280", totalKm(INITIAL_ROUTES[0]) === 280);
-      assert("SMS zaczyna się od najważniejszych danych załadunku", routeSms(INITIAL_ROUTES[0], driverById("d1")).startsWith("Załadunek "));
-      assert("SMS nie zawiera kilometrów ani informacji handlowych", !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("Trasa:") && !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("Stawka:"));
+      assert("SMS zaczyna się od sumy kilometrów", routeSms(INITIAL_ROUTES[0], driverById("d1")).startsWith("Trasa: 280 km"));
+      assert("SMS nie zawiera rozbicia dolot + ładowne", !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("dolot 35 km + ładowne 245 km"));
       assert("Mapa ma zoom domyślny powyżej 100%", state.mapZoom > 1);
       assert("Nie ma osobnego ukrywania samej mapy", !renderToStringForTest(false).includes(">Ukryj mapę<"));
       assert("Panel mapy startuje widoczny i może być ukryty", state.unloadPanelCollapsed === false && typeof toggleUnloadPanel === "function");
@@ -95723,6 +95813,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .map-toolbar-primary,.map-toolbar-secondary { display:flex; flex-wrap:wrap; gap:7px; align-items:center; justify-content:flex-end; }
     .map-toolbar-primary .btn { min-height:34px; padding:7px 10px; white-space:normal; line-height:1.15; }
     .map-toolbar-secondary { padding-top:7px; border-top:1px solid var(--border); }
+    .map-driver-bases-toggle { min-width:142px; white-space:nowrap !important; }
+    .route-order-dropzone-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+    .route-details-add-form { width:min(920px,calc(100vw - 28px)); }
     .map-toolbar-secondary .map-date-block .field-label { font-size:9px; margin-bottom:3px; }
     @media (max-width:760px) {
       .map-head-organized { grid-template-columns:1fr; }
