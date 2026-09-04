@@ -651,7 +651,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
             </label>
             <button class="primary compact-primary wide" type="submit" ${carrierRates.carriers.length ? '' : 'disabled'}>Zapisz</button>
           </form>
-          ${commonRateHistory.length ? `<p class="muted">Ostatnie wartości: ${commonRateHistory.map((item) => `${Number(item.ratePerKm).toFixed(2).replace('.', ',')} PLN/km od ${escapeHtml(item.effectiveFrom)}`).join(' · ')}</p>` : '<p class="muted">Brak zapisanej historii — używana jest stawka domyślna 5,00 PLN/km.</p>'}
+          ${commonRateHistory.length ? `<p class="muted">Ostatnie wartości: ${commonRateHistory.map((item) => `${Number(item.ratePerKm).toFixed(2).replace('.', ',')} PLN/km od ${escapeHtml(item.effectiveFrom)}`).join(' · ')}</p>` : '<p class="muted">Brak zapisanej historii - używana jest stawka domyślna 5,00 PLN/km.</p>'}
           ${carrierRates.carriers.length ? '' : '<div class="warning">Dodaj najpierw co najmniej jednego przewoźnika.</div>'}
         ` : `<div class="warning">Nie udało się odczytać tabeli stawek. ${escapeHtml(carrierRates.error || 'Sprawdź, czy migracja stawek została wdrożona.')}</div>`}
       </section>
@@ -1839,7 +1839,7 @@ async function loadCentralLoadQueue() {
 
   // 3L.60: housekeeping Wolnych ładunków. Wpis pozostaje aktywny przez cały
   // dzień załadunku w Europe/Warsaw i jest przenoszony poza kolejkę dopiero następnego dnia.
-  // RPC jest celowo idempotentne — można je wywoływać przy każdym odświeżeniu.
+  // RPC jest celowo idempotentne - można je wywoływać przy każdym odświeżeniu.
   const { error: expireError } = await supabase.rpc('archive_expired_tms_proposed_loads')
   if (expireError) {
     const message = String(expireError.message || '')
@@ -2970,7 +2970,7 @@ async function loadWeeklySettlementData(weekStart) {
   let [{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await weeklyQueryWithTimeout(true)
   if ((adjustmentsError && isWeeklyFinanceSchemaCacheError(adjustmentsError)) || (transfersError && isWeeklyFinanceSchemaCacheError(transfersError))) {
     // Po migracji 026 PostgREST może jeszcze przez chwilę widzieć stary schemat.
-    // Nie blokujemy całego panelu czerwonym błędem — czytamy stare kolumny do czasu reloadu cache.
+    // Nie blokujemy całego panelu czerwonym błędem - czytamy stare kolumny do czasu reloadu cache.
     ;([{ data: adjustments, error: adjustmentsError }, { data: transfers, error: transfersError }] = await weeklyQueryWithTimeout(false))
   }
 
@@ -3857,7 +3857,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v102-ai-queue-dock"
+          src="/tms.html?embedded=1&build=request-workflow-v103-currency-map-orders-transfer"
         title="Top Dragon TMS"
       ></iframe>
     </main>
