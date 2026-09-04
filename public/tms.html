@@ -70495,6 +70495,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (route.accountingCheck || route.accountingStatus === "Niezgodności" || route.accountingStatus === "Krytyczne") classes.push("status-accounting-check");
       if (route.accountingFinal || route.accountingStatus === "Wprowadzone") classes.push("status-accounting-final");
       if (isFreeDayRoute(route)) classes.push("status-free-day");
+      if (route?.emptyTile) classes.push("status-empty-tile");
       if (routeNeedsAcceptanceMark(route)) classes.push("status-foreign-pending");
       if (route.sourceFutureId || route.fromFutureQueue) classes.push("status-planned-board");
       if (state.routeTileMetricView === "orders") classes.push(route.orderImportedAt ? "route-order-uploaded" : "route-order-missing");
@@ -70671,6 +70672,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeUnloadBoardLabel(route) {
+      if (route?.emptyTile) return "PUSTY";
       if (isFreeDayRoute(route)) return "WOLNE";
       return [route?.unload, route?.secondUnload]
         .map(value => displayCity(value) || cityFromText(value) || compactRouteLocationLabel(value))
@@ -70679,6 +70681,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeUnloadBoardTitle(route) {
+      if (route?.emptyTile) return "PUSTY kafelek - otwórz szczegóły, aby go uzupełnić";
       if (isFreeDayRoute(route)) return "WOLNE";
       return [route?.unload, route?.secondUnload]
         .map(value => displayLocationWithPostal(value))
@@ -70687,6 +70690,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeLoadBoardLabel(route) {
+      if (route?.emptyTile) return "do uzupełnienia";
       if (isFreeDayRoute(route)) return "WOLNE";
       return compactRouteLocationLabel(route?.load) || "-";
     }
@@ -73987,8 +73991,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           avgRate: avg("rate"),
           avgCost: avg("cost"),
           avgMargin: avg("margin"),
-          minRate: Math.min(...items.map(item => Number(item.rate || 0))),
-          maxRate: Math.max(...items.map(item => Number(item.rate || 0)))
+          minRate: items.reduce((value, item) => Math.min(value, Number(item.rate || 0)), Infinity),
+          maxRate: items.reduce((value, item) => Math.max(value, Number(item.rate || 0)), -Infinity)
         };
       }).sort((a, b) => String(b.last.date).localeCompare(String(a.last.date)));
     }
@@ -77822,8 +77826,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const avgProfitPerKm = totals.loaded > 0 ? totals.profit / totals.loaded : 0;
       const avgRatePerKm = totals.loaded > 0 ? totals.income / totals.loaded : 0;
       const rates = routes.map(route => routeStatsValues(route).perKm).filter(value => Number.isFinite(value) && value > 0);
-      const minRate = rates.length ? Math.min(...rates) : 0;
-      const maxRate = rates.length ? Math.max(...rates) : 0;
+      const minRate = rates.length ? rates.reduce((value, rate) => Math.min(value, rate), Infinity) : 0;
+      const maxRate = rates.length ? rates.reduce((value, rate) => Math.max(value, rate), -Infinity) : 0;
       return {
         range,
         date,
@@ -78830,7 +78834,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const routes = parsed.map(item => ({ ...createProposedLoadFromTextItem(item), aiSourceText: String(item.aiSourceText || text || ""), aiSourceType: "text" }));
         if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
-        state.proposedLoads.push(...routes);
+        routes.forEach(route => state.proposedLoads.push(route));
         state.textImportPreview = routes;
         state.textImportStatus = `Dodano ${routes.length} ${routes.length === 1 ? "wolny ładunek" : "wolnych ładunków"} z wiadomości tekstowej.`;
         state.textImportWarning = false;
@@ -78844,7 +78848,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (fallback.length) {
           const routes = fallback.map((item, index) => ({ ...createProposedLoadFromTextItem(item, index), aiSourceText: text, aiSourceType: "text-fallback" }));
           if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
-          state.proposedLoads.push(...routes);
+          routes.forEach(route => state.proposedLoads.push(route));
           state.textImportPreview = routes;
           state.textImportStatus = `Gemini jest chwilowo przeciążone. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
           state.textImportWarning = true;
@@ -79840,6 +79844,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return normalizedUiScale(state.boardUiScale, 1);
     }
 
+    function currentBoardRouteFontBoost() {
+      const scale = currentBoardScale();
+      return scale < 1 ? Math.min(2, Number((1 / scale).toFixed(3))) : 1;
+    }
+
     function changeBoardScale(direction) {
       const allowed = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
       const index = Math.max(0, allowed.indexOf(currentBoardScale()));
@@ -79918,7 +79927,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
           </div>
           <div class="board-scroll">
-            <div class="board ${state.hideCarrierColumn ? "carrier-hidden" : ""} ${state.hideDriverColumn ? "driver-hidden" : ""} ${state.hideParamsColumn ? "params-hidden" : ""} ${state.hideTimeAxis ? "time-axis-hidden" : ""}" style="zoom:${currentBoardScale()};grid-template-rows:38px ${rowHeights};grid-template-columns:var(--col-a) var(--col-b) var(--col-c) var(--col-d) ${boardDateTrackTemplate(dates)};min-width:${boardDateTrackMinWidth(dates)};">
+            <div class="board ${state.hideCarrierColumn ? "carrier-hidden" : ""} ${state.hideDriverColumn ? "driver-hidden" : ""} ${state.hideParamsColumn ? "params-hidden" : ""} ${state.hideTimeAxis ? "time-axis-hidden" : ""}" style="zoom:${currentBoardScale()};--route-font-boost:${currentBoardRouteFontBoost()};grid-template-rows:38px ${rowHeights};grid-template-columns:var(--col-a) var(--col-b) var(--col-c) var(--col-d) ${boardDateTrackTemplate(dates)};min-width:${boardDateTrackMinWidth(dates)};">
               ${header}
               ${boardContent}
             </div>
@@ -80943,7 +80952,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .bindPopup(`<div class="unload-route-info-popup"><b>${esc(route.client || "Brak klienta")}</b><span>${esc(route.load || "-")} → ${esc(route.unload || "-")}</span><span>Stawka: <strong>${esc(rateLabel)}</strong></span><span>Kilometry: <strong>${esc(kmLabel)}</strong></span></div>`, POLAND_MAP_POPUP_OPTIONS)
         .addTo(state.unloadRoutePreviewLayer);
       infoMarker.openPopup();
-      try { state.leafletMap.fitBounds(L.latLngBounds([start, end]).pad(.22), { padding:[38,38], maxZoom:9, animate:true }); } catch (error) {}
+      // Kliknięcie relacji pokazuje przebieg, ale nie zmienia ręcznie ustawionego widoku mapy.
     }
 
     function updateLeafletMarkers(points) {
@@ -82452,7 +82461,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${!proposedMode && !futureMode ? `
                 <div class="location-helper" style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:9px 10px;margin-top:8px;">
 
-                  <button class="btn" type="button" onclick="saveFreeDayFromModal(event)">+ Dodaj kafelek WOLNE</button>
+                  <button class="btn" type="button" onclick="saveEmptyTileFromModal(event)">+ Dodaj PUSTY kafelek</button>
                 </div>
               ` : ""}
 
@@ -85878,7 +85887,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
 
-    function saveFreeDayFromModal(event) {
+    function saveEmptyTileFromModal(event) {
       if (event) {
         event.preventDefault();
         event.stopPropagation();
@@ -85889,7 +85898,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const driverId = state.prefill?.driverId || DRIVERS[0]?.id;
       const driver = driverById(driverId);
       if (!driver) {
-        showAppMessage("Brak kierowcy", "Nie udało się ustalić kierowcy dla kafelka WOLNE.");
+        showAppMessage("Brak kierowcy", "Nie udało się ustalić kierowcy dla pustego kafelka.");
         return;
       }
 
@@ -85897,20 +85906,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const createdBy = state.user.login;
       const owner = driver.dispatcher || createdBy;
       const route = {
-        id: `rfree${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        id: `rempty${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
         driverId,
         date: routeDate,
         loadDate: "",
-        load: "WOLNE",
+        load: "",
         loadAddress: "",
         secondLoad: "",
         secondLoadAddress: "",
-        unload: "WOLNE",
+        unload: "",
         unloadAddress: "",
         secondUnload: "",
         secondUnloadAddress: "",
-        notes: "WOLNE",
-        client: "WOLNE",
+        notes: "",
+        client: "",
         approachKm: 0,
         loadedKm: 0,
         baseKm: 0,
@@ -85921,7 +85930,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         startHour: 0,
         endDate: routeDate,
         endHour: 24,
-        freeDay: true,
+        freeDay: false,
+        emptyTile: true,
         createdBy,
         ownerDispatcher: owner,
         approvalStatus: owner === createdBy ? "accepted" : "pending",
@@ -86026,6 +86036,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           route.baseKm = 0;
           route.rate = 0;
           route.cost = 0;
+        } else if (route.emptyTile && String(route.load || "").trim() && String(route.unload || "").trim()) {
+          route.emptyTile = false;
         }
       }
       if (["client", "load", "unload", "date"].includes(field)) scheduleRouteHistoryCapture(route);
@@ -89451,7 +89463,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const future = selectedItems.map(adminAiRelationToFuture).filter(Boolean);
             if (!future.length) throw new Error("Relacje nie zawierają wymaganych lokalizacji albo spedytora.");
             if (!Array.isArray(state.futureRoutes)) state.futureRoutes = [];
-            state.futureRoutes.push(...future);
+            future.forEach(route => state.futureRoutes.push(route));
             future.forEach(scheduleSavedRoutePointGeocodes);
             scheduleCentralLoadQueueDiff(0);
             scheduleUiSync({ future:true, board:true });
@@ -89721,6 +89733,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.fleetOperationBusy = false;
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
+        if (action === "visibility") {
+          const pending = state.fleetVisibilityPending || null;
+          if (!ok && pending) {
+            const driver = driverById(pending.driverId);
+            if (driver) driver.fleetHidden = pending.previousHidden;
+            invalidateFleetCaches();
+            syncBoardOnly();
+            syncUnloadMapCard();
+          }
+          state.fleetVisibilityPending = null;
+        }
         if (action === "color") state.driverColorOperationBusy = false;
         if (action === "reassign") {
           state.driverTransferBusy = false;
@@ -89940,6 +89963,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         state.fleetOperationBusy = true;
+        state.fleetVisibilityPending = { driverId:String(driver.id), previousHidden:Boolean(driver.fleetHidden) };
+        driver.fleetHidden = Boolean(hidden);
+        invalidateFleetCaches();
+        // Zmiana jest widoczna od razu. Po potwierdzeniu serwera nie pobieramy
+        // ponownie całej floty i nie renderujemy drugi raz tej samej tablicy.
+        requestAnimationFrame(() => {
+          syncBoardOnly();
+          const host = document.querySelector('[data-role="commercial-body"]');
+          if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+          if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
+          setTimeout(() => syncUnloadMapCard(), 35);
+        });
         if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
         const requestId = `fleet-visibility-${Date.now()}`;
         window.parent?.postMessage({
@@ -94721,6 +94756,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return item?.recipientApprovedAt ? 'Zaakceptowany' : 'Oczekuje na odbiorcę';
       }
 
+      function receivedTransferDeleteAction3L108(item,weekStart){
+        const currentId=String(state.user?.supabaseId||'');
+        const isRecipient=state.user?.role==='spedytor' && currentId && currentId===String(item?.toDispatcherId||'');
+        if(!isRecipient || String(item?.status||'pending')==='deleted') return '';
+        const requesterId=String(item?.deleteRequestedBy||'');
+        const requested=Boolean(item?.deleteRequestedAt && requesterId);
+        if(!requested) return `<button type="button" class="btn-mini transfer-delete-compact-3l108" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}','${attr(weekStart)}')">Usuń transfer</button>`;
+        if(requesterId!==currentId) return `<button type="button" class="btn-mini transfer-delete-compact-3l108" onclick="deleteWeeklyDispatcherTransfer('${attr(item.id)}','${attr(weekStart)}')">Potwierdź usunięcie</button>`;
+        return `<span class="transfer-delete-wait-3l108">Oczekuje na potwierdzenie nadawcy</span>`;
+      }
+
       window.renderWeekSettlementGridCells3L50=function(driver,row,dates=dateList()){
         return boardWeekSettlementBoundaries(dates).map(boundary=>{
           const finance=financeForDriver3L50(driver,boundary.weekStart);
@@ -94755,7 +94801,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         document.querySelectorAll('.week-finance-backdrop-3l47').forEach(el=>el.remove());
         const carrierHtml=finance.carrier.length?`<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Wyrównania przewoźnika</div>${finance.carrier.map(item=>{const amount=Number(item.amount||0);return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amount>=0?'plus':'minus'}">${amount>=0?'+':''}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(item.carrierName||driver.carrier||'Przewoźnik')}${item.createdAt?` · ${esc(dt3L50(item.createdAt))}`:''}</small></div></div>`;}).join('')}</div>`:'';
         const u=userForDispatcher3L50(driver.dispatcher); const uid=String(u?.supabaseId||''); const login=norm3L50(driver.dispatcher);
-        const transferHtml=finance.transfers.length?`<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Transfery spedytora</div>${finance.transfers.map(item=>{const outgoing=(uid&&String(item.fromDispatcherId||'')===uid)||norm3L50(item.fromDispatcherLogin||item.fromDispatcherName||'')===login;const other=userLabel3L50(outgoing?item.toDispatcherId:item.fromDispatcherId,outgoing?(item.toDispatcherName||item.toDispatcherLogin):(item.fromDispatcherName||item.fromDispatcherLogin));const amount=Math.abs(Number(item.amount||0));const text=`${outgoing?'-':'+'}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN ${outgoing?'dla':'od'} ${other}`;const status=String(item.status||'pending');const amountClass=status==='pending'?'pending':['rejected','deleted'].includes(status)?'inactive':outgoing?'minus':'plus';return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amountClass}">${esc(text)}</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(transferStatus3L50(item))}${item.createdAt?` · ${esc(dt3L50(item.createdAt))}`:''}</small></div></div>`;}).join('')}</div>`:'';
+        const transferHtml=finance.transfers.length?`<div class="week-finance-section-3l47"><div class="week-finance-section-title-3l47">Transfery spedytora</div>${finance.transfers.map(item=>{const outgoing=(uid&&String(item.fromDispatcherId||'')===uid)||norm3L50(item.fromDispatcherLogin||item.fromDispatcherName||'')===login;const other=userLabel3L50(outgoing?item.toDispatcherId:item.fromDispatcherId,outgoing?(item.toDispatcherName||item.toDispatcherLogin):(item.fromDispatcherName||item.fromDispatcherLogin));const amount=Math.abs(Number(item.amount||0));const text=`${outgoing?'-':'+'}${amount.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} PLN ${outgoing?'dla':'od'} ${other}`;const status=String(item.status||'pending');const amountClass=status==='pending'?'pending':['rejected','deleted'].includes(status)?'inactive':outgoing?'minus':'plus';return `<div class="week-finance-row-3l47"><div class="week-finance-amount-3l47 ${amountClass}">${esc(text)}</div><div class="week-finance-copy-3l47">${esc(item.comment||'Brak komentarza')}<small>${esc(transferStatus3L50(item))}${item.createdAt?` · ${esc(dt3L50(item.createdAt))}`:''}</small>${receivedTransferDeleteAction3L108(item,ws)}</div></div>`;}).join('')}</div>`:'';
         const emptyHtml=(!finance.carrier.length&&!finance.transfers.length)?`<div class="week-finance-empty-3l50">Brak wyrównań przewoźnika i transferów spedytora dla tego kierowcy w tym tygodniu.</div>`:'';
         document.body.insertAdjacentHTML('beforeend',`<div class="week-finance-backdrop-3l47" onclick="if(event.target===this)closeWeekFinanceBoundary3L47()"><div class="week-finance-card-3l47" onclick="event.stopPropagation()"><div class="week-finance-head-3l47"><div><h3>Rozliczenia tygodnia</h3><small>${esc(driver.driver||'Kierowca')} · ${esc(formatDateForInput(ws))} - ${esc(formatDateForInput(addDaysToIso(ws,6)))}</small></div><button type="button" class="btn" onclick="closeWeekFinanceBoundary3L47()">Zamknij</button></div>${statusBox3L50(driver,ws)}${carrierHtml}${transferHtml}${emptyHtml}</div></div>`);
       };
@@ -95885,5 +95931,45 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
     })();
   </script>
+  <style id="targeted-v108-stability-scale-form-transfers">
+    /* Przy pomniejszaniu planu tekst kafelków zachowuje czytelny rozmiar. */
+    .board .time-route-title { font-size:calc(11px * var(--route-font-boost,1)) !important; }
+    .board .time-route.load-hidden .time-route-title { font-size:calc(12px * var(--route-font-boost,1)) !important; line-height:1.08 !important; }
+    .board .time-route-sub { font-size:calc(11px * var(--route-font-boost,1)) !important; line-height:1.08 !important; }
+    .board .time-route[data-width-mode="auto30"] .time-route-sub { font-size:calc(10.5px * var(--route-font-boost,1)) !important; }
+    .board .time-route .route-dispatcher-chip { font-size:calc(7px * var(--route-font-boost,1)) !important; }
+    .board .time-route .route-commercial-warning { font-size:calc(9px * var(--route-font-boost,1)) !important; }
+    .time-route.status-empty-tile { background:#f8fafc !important; border:2px dashed #94a3b8 !important; color:#475569 !important; }
+    .time-route.status-empty-tile .time-route-title,
+    .time-route.status-empty-tile .time-route-sub { color:#475569 !important; }
+    .app.dark-mode .time-route.status-empty-tile { background:#1e293b !important; border-color:#64748b !important; }
+    .app.dark-mode .time-route.status-empty-tile .time-route-title,
+    .app.dark-mode .time-route.status-empty-tile .time-route-sub { color:#e2e8f0 !important; }
+
+    /* Formularz dodawania ma jedną spokojną paletę i wyraźną hierarchię pól. */
+    .route-details-add-form .modal-head,
+    .route-details-add-form .modal-body,
+    .route-details-add-form .modal-foot { background:var(--card) !important; }
+    .route-details-add-form .location-helper,
+    .route-details-add-form .rate-only-card,
+    .route-details-add-form .grid-4,
+    .route-details-add-form .profitability-calculator,
+    .route-details-add-form .profitability-metric,
+    .route-details-add-form .optional-stop-section,
+    .route-details-add-form .future-group-collapse,
+    .route-details-add-form .readonly-box,
+    .route-details-add-form .bulk-count-box {
+      background:var(--soft) !important;
+      border-color:var(--border) !important;
+      box-shadow:none !important;
+    }
+    .route-details-add-form .input:not(.ai-value-pending):not(.ai-value-accepted),
+    .route-details-add-form .select,
+    .route-details-add-form .textarea { background:var(--card) !important; border-color:var(--border) !important; box-shadow:none !important; }
+    .route-details-add-form .btn:not(.btn-dark):not(.btn-ai-action) { background:var(--card) !important; border-color:var(--border) !important; color:var(--text) !important; }
+    .route-details-add-form .field-label { color:var(--muted) !important; }
+    .transfer-delete-compact-3l108 { margin-top:7px; width:max-content; color:#b91c1c !important; border-color:#fecaca !important; }
+    .transfer-delete-wait-3l108 { display:block; margin-top:6px; color:var(--muted); font-size:9px; font-weight:800; }
+  </style>
 </body>
 </html>
