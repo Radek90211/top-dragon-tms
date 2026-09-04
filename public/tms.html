@@ -70993,7 +70993,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeDispatcherForBadge(route, fallbackDriver = null) {
       const currentDispatcher = fallbackDriver?.dispatcher || driverById(route.driverId)?.dispatcher || route.ownerDispatcher || "";
-      const sourceDispatcher = route.createdBy || route.ownerDispatcher || "";
+      const acceptedTransfer = (state.workflowRelationTransfers || []).find(item => String(item?.relationRef || "") === String(route?.id || "") && String(item?.status || "") === "accepted");
+      const sourceDispatcher = route.placedByDispatcher || route.sourceDispatcher || acceptedTransfer?.fromDispatcherName || route.createdBy || route.ownerDispatcher || "";
       if (!sourceDispatcher || sourceDispatcher === currentDispatcher) return "";
       return sourceDispatcher;
     }
@@ -80109,7 +80110,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   ondragstart="event.preventDefault(); event.stopPropagation();"
 
                 ></span>` : ""}
-                <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${routeOrderTileIcon(route)}${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}${routeDispatcherChip(route, driver)}<span class="route-unload-label">${esc(routeUnloadBoardLabel(route))}</span></span>
+                <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${routeDispatcherChip(route, driver)}${routeOrderTileIcon(route)}${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}<span class="route-unload-label">${esc(routeUnloadBoardLabel(route))}</span></span>
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
@@ -80311,8 +80312,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const POLAND_MAP_POPUP_OPTIONS = {
       minWidth: 218,
       maxWidth: 260,
-      autoPan: true,
-      keepInView: true,
+      autoPan: false,
+      keepInView: false,
       autoPanPaddingTopLeft: [24, 125],
       autoPanPaddingBottomRight: [24, 24],
       offset: [0, 18]
@@ -80325,7 +80326,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function centerLeafletMapHome() {
       if (!state.leafletMap) return;
       try {
-        state.leafletMap.setView(POLAND_HOME_CENTER, Math.max(POLAND_MAP_MIN_ZOOM + 1, 5), { animate: true, duration: 0.28 });
+        state.leafletMap.stop?.();
+        state.leafletMap.setView(POLAND_HOME_CENTER, Math.max(POLAND_MAP_MIN_ZOOM + 1, 5), { animate: false });
       } catch (error) {}
     }
 
@@ -80642,12 +80644,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             worldCopyJump: false
           }).setView(POLAND_MAP_CENTER, POLAND_MAP_MIN_ZOOM);
 
-          state.leafletMap.on("popupopen", adjustLeafletPopupIntoView);
           state.leafletMap.on("click", event => {
             const target = event?.originalEvent?.target;
             const clickedEmptyMap = !target?.closest?.(".leaflet-marker-icon,.leaflet-popup");
             if (!clickedEmptyMap) return;
             state.unloadRoutePreviewLayer?.clearLayers?.();
+            state.unloadRoutePreviewRouteId = "";
             try { state.leafletMap?.closePopup?.(); } catch (error) {}
             setTimeout(centerLeafletMapHome, 40);
           });
@@ -80841,7 +80843,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const kmLabel = route ? `${routeSmsKm(totalKm(route))} km` : "brak km";
 
       return `
-        <div class="map-popup-vehicle">
+        <div class="map-popup-vehicle" role="button" tabindex="0" onclick="event.preventDefault();event.stopPropagation();showUnloadRouteVisualization('${attr(point.routeId)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();showUnloadRouteVisualization('${attr(point.routeId)}')}">
           <div class="map-popup-vehicle-top">
             <div class="map-popup-vehicle-main">
               <span class="map-popup-dot ${statusClass}"></span>
@@ -80854,7 +80856,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${route ? `<div class="map-popup-route-data"><span><b>Klient:</b> ${esc(route.client || "brak klienta")}</span><span><b>Stawka:</b> ${esc(rateLabel)}</span><span><b>Kilometry:</b> ${esc(kmLabel)}</span></div>` : ""}
               </div>
             </div>
-            <div class="map-popup-actions"><button class="btn-mini" onclick="showUnloadRouteVisualization('${attr(point.routeId)}')">Trasa</button><button class="btn-mini" onclick="goToDriverPlan('${attr(point.id)}','${attr(point.routeId)}')">Plan</button></div>
+            <div class="map-popup-actions"><button class="btn-mini" onclick="event.preventDefault();event.stopPropagation();showUnloadRouteVisualization('${attr(point.routeId)}')">Trasa</button><button class="btn-mini" onclick="event.preventDefault();event.stopPropagation();goToDriverPlan('${attr(point.id)}','${attr(point.routeId)}')">Plan</button></div>
           </div>
         </div>
       `;
@@ -80924,12 +80926,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function showUnloadRouteVisualization(routeId) {
       const route = state.routes.find(item => String(item.id) === String(routeId || ""));
       if (!route || !state.leafletMap || !window.L) return;
+      if (state.unloadRoutePreviewBusy) return;
       const load = routePointFromRoute(route, "load");
       const unload = routePointFromRoute(route, "unload");
       if (!load || !unload) return;
       const start = [Number(load.lat), Number(load.lng)];
       const end = [Number(unload.lat), Number(unload.lng)];
       if (![...start, ...end].every(Number.isFinite)) return;
+
+      state.unloadRoutePreviewBusy = true;
+      state.unloadRoutePreviewRouteId = String(routeId || "");
+      try {
 
       if (!state.unloadRoutePreviewLayer) state.unloadRoutePreviewLayer = L.layerGroup().addTo(state.leafletMap);
       state.unloadRoutePreviewLayer.clearLayers();
@@ -80945,12 +80952,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const currency = ["PLN", "EUR"].includes(String(route.orderCurrency || "PLN").toUpperCase()) ? String(route.orderCurrency || "PLN").toUpperCase() : "PLN";
       const rateLabel = Number(route.rate || 0) > 0 ? `${Number(route.rate).toLocaleString("pl-PL", { maximumFractionDigits:2 })} ${currency}` : "brak stawki";
       const kmLabel = `${routeSmsKm(totalKm(route))} km`;
+      const loadIcon = L.divIcon({ className:"", html:'<span class="unload-route-load-marker">Z</span>', iconSize:[28,28], iconAnchor:[14,14], popupAnchor:[0,-15] });
+      L.marker(start, { icon:loadIcon, keyboard:false, zIndexOffset:2750 })
+        .bindPopup(`<div class="unload-route-info-popup"><b>${esc(route.client || "Brak klienta")}</b><span><strong>Załadunek:</strong> ${esc([route.loadAddress, route.load].filter(Boolean).join(", ") || "-")}</span><span>Stawka: <strong>${esc(rateLabel)}</strong></span><span>Kilometry: <strong>${esc(kmLabel)}</strong></span></div>`, POLAND_MAP_POPUP_OPTIONS)
+        .addTo(state.unloadRoutePreviewLayer);
       const infoIcon = L.divIcon({ className:"", html:'<span class="unload-route-info-marker">i</span>', iconSize:[28,28], iconAnchor:[14,14], popupAnchor:[0,-15] });
       const infoMarker = L.marker(end, { icon:infoIcon, keyboard:false, zIndexOffset:2800 })
         .bindPopup(`<div class="unload-route-info-popup"><b>${esc(route.client || "Brak klienta")}</b><span>${esc(route.load || "-")} → ${esc(route.unload || "-")}</span><span>Stawka: <strong>${esc(rateLabel)}</strong></span><span>Kilometry: <strong>${esc(kmLabel)}</strong></span></div>`, POLAND_MAP_POPUP_OPTIONS)
         .addTo(state.unloadRoutePreviewLayer);
       infoMarker.openPopup();
       // Kliknięcie relacji pokazuje przebieg, ale nie zmienia ręcznie ustawionego widoku mapy.
+      } finally {
+        state.unloadRoutePreviewBusy = false;
+      }
     }
 
     function updateLeafletMarkers(points) {
@@ -80992,7 +81006,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             })
             .bindPopup(popupHtml, POLAND_MAP_POPUP_OPTIONS);
 
-          currentMarker.on("click", () => showUnloadRouteVisualization(group.points[0]?.routeId));
+          if (group.points.length === 1) currentMarker.on("click", () => showUnloadRouteVisualization(group.points[0]?.routeId));
 
 
           if (group.points.length === 1) {
@@ -81009,7 +81023,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             .bindPopup(popupHtml, POLAND_MAP_POPUP_OPTIONS);
 
           marker._routeIds = group.points.map(point => point.routeKey);
-          marker.on("click", () => showUnloadRouteVisualization(group.points[0]?.routeId));
+          if (group.points.length === 1) marker.on("click", () => showUnloadRouteVisualization(group.points[0]?.routeId));
 
 
           if (group.points.length === 1) {
@@ -82028,7 +82042,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         file: null,
         fileName: String(route.orderImportFileName || "zlecenie.pdf"),
         documentType: String(route.orderDocumentType || "pdf"),
-        previewUrl: String(route.orderDocumentDataUrl),
+        // Zapisany dokument otwieramy dopiero po kliknięciu „Pokaż podgląd”.
+        // Nie osadzamy wielomegabajtowego PDF przy każdym przejściu między relacjami.
+        previewUrl: "",
         fields: Array.isArray(route.orderAiExtractedFields) ? route.orderAiExtractedFields : [],
         selectedFields: [],
         activeField: 0,
@@ -82892,12 +82908,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function openRoute(id) {
+      if (state.routeOpenBusy) return;
+      if (state.detailsOpen && String(state.selectedRouteId || "") === String(id || "")) {
+        requestAnimationFrame(() => showUnloadRouteVisualization(id));
+        return;
+      }
+      state.routeOpenBusy = true;
       state.selectedRouteId = id;
       state.detailsOpen = true;
       state.detailsRoutePlannerExpanded = false;
       closeRouteContextMenu(false);
-      syncDetailsPanel();
-      requestAnimationFrame(() => showUnloadRouteVisualization(id));
+      try {
+        syncDetailsPanel();
+        requestAnimationFrame(() => showUnloadRouteVisualization(id));
+      } finally {
+        queueMicrotask(() => { state.routeOpenBusy = false; });
+      }
     }
 
     // MODUŁ: szybka edycja wyłącznie miejscowości/kodu rozładunku z tablicy.
@@ -87122,8 +87148,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function centralRouteFingerprint(route) {
-      const payload = centralSerializableRoute(route);
-      return payload ? JSON.stringify(payload) : "";
+      if (!route || typeof route !== "object") return "";
+      try {
+        return JSON.stringify(route, (key, value) => {
+          if (key.startsWith("_central")) return undefined;
+          if (key === "orderDocumentDataUrl" && typeof value === "string") return `${value.length}:${value.slice(-64)}`;
+          return value;
+        });
+      } catch (error) {
+        return "";
+      }
     }
 
     function centralRelationsSetFingerprint(routes = []) {
@@ -95924,9 +95958,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   </script>
   <style id="targeted-v108-stability-scale-form-transfers">
     /* Przy pomniejszaniu planu tekst kafelków zachowuje czytelny rozmiar. */
-    .board .time-route-title { font-size:calc(11px * var(--route-font-boost,1)) !important; }
-    .board .time-route.load-hidden .time-route-title { font-size:calc(12px * var(--route-font-boost,1)) !important; line-height:1.08 !important; }
-    .board .time-route-sub { font-size:calc(11px * var(--route-font-boost,1)) !important; line-height:1.08 !important; }
+    .board .time-route-title { font-size:calc(15px * var(--route-font-boost,1)) !important; }
+    .board .time-route.load-hidden .time-route-title { font-size:calc(18px * var(--route-font-boost,1)) !important; line-height:1.02 !important; }
+    .board .time-route-sub { font-size:calc(10.5px * var(--route-font-boost,1)) !important; line-height:1.05 !important; }
     .board .time-route[data-width-mode="auto30"] .time-route-sub { font-size:calc(10.5px * var(--route-font-boost,1)) !important; }
     .board .time-route .route-dispatcher-chip { font-size:calc(7px * var(--route-font-boost,1)) !important; }
     .board .time-route .route-commercial-warning { font-size:calc(9px * var(--route-font-boost,1)) !important; }
@@ -95944,8 +95978,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       overflow:hidden !important;
     }
     .board .time-route-title {
-      flex:0 1 auto;
+      flex:1 1 auto;
       min-height:0;
+      align-items:center !important;
+      justify-content:center !important;
       line-height:1.02 !important;
       white-space:normal !important;
       overflow:hidden !important;
@@ -95964,6 +96000,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       line-height:1.02;
     }
     .board .time-route-sub { flex:0 0 auto; margin-top:2px; }
+    .board .time-route .route-dispatcher-chip { order:-10; position:relative; z-index:2; flex:0 0 auto; }
+    .unload-route-load-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #dbeafe; border-radius:999px; background:#1d4ed8; color:#fff; box-shadow:0 5px 16px rgba(37,99,235,.42); font-size:11px; font-weight:950; }
+    .map-popup-vehicle[role="button"] { cursor:pointer; }
+    .map-popup-vehicle[role="button"]:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
     .time-route.status-empty-tile { background:#f8fafc !important; border:2px dashed #94a3b8 !important; color:#475569 !important; }
     .time-route.status-empty-tile .time-route-title,
     .time-route.status-empty-tile .time-route-sub { color:#475569 !important; }
