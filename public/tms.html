@@ -72225,7 +72225,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (topic === "clients") {
         const steps = [
-          { key: "clients-open", title: "Otwórz Bazę klientów", text: "W Asystencie spedytora kliknij zakładkę Baza klientów. Znajdziesz tam kartotekę firm, dane adresowe, NIP i przypisanego opiekuna.", selector: 'button[onclick="setCommercialView(\'database\')"]', clickAdvance: true },
+          { key: "clients-show", title: "Pokaż Asystenta spedytora", text: "Kliknij Pokaż, aby rozwinąć moduły Asystenta spedytora.", selector: '#commercial-intelligence .commercial-head-actions button', clickAdvance: true },
+          { key: "clients-open", title: "Otwórz Bazę klientów", text: "Kliknij zakładkę Baza klientów. Znajdziesz tam kartotekę firm, dane adresowe, NIP i przypisanych opiekunów.", selector: 'button[onclick="setCommercialView(\'database\')"]', clickAdvance: true },
           { key: "clients-search", title: "Wyszukiwanie klientów", text: "Wyszukuj po nazwie, NIP-ie, adresie albo opiekunie. Wyniki są filtrowane podczas pisania.", selector: '.client-directory-toolbar input' },
           { key: "clients-filters", title: "Opiekun i filtry", text: "Możesz zawęzić listę do konkretnego spedytora, klientów z opiekunem albo klientów bez opiekuna.", selector: '.client-directory-toolbar .dispatcher-color-select' },
         ];
@@ -72236,23 +72237,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return steps;
       }
       if (topic === "fleet") return [
-        { key: "fleet-open", title: "Otwórz Kierowców i pojazdy", text: "W Asystencie spedytora kliknij + Kierowca / pojazd, aby przejść do floty dostępnej dla Twojej kategorii.", selector: 'button[onclick="setCommercialView(\'fleet\')"]', clickAdvance: true },
+        { key: "fleet-show", title: "Pokaż Asystenta spedytora", text: "Kliknij Pokaż, aby rozwinąć moduły Asystenta spedytora.", selector: '#commercial-intelligence .commercial-head-actions button', clickAdvance: true },
+        { key: "fleet-open", title: "Otwórz Kierowców i pojazdy", text: "Kliknij + Kierowca / pojazd, aby przejść do floty dostępnej dla Twojej kategorii.", selector: 'button[onclick="setCommercialView(\'fleet\')"]', clickAdvance: true },
         { key: "fleet-form", title: "Dodawanie kierowcy i przewoźnika", text: "Przewoźnik i kierowca wystarczą do pierwszego zapisu. Telefon, dokumenty i dane pojazdu możesz uzupełnić od razu albo później przez Edytuj.", selector: '.fleet-form-grid' },
         { key: "fleet-list", title: "Edycja i widoczność floty", text: "Spedytor może edytować i ukrywać własne pojazdy. Ukryty pojazd znika z planu i dopasowań, ale pozostaje na liście floty, skąd można go ponownie pokazać.", selector: '.fleet-list' },
       ];
       if (topic === "ai") return [
-        { key: "ai-queue", title: "Wybierz listę relacji", text: "Otwórz Planowane relacje albo Wolne ładunki. Analizator zapisze przygotowaną relację właśnie na wybranej liście.", selector: '.future-tab, .proposed-tab', clickAdvance: true },
-        { key: "ai-add", title: "Dodaj relację", text: "Jeden przycisk pozwala wprowadzić relację ręcznie albo przygotować ją na podstawie dokumentu lub wiadomości klienta.", selector: 'button[data-queue-add]', clickAdvance: true },
-        { key: "ai-open", title: "Uruchom analizator AI", text: "Wybierz PDF, Word lub tekst. Analizator pojawi się dyskretnie po prawej stronie i możesz go zminimalizować podczas pracy.", selector: 'button[data-queue-ai]', clickAdvance: true },
+        { key: "ai-queue", title: "Otwórz Planowane relacje", text: "Kliknij boczną zakładkę Planowane relacje. W Wolnych ładunkach import działa w ten sam sposób.", selector: '[data-tutorial="queue-future-tab"]', clickAdvance: true },
+        { key: "ai-add", title: "Dodaj relację", text: "Kliknij + Dodaj relację, aby wybrać wprowadzanie ręczne albo analizę dokumentu i wiadomości klienta.", selector: 'button[data-queue-add="future"]', clickAdvance: true },
+        { key: "ai-open", title: "Uruchom analizator AI", text: "Wybierz PDF, Word lub tekst. Analizator pojawi się dyskretnie po prawej stronie i możesz go zminimalizować podczas pracy.", selector: 'button[data-queue-ai="future"]', clickAdvance: true },
         { key: "ai-source", title: "PDF, Word lub wiadomość", text: "Wybierz plik albo wklej tekst. AI przygotuje dane do sprawdzenia przed zapisaniem - zawsze zweryfikuj wynik.", selector: '.ai-analyzer-panel .ai-import-source-grid' },
       ];
       if (topic === "assistant") return [
-        { key: "assistant-main", title: "Asystent spedytora", text: "Ten moduł łączy historię relacji, wyszukiwanie klientów w rejonie, zapytania o ładunek oraz zarządzanie flotą.", selector: '#commercial-intelligence' },
+        { key: "assistant-show", title: "Pokaż Asystenta spedytora", text: "Kliknij Pokaż, aby rozwinąć wszystkie moduły Asystenta spedytora.", selector: '#commercial-intelligence .commercial-head-actions button', clickAdvance: true },
         { key: "assistant-tabs", title: "Wybierz moduł", text: "Zakładki przełączają między historią, klientami w rejonie, zapytaniami o ładunek oraz funkcjami dostępnymi dla Twojej kategorii.", selector: '#commercial-intelligence .commercial-tabs' },
         { key: "assistant-body", title: "Obszar roboczy", text: "W tym miejscu pojawiają się filtry, wyniki i przyciski wybranego modułu Asystenta spedytora.", selector: '#commercial-intelligence [data-role="commercial-body"]' },
       ];
       if (topic === "nearest") return [
-        { key: "nearest-main", title: "Najbliższy pojazd", text: "Wyszukiwarka porównuje dostępne pojazdy z miejscem i dniem planowanego załadunku.", selector: '#nearest-vehicle-section' },
+        { key: "nearest-show", title: "Pokaż Najbliższy pojazd", text: "Kliknij Pokaż, aby rozwinąć wyszukiwarkę najbliższego pojazdu.", selector: '[data-tutorial="nearest-toggle"]', clickAdvance: true },
         { key: "nearest-query", title: "Miejsce załadunku", text: "Wpisz kod pocztowy, adres albo miasto i wybierz właściwą podpowiedź.", selector: '#nearest-vehicle-section .nearest-search-wrap .input' },
         { key: "nearest-requirements", title: "Wymagania", text: "Opcjonalnie podaj wysokość ładunku i zaznacz wymóg polskiego kierowcy.", selector: '#nearest-load-height' },
         { key: "nearest-check", title: "Uruchom wyszukiwanie", text: "Kliknij Sprawdź. Wyniki pokażą pojazdy uporządkowane według odległości i dostępności.", selector: '[data-tutorial="nearest-check"]' },
@@ -72283,14 +72285,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!step?.selector) return null;
       try {
         const candidates = Array.from(document.querySelectorAll(step.selector));
+        const usable = candidates.filter(element => {
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle?.(element);
+          return rect.width > 0 && rect.height > 0
+            && !element.hidden
+            && !element.closest('[hidden]')
+            && style?.display !== "none"
+            && style?.visibility !== "hidden";
+        });
         if (step.targetMode === "current-day-plus") {
-          const usable = candidates.filter(element => {
-            const rect = element.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0 && !element.closest(".route-add-covered");
-          });
-          return usable.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || usable[0] || candidates[0] || null;
+          const uncovered = usable.filter(element => !element.closest(".route-add-covered"));
+          return uncovered.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || uncovered[0] || null;
         }
-        return candidates[0] || null;
+        return usable[0] || null;
       } catch (error) {
         return null;
       }
@@ -72469,21 +72477,72 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     window.addEventListener("scroll", scheduleTutorialSpotlightSync, true);
     window.addEventListener("resize", scheduleTutorialSpotlightSync);
 
+    function prepareTutorialStep() {
+      const topic = state.tutorialTopic;
+      const steps = tutorialStepsForCurrentRole(topic);
+      const index = Math.max(0, Math.min(Number(state.tutorialStep || 0), Math.max(0, steps.length - 1)));
+      const step = steps[index];
+
+      if (["clients", "fleet", "assistant"].includes(topic)) {
+        state.commercialPanelOpen = !["clients-show", "fleet-show", "assistant-show"].includes(step?.key);
+        if (topic === "clients" && !["clients-show", "clients-open"].includes(step?.key)) state.commercialView = "database";
+        if (topic === "fleet" && !["fleet-show", "fleet-open"].includes(step?.key)) state.commercialView = "fleet";
+      }
+
+      if (topic === "nearest") {
+        state.nearestPanelOpen = step?.key !== "nearest-show";
+      }
+
+      if (topic === "ai") {
+        if (step?.key === "ai-queue") {
+          state.futurePanelOpen = false;
+          state.proposedPanelOpen = false;
+          state.queueAddMenuTarget = "";
+          if (!state.aiAnalyzerBusyKind) {
+            state.pdfImportOpen = false;
+            state.aiAnalyzerMinimized = false;
+            state.aiAnalyzerDockVisible = false;
+          }
+        } else {
+          state.futurePanelOpen = true;
+          state.proposedPanelOpen = false;
+          state.queueAddMenuTarget = step?.key === "ai-open" ? "future" : "";
+          if (step?.key === "ai-source") {
+            state.pdfImportTarget = "future";
+            state.pdfImportOpen = true;
+            state.aiAnalyzerMinimized = false;
+            state.aiAnalyzerDockVisible = true;
+            if (!state.aiAnalyzerBusyKind && !["ready", "error"].includes(state.aiAnalyzerStatus)) state.aiAnalyzerStatus = "paused";
+          } else if (!state.aiAnalyzerBusyKind) {
+            state.pdfImportOpen = false;
+          }
+        }
+      }
+
+      if (topic === "route_tools" && step?.key === "route-example") state.contextMenu = null;
+    }
+
+    function showPreparedTutorialStep() {
+      prepareTutorialStep();
+      clearTutorialSpotlightTarget();
+      removePortaledTutorialModal();
+      render();
+      if (state.tutorialTopic === "route_tools" && tutorialStepsForCurrentRole()[state.tutorialStep]?.key !== "route-example") {
+        setTimeout(tutorialPrepareExampleRoute, 80);
+      }
+    }
+
     function openTutorial(topic = "relations", event = null) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
       if (!state.user) return;
       const allowed = new Set(["relations", "clients", "fleet", "ai", "assistant", "nearest", "route_tools"]);
       state.tutorialTopic = allowed.has(topic) ? topic : "relations";
-      if (["relations", "fleet", "ai", "assistant", "nearest", "route_tools"].includes(state.tutorialTopic)) state.appView = "plan";
-      if (state.tutorialTopic === "assistant") state.commercialPanelOpen = true;
-      if (state.tutorialTopic === "nearest") state.nearestPanelOpen = true;
+      if (["relations", "clients", "fleet", "ai", "assistant", "nearest", "route_tools"].includes(state.tutorialTopic)) state.appView = "plan";
       state.tutorialMenuOpen = false;
       state.tutorialOpen = true;
       state.tutorialStep = 0;
-      clearTutorialSpotlightTarget();
-      render();
-      if (state.tutorialTopic === "route_tools") setTimeout(tutorialPrepareExampleRoute, 80);
+      showPreparedTutorialStep();
     }
 
     function tutorialPrepareExampleRoute() {
@@ -72530,12 +72589,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function nextTutorialStep() {
       const last = tutorialStepsForCurrentRole().length - 1;
       state.tutorialStep = Math.min(last, Number(state.tutorialStep || 0) + 1);
-      refreshTutorialUi();
+      showPreparedTutorialStep();
     }
 
     function previousTutorialStep() {
       state.tutorialStep = Math.max(0, Number(state.tutorialStep || 0) - 1);
-      refreshTutorialUi();
+      showPreparedTutorialStep();
     }
 
     function tutorialOpenRelationDemo() {
@@ -75371,7 +75430,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div>
               <h2>Najbliższy pojazd</h2>
             </div>
-            <button type="button" class="btn ${state.nearestPanelOpen ? "btn-dark" : ""}" onclick="toggleNearestVehiclePanel()">${state.nearestPanelOpen ? "Ukryj" : "Pokaż"}</button>
+            <button type="button" class="btn ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel()">${state.nearestPanelOpen ? "Ukryj" : "Pokaż"}</button>
           </div>
           ${state.nearestPanelOpen ? `
             <div class="tool-card-body">
@@ -76903,7 +76962,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // Gdy panel jest zamknięty pokazujemy wyłącznie licznik. Pełne dopasowanie
       // każdej karty do wszystkich pojazdów jest kosztowne i nie jest wtedy widoczne.
       if (!state.proposedPanelOpen) {
-        return `<button class="proposed-tab" type="button" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki">Wolne ładunki${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
+        return `<button class="proposed-tab" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki">Wolne ładunki${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
       }
       loads.sort((a,b) => {
         const am = preferredQueueMatchRows(proposedDistancesForRoute(a, a.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0 ? 1 : 0;
@@ -76911,7 +76970,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return bm - am || String(a.date || "").localeCompare(String(b.date || ""));
       });
       return `
-        <button class="proposed-tab" type="button" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki">
+        <button class="proposed-tab" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki">
           Wolne ładunki
           ${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}
         </button>
@@ -79084,7 +79143,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderFutureTab() {
       const count = visibleFutureRoutes().length;
       return `
-        <button class="future-tab" type="button" onclick="toggleFuturePanel()" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Planowane relacje do rozdania">
+        <button class="future-tab" type="button" data-tutorial="queue-future-tab" onclick="toggleFuturePanel()" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Planowane relacje do rozdania">
           Planowane relacje
           <span class="future-tab-count">${count}</span>
         </button>
