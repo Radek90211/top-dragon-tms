@@ -2599,7 +2599,7 @@ async function createFleetSetFromTms(message) {
     if (error) throw error
 
     await syncFleetDataToTms()
-    sendFleetOperationResult(requestId, true, 'create', 'Zestaw został zapisany w Supabase i jest wspólny dla użytkowników oddziału.')
+    sendFleetOperationResult(requestId, true, 'create', 'Kierowca zapisany')
   } catch (error) {
     sendFleetOperationResult(requestId, false, 'create', error?.message || 'Nie udało się zapisać zestawu.')
   }
@@ -3864,7 +3864,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v108-stability-empty-tile"
+          src="/tms.html?embedded=1&build=request-workflow-v109-tall-tiles-quiet-transfer"
         title="Top Dragon TMS"
       ></iframe>
     </main>
