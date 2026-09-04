@@ -71036,21 +71036,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (route?.smsManualEdited) return stripGoogleMapsLinksFromSms(route.smsTextOverride || "");
       const loadHour = formatSmsHour(routeStartHour(route));
       const unloadHour = formatSmsHour(routeEndHour(route));
-      const unloadDateSuffix = routeEndDate(route) && routeEndDate(route) !== route.date ? ` (${routeEndDate(route)})` : "";
+      const unloadDate = routeEndDate(route) || route.date;
       const importedByAi = Boolean(route?.orderImportedAt || route?.aiSourceType);
       const driverNotes = String(route?.driverNotes ?? route?.aiDriverNotes ?? (importedByAi ? "" : route?.notes || "")).trim();
+      const compactDriverNotes = driverNotes.replace(/\s+/g, " ").trim();
+      const shortDriverNotes = compactDriverNotes.length > 240
+        ? `${compactDriverNotes.slice(0, 237).replace(/\s+\S*$/, "")}...`
+        : compactDriverNotes;
+      const pointLabel = (location, address) => [String(location || "").trim(), String(address || "").trim()].filter((value, index, values) => value && values.indexOf(value) === index).join(", ") || "-";
       const lines = [
-        `Trasa: ${routeSmsKm(totalKm(route))} km`,
-        ``,
-        `Cześć ${driver?.driver?.split(" ")[0] || ""},`,
-        `Dane trasy na ${route.date}:`,
-        `Załadunek: ${route.load || "-"}${route.loadAddress ? ", " + route.loadAddress : ""}`,
-        `Godzina załadunku: ${loadHour}`,
-        route.secondLoad ? `Drugi załadunek: ${route.secondLoad}${route.secondLoadAddress ? ", " + route.secondLoadAddress : ""}` : "",
-        `Rozładunek: ${route.unload || "-"}${route.unloadAddress ? ", " + route.unloadAddress : ""}`,
-        `Godzina rozładunku: ${unloadHour}${unloadDateSuffix}`,
-        route.secondUnload ? `Drugi rozładunek: ${route.secondUnload}${route.secondUnloadAddress ? ", " + route.secondUnloadAddress : ""}` : "",
-        driverNotes ? `Informacje dla kierowcy: ${driverNotes}` : ""
+        `Załadunek ${route.date || "-"}, ${loadHour}: ${pointLabel(route.load, route.loadAddress)}`,
+        route.secondLoad ? `Drugi załadunek: ${pointLabel(route.secondLoad, route.secondLoadAddress)}` : "",
+        `Rozładunek ${unloadDate || "-"}, ${unloadHour}: ${pointLabel(route.unload, route.unloadAddress)}`,
+        route.secondUnload ? `Drugi rozładunek: ${pointLabel(route.secondUnload, route.secondUnloadAddress)}` : "",
+        shortDriverNotes ? `Uwagi: ${shortDriverNotes}` : ""
       ].filter(line => line !== null && line !== undefined && line !== "");
 
       // Link mapy nie jest dołączany do wiadomości SMS.
@@ -80080,8 +80079,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 data-can-resize="${canEditThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
                 draggable="${canEditThisRoute ? "true" : "false"}"
+                onclick="queueOpenRouteFromBoard(event,'${attr(route.id)}')"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
-                ondblclick="startQuickUnloadEdit(event, '${attr(route.id)}')"
+                ondblclick="cancelBoardRouteOpen();startQuickUnloadEdit(event, '${attr(route.id)}')"
                 ${canEditThisRoute ? `ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
                 style="left:${left}%;width:${renderedWidth}%;"
@@ -80822,6 +80822,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderMapVehiclePopupRow(point) {
       const dispatcherClass = dispatcherBadgeClass(point.dispatcher || "");
       const statusClass = point.statusKey === "has-next" ? "has-next" : point.statusKey === "waiting" ? "waiting-next" : "no-next";
+      const route = state.routes.find(item => String(item.id) === String(point.routeId || ""));
+      const currency = ["PLN", "EUR"].includes(String(route?.orderCurrency || "PLN").toUpperCase()) ? String(route?.orderCurrency || "PLN").toUpperCase() : "PLN";
+      const rateLabel = Number(route?.rate || 0) > 0 ? `${Number(route.rate).toLocaleString("pl-PL", { maximumFractionDigits:2 })} ${currency}` : "brak stawki";
+      const kmLabel = route ? `${routeSmsKm(totalKm(route))} km` : "brak km";
 
       return `
         <div class="map-popup-vehicle">
@@ -80834,6 +80838,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <span class="dispatcher-map-badge ${dispatcherClass}">${esc(point.dispatcher || "-")}</span>
                   ${point.carrier ? ` · ${esc(point.carrier)}` : ""}
                 </div>
+                ${route ? `<div class="map-popup-route-data"><span><b>Klient:</b> ${esc(route.client || "brak klienta")}</span><span><b>Stawka:</b> ${esc(rateLabel)}</span><span><b>Kilometry:</b> ${esc(kmLabel)}</span></div>` : ""}
               </div>
             </div>
             <div class="map-popup-actions"><button class="btn-mini" onclick="showUnloadRouteVisualization('${attr(point.routeId)}')">Trasa</button><button class="btn-mini" onclick="goToDriverPlan('${attr(point.id)}','${attr(point.routeId)}')">Plan</button></div>
@@ -80924,6 +80929,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const icon = L.divIcon({ className:"", html:`<span class="unload-route-chevron" style="transform:rotate(${-angle}deg)">&gt;</span>`, iconSize:[18,18], iconAnchor:[9,9] });
         L.marker(coords, { icon, interactive:false, keyboard:false, zIndexOffset:2600 }).addTo(state.unloadRoutePreviewLayer);
       });
+      const currency = ["PLN", "EUR"].includes(String(route.orderCurrency || "PLN").toUpperCase()) ? String(route.orderCurrency || "PLN").toUpperCase() : "PLN";
+      const rateLabel = Number(route.rate || 0) > 0 ? `${Number(route.rate).toLocaleString("pl-PL", { maximumFractionDigits:2 })} ${currency}` : "brak stawki";
+      const kmLabel = `${routeSmsKm(totalKm(route))} km`;
+      const infoIcon = L.divIcon({ className:"", html:'<span class="unload-route-info-marker">i</span>', iconSize:[28,28], iconAnchor:[14,14], popupAnchor:[0,-15] });
+      const infoMarker = L.marker(end, { icon:infoIcon, keyboard:false, zIndexOffset:2800 })
+        .bindPopup(`<div class="unload-route-info-popup"><b>${esc(route.client || "Brak klienta")}</b><span>${esc(route.load || "-")} → ${esc(route.unload || "-")}</span><span>Stawka: <strong>${esc(rateLabel)}</strong></span><span>Kilometry: <strong>${esc(kmLabel)}</strong></span></div>`, POLAND_MAP_POPUP_OPTIONS)
+        .addTo(state.unloadRoutePreviewLayer);
+      infoMarker.openPopup();
       try { state.leafletMap.fitBounds(L.latLngBounds([start, end]).pad(.22), { padding:[38,38], maxZoom:9, animate:true }); } catch (error) {}
     }
 
@@ -82077,7 +82090,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function clearRouteOrderImport(routeId) {
       const entry = ROUTE_ORDER_IMPORTS.get(routeId);
       if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl);
-      ROUTE_ORDER_IMPORTS.delete(routeId);
+      if (entry) {
+        entry.previewUrl = "";
+        entry.activeField = 0;
+        entry.busy = false;
+        entry.warning = false;
+        entry.status = "Podgląd dokumentu został ukryty. Plik nadal jest zapisany przy relacji.";
+        ROUTE_ORDER_IMPORTS.set(routeId, entry);
+      }
       syncDetailsPanel();
     }
 
@@ -82758,12 +82778,30 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncDetailsPanel();
     }
 
+    let boardRouteOpenTimer = null;
+
+    function cancelBoardRouteOpen() {
+      if (boardRouteOpenTimer) clearTimeout(boardRouteOpenTimer);
+      boardRouteOpenTimer = null;
+    }
+
+    function queueOpenRouteFromBoard(event, id) {
+      if (event?.target?.closest?.(".time-resize")) return;
+      if (Date.now() < suppressBoardRouteOpenUntil) return;
+      cancelBoardRouteOpen();
+      boardRouteOpenTimer = setTimeout(() => {
+        boardRouteOpenTimer = null;
+        openRoute(id);
+      }, 230);
+    }
+
     function openRoute(id) {
       state.selectedRouteId = id;
       state.detailsOpen = true;
       state.detailsRoutePlannerExpanded = false;
       closeRouteContextMenu(false);
       syncDetailsPanel();
+      requestAnimationFrame(() => showUnloadRouteVisualization(id));
     }
 
     // MODUŁ: szybka edycja wyłącznie miejscowości/kodu rozładunku z tablicy.
@@ -83372,6 +83410,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       ghost: null,
       guide: null
     };
+    let suppressBoardRouteOpenUntil = 0;
 
     function clearRouteDragState() {
       document.querySelectorAll(".time-route.route-dragging").forEach(element => element.classList.remove("route-dragging"));
@@ -83381,6 +83420,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function endRouteDrag(event) {
+      suppressBoardRouteOpenUntil = Date.now() + 350;
       clearRouteDragState();
     }
 
@@ -86545,8 +86585,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Budziszewice mają współrzędne", Array.isArray(getCoords("Budziszewice")));
       assert("Rawa Mazowiecka ma współrzędne", Array.isArray(getCoords("Rawa Mazowiecka")));
       assert("Suma km r1 = 280", totalKm(INITIAL_ROUTES[0]) === 280);
-      assert("SMS zaczyna się od sumy kilometrów", routeSms(INITIAL_ROUTES[0], driverById("d1")).startsWith("Trasa: 280 km"));
-      assert("SMS nie zawiera rozbicia dolot + ładowne", !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("dolot 35 km + ładowne 245 km"));
+      assert("SMS zaczyna się od najważniejszych danych załadunku", routeSms(INITIAL_ROUTES[0], driverById("d1")).startsWith("Załadunek "));
+      assert("SMS nie zawiera kilometrów ani informacji handlowych", !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("Trasa:") && !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("Stawka:"));
       assert("Mapa ma zoom domyślny powyżej 100%", state.mapZoom > 1);
       assert("Nie ma osobnego ukrywania samej mapy", !renderToStringForTest(false).includes(">Ukryj mapę<"));
       assert("Panel mapy startuje widoczny i może być ukryty", state.unloadPanelCollapsed === false && typeof toggleUnloadPanel === "function");
@@ -95668,10 +95708,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   </script>
 
   <style id="targeted-v103-currency-map-orders-transfer">
-    .route-rate-currency-row { display:grid; grid-template-columns:minmax(0,1fr) 78px; gap:6px; align-items:end; }
-    .route-rate-currency-row > div { min-width:0; }
+    .route-rate-currency-field { min-width:0 !important; }
+    .route-rate-currency-row { display:grid !important; grid-template-columns:minmax(0,1fr) 64px !important; gap:4px !important; align-items:end; width:100%; min-width:0; }
+    .route-rate-currency-row > div { min-width:0; overflow:hidden; }
+    .route-rate-currency-row .input { width:100% !important; min-width:0 !important; padding-left:8px !important; padding-right:6px !important; box-sizing:border-box; }
     .route-rate-currency-field > .field-label + .route-rate-currency-row .field-label { display:none; }
-    .route-currency-select { min-width:0 !important; width:78px; font-weight:900; }
+    .route-currency-select { min-width:64px !important; width:64px !important; padding-left:7px !important; padding-right:19px !important; font-weight:900; position:static !important; }
     .ui-scale-control { display:inline-flex; align-items:center; gap:5px; min-height:34px; padding:3px 6px; border:1px solid var(--border); border-radius:9px; background:var(--soft); }
     .ui-scale-control b { min-width:38px; text-align:center; font-size:10px; }
     .ui-scale-control .btn-mini { width:26px; min-width:26px; height:26px; padding:0; justify-content:center; }
@@ -95701,6 +95743,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .tms-marker.map-route-recent { animation:none !important; transform:none !important; position:relative; }
     .tms-marker.map-route-recent::after { content:""; position:absolute; inset:-5px; border-radius:999px; pointer-events:none; animation:mapRouteGlowV103 1.5s ease-in-out infinite; }
     .unload-route-chevron { display:grid; place-items:center; width:18px; height:18px; color:#7dd3fc; font-size:23px; line-height:18px; font-weight:950; text-shadow:0 0 4px #1d4ed8; transform-origin:center; }
+    .unload-route-info-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #dbeafe; border-radius:999px; background:#2563eb; color:#fff; box-shadow:0 5px 16px rgba(37,99,235,.42); font-size:14px; font-weight:950; }
+    .unload-route-info-popup { display:grid; gap:4px; min-width:190px; color:#0f172a; }
+    .unload-route-info-popup > b { font-size:13px; }
+    .unload-route-info-popup > span { font-size:11px; line-height:1.3; }
+    .map-popup-route-data { display:grid; gap:2px; margin-top:5px; color:var(--muted); font-size:10px; }
     .map-popup-actions { display:flex; gap:4px; }
     .week-settlement-cell-3l50 { z-index:40 !important; pointer-events:none; background:transparent !important; }
     .week-settlement-cell-3l50 .week-settlement-dollar-3l48,
