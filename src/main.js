@@ -17,6 +17,7 @@ let activeWeeklySettlementMessage = null
 let activeWorkflowMessage = null
 let fleetChannel = null
 let fleetReloadTimer = null
+let fleetRealtimeMuteUntil = 0
 let relationsChannel = null
 let relationsReloadTimer = null
 let clientsChannel = null
@@ -1183,7 +1184,10 @@ function subscribeFleetRealtime() {
     channel = channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table },
-      () => scheduleFleetReload(80),
+      () => {
+        if (Date.now() < fleetRealtimeMuteUntil) return
+        scheduleFleetReload(180)
+      },
     )
   })
   fleetChannel = channel.subscribe()
@@ -2368,7 +2372,9 @@ async function loadCentralAudit() {
       .order('created_at', { ascending: false })
       .range(from, from + pageSize - 1)
     if (error) throw new Error(`Nie udało się pobrać historii operacji: ${error.message}`)
-    allRows.push(...(data || []))
+    // Unikamy przekazywania bardzo dużej liczby argumentów do push(), co w
+    // przeglądarce kończyło się błędem "Maximum call stack size exceeded".
+    for (const row of (data || [])) allRows.push(row)
     if (!data || data.length < pageSize) break
   }
 
@@ -2715,13 +2721,14 @@ async function setFleetVisibilityFromTms(message) {
   try {
     const assignment = await loadFleetAssignmentScope(assignmentId)
     if (!canModifyFleetAssignment(assignment)) throw new Error('Możesz zmieniać widoczność wyłącznie floty przypisanej do Twojego zakresu.')
+    fleetRealtimeMuteUntil = Date.now() + 1800
     const { error } = await supabase.rpc('set_fleet_assignment_hidden', {
       p_assignment_id: assignmentId,
       p_hidden: hidden,
     })
     if (error) throw error
-
-    await syncFleetDataToTms()
+    const cachedRow = activeFleetMessage?.rows?.find((row) => String(row?.id || '') === assignmentId)
+    if (cachedRow) cachedRow.hidden = hidden
     sendFleetOperationResult(
       requestId,
       true,
@@ -3857,7 +3864,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v107-order-preview-map-layout"
+          src="/tms.html?embedded=1&build=request-workflow-v108-stability-empty-tile"
         title="Top Dragon TMS"
       ></iframe>
     </main>
