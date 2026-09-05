@@ -67352,7 +67352,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderCommercialArchivePanel() {
       const rows = commercialArchiveRowsTwoYears();
-      return `<div class="commercial-archive-toolbar"><button type="button" class="btn" onclick="exportCommercialArchiveExcel()">Eksport do Excel</button><span class="small">Archiwum relacji jest przechowywane centralnie i dostępne wyłącznie w eksporcie.</span></div>`;
+      return `<div class="commercial-archive-toolbar"><button type="button" class="btn" onclick="exportCommercialArchiveExcel()">Eksport do Excel</button></div>`;
     }
 
     function excelXmlCell(value, type = "String") {
