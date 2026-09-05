@@ -68965,8 +68965,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const batchPoints = postalPackedBatchLookup(batchValues);
 
       const snapshots = records.map(record => {
-        let coords = LOCATION_COORDS["Łódź"];
-        let label = "Łódź 90-001 - baza domyślna";
+        let coords = null;
+        let label = "Brak ostatniego rozładunku";
+        let positionSource = "base";
         if (record.lastRoute) {
           const stored = routePointFromStoredCoords(record.lastRoute, "unload");
           const raw = String(record.lastRoute.unload || "").trim();
@@ -68974,18 +68975,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (stored) {
             coords = [Number(stored.lat), Number(stored.lng)];
             label = stored.label || displayLocationWithPostal(raw);
+            positionSource = "route";
           } else if (packed?.coords) {
             coords = [Number(packed.coords[0]), Number(packed.coords[1])];
             label = packed.label || displayLocationWithPostal(raw);
+            positionSource = "route";
           } else {
             const fallback = fastOperationalLocation(raw);
             if (fallback?.coords) {
               coords = [Number(fallback.coords[0]), Number(fallback.coords[1])];
               label = fallback.label || displayLocationWithPostal(raw);
+              positionSource = "route";
             }
           }
         }
-        return { driver:record.driver, route:record.lastRoute, coords, label, next:record.next, gapHours:record.gapHours, isSoon:record.isSoon };
+        return { driver:record.driver, route:record.lastRoute, coords, label, positionSource, next:record.next, gapHours:record.gapHours, isSoon:record.isSoon };
       });
       NEAREST_VEHICLE_SNAPSHOT_CACHE.set(cacheKey, snapshots);
       if (NEAREST_VEHICLE_SNAPSHOT_CACHE.size > 20) NEAREST_VEHICLE_SNAPSHOT_CACHE.delete(NEAREST_VEHICLE_SNAPSHOT_CACHE.keys().next().value);
@@ -69024,6 +69028,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       state.nearestResultsCollapsed = false;
       state.nearestResults = nearestVehicleSnapshots(state.nearestDate || START_DATE, drivers)
+        .filter(snapshot => snapshot.positionSource === "route" && Array.isArray(snapshot.coords))
         .map(snapshot => {
           const compatibility = driverLoadCompatibility(snapshot.driver, requirements);
           return {
@@ -70322,19 +70327,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
     function queueDrawerOffset() {
-      if (state.proposedPanelOpen) return Math.min(520, window.innerWidth || 520);
-      if (state.futurePanelOpen) return Math.min(360, window.innerWidth || 360);
+      // Zakładki pozostają przy prawej krawędzi także po otwarciu kolejki.
       return 0;
     }
 
     function syncQueueTabOffsets() {
-      const offset = queueDrawerOffset();
       document.querySelectorAll(".map-toggle-tab,.future-tab,.proposed-tab,.stats-tab,.workspace-tool-tab").forEach(tab => {
-        // Najpierw zawsze kasujemy pozycję odziedziczoną po poprzednio otwartym drawerze.
-        // Dopiero potem nakładamy bieżący offset. Dzięki temu zamknięta zakładka nie
-        // może pozostać przesunięta po serii szybkich otwarć / zamknięć paneli.
         tab.style.removeProperty("right");
-        if (offset > 0) tab.style.right = `${offset}px`;
       });
     }
 
@@ -89258,6 +89257,78 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
     .side-tool-nearest.btn-dark { background:#0f172a !important; background-color:#0f172a !important; }
     .app.dark-mode .side-tool-nearest.btn-dark { background:#e5e7eb !important; background-color:#e5e7eb !important; }
+  </style>
+  <style id="targeted-v114-themed-drawers">
+    /* Prawy pasek i wysuwane panele mają pełne tło zgodne z trybem aplikacji. */
+    .app:not(.dark-mode) .side-tool-tab,
+    .app:not(.dark-mode) .side-tool-tab.btn-dark,
+    .app:not(.dark-mode) .workspace-inline-panel.is-open,
+    .app:not(.dark-mode) .workspace-inline-panel.is-open .commercial-head,
+    .app:not(.dark-mode) .workspace-inline-panel.is-open .commercial-body,
+    .app:not(.dark-mode) .workspace-inline-panel.is-open .tool-card-head,
+    .app:not(.dark-mode) .workspace-inline-panel.is-open .tool-card-body,
+    .app:not(.dark-mode) .future-drawer,
+    .app:not(.dark-mode) .future-drawer-head,
+    .app:not(.dark-mode) .future-drawer-body,
+    .app:not(.dark-mode) .proposed-drawer,
+    .app:not(.dark-mode) .proposed-drawer-head,
+    .app:not(.dark-mode) .proposed-drawer-body,
+    .app:not(.dark-mode) .stats-drawer,
+    .app:not(.dark-mode) .stats-drawer-head,
+    .app:not(.dark-mode) .stats-drawer-body {
+      background:#ffffff !important;
+      background-color:#ffffff !important;
+      color:#0f172a !important;
+      opacity:1 !important;
+      backdrop-filter:none !important;
+    }
+    .app:not(.dark-mode) .side-tool-tab:hover,
+    .app:not(.dark-mode) .side-tool-tab:focus-visible { background:#f8fafc !important; }
+
+    .app.dark-mode .side-tool-tab,
+    .app.dark-mode .side-tool-tab.btn-dark,
+    .app.dark-mode .workspace-inline-panel.is-open,
+    .app.dark-mode .workspace-inline-panel.is-open .commercial-head,
+    .app.dark-mode .workspace-inline-panel.is-open .commercial-body,
+    .app.dark-mode .workspace-inline-panel.is-open .tool-card-head,
+    .app.dark-mode .workspace-inline-panel.is-open .tool-card-body,
+    .app.dark-mode .future-drawer,
+    .app.dark-mode .future-drawer-head,
+    .app.dark-mode .future-drawer-body,
+    .app.dark-mode .proposed-drawer,
+    .app.dark-mode .proposed-drawer-head,
+    .app.dark-mode .proposed-drawer-body,
+    .app.dark-mode .stats-drawer,
+    .app.dark-mode .stats-drawer-head,
+    .app.dark-mode .stats-drawer-body {
+      background:#111827 !important;
+      background-color:#111827 !important;
+      color:#f8fafc !important;
+      border-color:#334155 !important;
+      opacity:1 !important;
+      backdrop-filter:none !important;
+    }
+    .app.dark-mode .side-tool-tab:hover,
+    .app.dark-mode .side-tool-tab:focus-visible { background:#1e293b !important; }
+
+    .app .side-tool-tab.btn-dark {
+      border-color:#2563eb !important;
+      box-shadow:inset 3px 0 0 #2563eb,0 7px 20px rgba(15,23,42,.16) !important;
+    }
+  </style>
+  <style id="targeted-v115-fixed-lowered-tabs-nearest-routes-only">
+    /* Cały prawy pasek jest przesunięty o około 5 cm i nie reaguje pozycją na szuflady. */
+    .app .side-tool-tab {
+      right:10px !important;
+      left:auto !important;
+    }
+    .app .side-tool-assistant { top:calc(18px + 5cm) !important; }
+    .app .side-tool-nearest { top:calc(70px + 5cm) !important; }
+    .app .side-tool-settings { top:calc(122px + 5cm) !important; }
+    .app .map-toggle-tab.side-tool-tab { top:calc(174px + 5cm) !important; }
+    .app .future-tab.side-tool-tab { top:calc(226px + 5cm) !important; }
+    .app .proposed-tab.side-tool-tab { top:calc(278px + 5cm) !important; }
+    .app .stats-tab.side-tool-tab { top:calc(330px + 5cm) !important; }
   </style>
 </body>
 </html>
