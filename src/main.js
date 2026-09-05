@@ -531,6 +531,67 @@ function setAdminBusy(busy) {
   })
 }
 
+function adminPanelLayoutStyles() {
+  return `
+    <style id="admin-panel-layout-v117">
+      .admin-shell { width:min(1480px,calc(100% - 40px)); margin:0 auto; padding:24px 0 48px; }
+      .admin-header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 22px; margin-bottom:16px; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 8px 28px rgba(15,23,42,.07); }
+      .admin-header-identity { display:flex; align-items:center; gap:18px; min-width:0; }
+      .admin-header-identity h1 { margin:0 0 4px; }
+      .admin-header-identity .muted { margin:0; }
+      .admin-header-summary { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+      .admin-summary-item { min-width:112px; padding:10px 14px; border:1px solid #dbe3ee; border-radius:12px; background:#f8fafc; }
+      .admin-summary-item span { display:block; margin-bottom:2px; color:#64748b; font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
+      .admin-summary-item strong { color:#0f172a; font-size:18px; }
+      #admin-role-preview { margin-bottom:22px!important; border-radius:14px!important; box-shadow:none!important; }
+      .admin-section-title { display:flex; align-items:end; justify-content:space-between; gap:16px; margin:26px 2px 12px; }
+      .admin-section-title h2 { margin:0; font-size:18px; color:#0f172a; }
+      .admin-section-title p { margin:4px 0 0; }
+      .admin-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch; }
+      .admin-card { margin:0; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 5px 18px rgba(15,23,42,.055); }
+      .admin-grid > .admin-card { height:100%; }
+      .admin-card .section-heading { min-height:72px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid #e8edf4; }
+      .admin-card .section-heading h2 { margin:0 0 5px; font-size:17px; }
+      .admin-card .section-heading .muted { margin:0; line-height:1.45; }
+      .admin-card--rate .section-heading, .admin-card--users .section-heading { min-height:0; }
+      .admin-card--rate { margin-top:0; }
+      .admin-card--users { margin-top:0; }
+      .admin-list, .user-list { display:grid; gap:10px; margin-top:14px; }
+      .admin-row { gap:12px; padding:12px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
+      .admin-row-main { min-width:180px; }
+      .admin-row .row-actions { justify-content:flex-end; }
+      .user-row { display:grid; grid-template-columns:minmax(180px,1.35fr) minmax(130px,1fr) minmax(135px,1fr) minmax(145px,1fr) minmax(105px,.7fr) auto auto; gap:12px; align-items:end; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
+      .user-identity { align-self:center; min-width:0; }
+      .user-identity span { display:block; overflow:hidden; color:#64748b; text-overflow:ellipsis; white-space:nowrap; }
+      .user-row label { margin:0; }
+      .user-row .active-check { align-self:center; }
+      .user-row .user-save { min-height:40px; }
+      .compact-form { padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
+      #admin-message-box { position:sticky; top:12px; z-index:20; margin-bottom:16px; box-shadow:0 6px 18px rgba(15,23,42,.12); }
+      @media(max-width:1120px) {
+        .user-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        .user-identity { grid-column:1/-1; }
+      }
+      @media(max-width:820px) {
+        .admin-shell { width:min(100% - 24px,1480px); padding-top:12px; }
+        .admin-header { align-items:flex-start; padding:15px; }
+        .admin-header-summary { display:none; }
+        .admin-grid { grid-template-columns:1fr; }
+        .admin-card .section-heading { min-height:0; }
+        .user-row { grid-template-columns:1fr 1fr; }
+        .user-identity { grid-column:1/-1; }
+      }
+      @media(max-width:560px) {
+        .admin-header-identity img { width:88px!important; height:58px!important; }
+        .admin-card { padding:13px; border-radius:13px; }
+        .user-row { grid-template-columns:1fr; }
+        .user-identity { grid-column:auto; }
+        .admin-row .row-actions { justify-content:flex-start; }
+      }
+    </style>
+  `
+}
+
 function renderAdminPanelFromCache(message = '', messageType = 'success') {
   if (!adminCache) return
 
@@ -545,10 +606,10 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
     (carrierRates.rateHistory || []).slice().reverse().map((item) => [`${item.effectiveFrom}|${item.ratePerKm}`, item])
   ).values()).slice(0, 5)
 
-  app.innerHTML = `
+  app.innerHTML = `${adminPanelLayoutStyles()}
     <main class="admin-shell">
       <header class="admin-header">
-        <div style="display:flex;align-items:center;gap:18px;">
+        <div class="admin-header-identity">
           <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
             <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
           </button>
@@ -557,14 +618,22 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           <p class="muted">Zalogowany: ${escapeHtml(currentProfile.display_name || currentUser.email)}</p>
           </div>
         </div>
+        <div class="admin-header-summary" aria-label="Podsumowanie administracji">
+          <div class="admin-summary-item"><span>Oddziały</span><strong>${activeBranches.length}</strong></div>
+          <div class="admin-summary-item"><span>Użytkownicy</span><strong>${users.length}</strong></div>
+          <div class="admin-summary-item"><span>Stawka</span><strong>${commonCarrierRateValue.toFixed(2).replace('.', ',')}</strong></div>
+        </div>
       </header>
 
       ${renderAdminPreviewBar()}
 
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
-      <div class="admin-grid">
-        <section class="admin-card">
+      <div class="admin-section-title">
+        <div><h2>Organizacja firmy</h2><p class="muted">Oddziały i dostęp pracowników</p></div>
+      </div>
+      <div class="admin-grid admin-grid--organization">
+        <section class="admin-card admin-card--branches">
           <div class="section-heading">
             <div>
               <h2>Oddziały</h2>
@@ -596,7 +665,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           </div>
         </section>
 
-        <section class="admin-card">
+        <section class="admin-card admin-card--invite">
           <div class="section-heading">
             <div>
               <h2>Dodaj użytkownika</h2>
@@ -635,7 +704,10 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         </section>
       </div>
 
-      <section class="admin-card users-card">
+      <div class="admin-section-title">
+        <div><h2>Rozliczenia przewoźników</h2><p class="muted">Wspólna stawka używana w kalkulacjach</p></div>
+      </div>
+      <section class="admin-card users-card admin-card--rate">
         <div class="section-heading">
           <div>
             <h2>Wspólna stawka przewoźników</h2>
@@ -657,7 +729,10 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         ` : `<div class="warning">Nie udało się odczytać tabeli stawek. ${escapeHtml(carrierRates.error || 'Sprawdź, czy migracja stawek została wdrożona.')}</div>`}
       </section>
 
-      <section class="admin-card users-card">
+      <div class="admin-section-title">
+        <div><h2>Zespół</h2><p class="muted">Role, oddziały, oznaczenia i status kont</p></div>
+      </div>
+      <section class="admin-card users-card admin-card--users">
         <div class="section-heading">
           <div>
             <h2>Użytkownicy</h2>
@@ -3869,7 +3944,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v116-unified-location-search"
+          src="/tms.html?embedded=1&build=request-workflow-v117-admin-layout"
         title="Top Dragon TMS"
       ></iframe>
     </main>
