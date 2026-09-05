@@ -1619,9 +1619,14 @@ async function upsertCentralClientFromTms(message) {
       .limit(1)
       .maybeSingle()
     if (existingError) throw existingError
+    // Nowa karta tworzona przez spedytora zawsze zaczyna bez opiekuna.
+    // Przypisanie jest osobnym procesem akceptowanym przez kierownika oddziału.
+    const clientPayload = !existing && hasRole('dispatcher')
+      ? { ...client, databaseType: 'operations', dispatcher: '', coDispatchers: [] }
+      : client
     if (hasRole('dispatcher', 'branch_manager')) {
       const oldOwner = String(existing?.payload?.dispatcher || '').trim()
-      const newOwner = String(client?.dispatcher || '').trim()
+      const newOwner = String(clientPayload?.dispatcher || '').trim()
       if (hasRole('dispatcher') && oldOwner !== newOwner) {
         sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Zmiana opiekuna klienta wymaga wniosku i akceptacji kierownika oddziału.')
         return
@@ -1643,7 +1648,7 @@ async function upsertCentralClientFromTms(message) {
     if (!storageBranchId) throw new Error('Brak aktywnego oddziału technicznego do zapisania klienta.')
     const { error } = await supabase.rpc('upsert_tms_client', {
       p_branch_id: storageBranchId,
-      p_client: client,
+      p_client: clientPayload,
     })
     if (error) throw error
 
@@ -3864,7 +3869,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v111-compact-shell-ai-status"
+          src="/tms.html?embedded=1&build=request-workflow-v113-route-labels-nearest-panel"
         title="Top Dragon TMS"
       ></iframe>
     </main>
