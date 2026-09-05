@@ -156,13 +156,63 @@ function outputText(data) {
   return String(data?.output_text || interactionText || data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || '').trim()
 }
 
+function normalizeJsonStringCharacters(value) {
+  const source = String(value || '')
+  let output = ''
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (!inString) {
+      output += char
+      if (char === '"') inString = true
+      continue
+    }
+    if (escaped) {
+      output += char
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      output += char
+      escaped = true
+      continue
+    }
+    if (char === '"') {
+      let nextIndex = index + 1
+      while (/\s/.test(source[nextIndex] || '')) nextIndex += 1
+      const next = source[nextIndex] || ''
+      if (!next || [',', '}', ']', ':', '"'].includes(next)) {
+        output += char
+        inString = false
+      } else {
+        output += '\\"'
+      }
+      continue
+    }
+    if (char === '\n') { output += '\\n'; continue }
+    if (char === '\r') { output += '\\r'; continue }
+    if (char === '\t') { output += '\\t'; continue }
+    output += char.charCodeAt(0) < 32 ? ' ' : char
+  }
+  return output
+}
+
+function repairCommonJsonErrors(value) {
+  return normalizeJsonStringCharacters(value)
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/(["}\]\d])(\s+)(?="(?:[^"\\]|\\.)+"\s*:)/g, '$1,$2')
+}
+
 function parseJsonOutput(data) {
   const raw = outputText(data).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   try { return JSON.parse(raw) } catch {}
   const objectStart = raw.indexOf('{')
   const objectEnd = raw.lastIndexOf('}')
-  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(raw.slice(objectStart, objectEnd + 1))
-  throw new Error('Model Gemini zwrócił niepoprawny format danych.')
+  const candidate = objectStart >= 0 && objectEnd > objectStart ? raw.slice(objectStart, objectEnd + 1) : raw
+  try { return JSON.parse(candidate) } catch {}
+  try { return JSON.parse(repairCommonJsonErrors(candidate)) } catch {}
+  throw new Error('Gemini zwróciło uszkodzony format danych. Uruchom analizę ponownie.')
 }
 
 function normalizeResult(value = {}) {
@@ -259,7 +309,7 @@ export default async function handler(req, res) {
           { type: 'document', data: file.toString('base64'), mime_type: mimeType },
         ],
         response_format: { type: 'text', mime_type: 'application/json', schema: ORDER_RESPONSE_SCHEMA },
-        generation_config: { max_output_tokens: 1200, thinking_level: 'minimal' },
+        generation_config: { max_output_tokens: 1800, thinking_level: 'minimal' },
         store: false,
       })
       for (let attempt = 0; attempt < 2; attempt += 1) {
