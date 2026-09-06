@@ -62318,6 +62318,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       hiddenDriversRestoreOpen: false,
       hiddenDriversDispatcherFilter: "",
       driverTransferBusy: false,
+      fleetAdminSelectedAssignments: {},
+      fleetAdminReassignBusy: false,
       fleetOperationBusy: false,
       loadLinesVisibleByDispatcher: {},
       appMessage: null,
@@ -65118,7 +65120,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         });
         if (step.targetMode === "current-day-plus") {
           const uncovered = usable.filter(element => !element.closest(".route-add-covered"));
-          return uncovered.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || uncovered[0] || null;
+          const visible = uncovered.filter(element => { const r = element.getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; });
+          return visible.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || visible[0] || uncovered[0] || null;
         }
         return usable[0] || null;
       } catch (error) {
@@ -65155,13 +65158,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </header>
             <div class="tutorial-body">
               <article class="tutorial-step"><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p></article>
-              ${targetMissing ? '<div class="tutorial-target-missing">Element tego kroku nie jest obecnie dostępny. Wykonaj poprzednie kroki albo przejdź dalej.</div>' : ''}
+              ${targetMissing ? '<div class="tutorial-target-missing">Element tego kroku nie jest obecnie dostępny. Wróć do poprzedniego kroku.</div>' : ''}
               ${relationDemoButton || closeDemoButton ? `<div class="tutorial-actions">${relationDemoButton}${closeDemoButton}</div>` : ""}
             </div>
             <footer class="tutorial-foot">
               <button type="button" class="btn" onclick="previousTutorialStep()" ${index === 0 ? "disabled" : ""}>← Wstecz</button>
               <div class="tutorial-actions">
-                ${index < steps.length - 1 ? `<button type="button" class="btn btn-dark" onclick="nextTutorialStep()">Dalej →</button>` : `<button type="button" class="btn btn-dark" onclick="closeTutorial()">Zakończ</button>`}
+                ${index < steps.length - 1 ? `<button type="button" class="btn btn-dark" data-tutorial-next onclick="nextTutorialStep()" ${tutorialCanContinue(step) ? "" : "disabled"}>Dalej →</button>` : `<button type="button" class="btn btn-dark" onclick="closeTutorial()">Zakończ</button>`}
               </div>
             </footer>
           </section>
@@ -65233,6 +65236,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (step.clickAdvance) {
           tutorialTargetClickHandler = () => setTimeout(() => {
             if (!state.tutorialOpen || state.tutorialStep !== index) return;
+            state.tutorialCompletedKey = step.key;
             nextTutorialStep();
           }, 180);
           target.addEventListener("click", tutorialTargetClickHandler, true);
@@ -65240,6 +65244,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (step.advanceOnInput) {
           tutorialTargetInputHandler = () => {
             if (tutorialTargetInputTimer) clearTimeout(tutorialTargetInputTimer);
+            const next = document.querySelector('[data-tutorial-next]');
+            if (next) next.disabled = !tutorialCanContinue(step);
             if (!tutorialFieldIsFilled(target, step.advanceOnInput)) return;
             tutorialTargetInputTimer = setTimeout(() => {
               if (!state.tutorialOpen || state.tutorialStep !== index) return;
@@ -65250,7 +65256,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           target.addEventListener("change", tutorialTargetInputHandler, true);
           if (step.autoAdvanceIfFilled) tutorialTargetInputHandler();
         }
-        target.scrollIntoView?.({ behavior: "auto", block: "center", inline: "center" });
+        const bounds = target.getBoundingClientRect();
+        if (bounds.top < 0 || bounds.bottom > innerHeight || bounds.left < 0 || bounds.right > innerWidth) target.scrollIntoView?.({ behavior: "auto", block: "nearest", inline: "nearest" });
         setTimeout(scheduleTutorialSpotlightSync, 180);
       }
       const targetHost = target.closest(".modal-backdrop");
@@ -65280,7 +65287,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const panel = document.createElement("div");
         panel.className = "tutorial-dim-panel";
         Object.assign(panel.style, style);
-        backdrop.appendChild(panel);
+        document.body.appendChild(panel);
       };
       addPanel({ left: "0px", top: "0px", width: "100vw", height: `${top}px` });
       addPanel({ left: "0px", top: `${bottom}px`, width: "100vw", height: `${Math.max(0, window.innerHeight - bottom)}px` });
@@ -65348,7 +65355,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       prepareTutorialStep();
       clearTutorialSpotlightTarget();
       removePortaledTutorialModal();
-      render();
+      if (state.tutorialTopic === "relations" && document.querySelector('.board-wrap')) refreshTutorialUi();
+      else renderKeepingScroll();
       if (state.tutorialTopic === "route_tools" && tutorialStepsForCurrentRole()[state.tutorialStep]?.key !== "route-example") {
         setTimeout(tutorialPrepareExampleRoute, 80);
       }
@@ -65363,6 +65371,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (["relations", "clients", "fleet", "ai", "assistant", "nearest", "route_tools"].includes(state.tutorialTopic)) state.appView = "plan";
       state.tutorialMenuOpen = false;
       state.tutorialOpen = true;
+      state.tutorialCompletedKey = null;
       state.tutorialStep = 0;
       showPreparedTutorialStep();
     }
@@ -65409,9 +65418,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function nextTutorialStep() {
+      const step = tutorialStepsForCurrentRole()[Number(state.tutorialStep || 0)];
+      if (!tutorialCanContinue(step)) return;
       const last = tutorialStepsForCurrentRole().length - 1;
       state.tutorialStep = Math.min(last, Number(state.tutorialStep || 0) + 1);
       showPreparedTutorialStep();
+    }
+
+    function tutorialCanContinue(step) {
+      if (!step) return false;
+      if (step.clickAdvance) return state.tutorialCompletedKey === step.key;
+      const target = tutorialTargetForStep(step);
+      if (!target) return false;
+      if (step.advanceOnInput) return tutorialFieldIsFilled(target, step.advanceOnInput);
+      return true;
     }
 
     function previousTutorialStep() {
@@ -68263,10 +68283,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function deleteClient(clientId) {
       if (String(state.user?.supabaseRole || "") !== "admin") {
         showAppMessage("Brak uprawnień", "Globalną kartę klienta może usunąć wyłącznie administrator.", "error");
-        return;
+        return false;
       }
       const client = (state.clients || []).find(item => item.id === clientId);
-      if (!client || !window.confirm(`Usunąć klienta ${client.name}?`)) return;
+      if (!client || !window.confirm(`Usunąć klienta ${client.name}?`)) return false;
       state.clients = state.clients.filter(item => item.id !== clientId);
       if (state.clientEditId === clientId) state.clientEditId = null;
       saveClientDatabaseToStorage();
@@ -68274,6 +68294,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncClientDatabaseSection();
       if (!state.unloadPanelCollapsed) syncUnloadMapCard();
       if (state.nearestQuery) findNearestVehicles();
+      return true;
     }
 
     function updateRouteClientField(routeId, value) {
@@ -80907,12 +80928,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .fleet-form-actions { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
     .fleet-list { display:grid; gap:7px; max-height:480px; overflow:auto; padding-right:3px; }
     .fleet-row { display:grid; grid-template-columns:minmax(180px,1.3fr) minmax(170px,1fr) minmax(130px,.8fr) minmax(150px,.8fr) auto; gap:10px; align-items:center; border:1px solid #e2e8f0; border-radius:11px; padding:9px 10px; }
+    .fleet-row.admin-selectable { grid-template-columns:26px minmax(180px,1.3fr) minmax(170px,1fr) minmax(130px,.8fr) minmax(150px,.8fr) auto; }
+    .fleet-admin-reassign { display:grid; grid-template-columns:auto minmax(220px,1fr) auto; gap:9px; align-items:end; margin:0 0 10px; padding:10px; border:1px solid #bfdbfe; border-radius:11px; background:#eff6ff; }
+    .fleet-admin-reassign label:first-child { align-self:center; display:flex; align-items:center; gap:7px; font-size:12px; font-weight:850; }
+    .fleet-admin-reassign input[type="checkbox"], .fleet-row.admin-selectable > input[type="checkbox"] { width:17px; height:17px; accent-color:#2563eb; cursor:pointer; }
+    .app.dark-mode .fleet-admin-reassign { background:#172554; border-color:#3b82f6; }
     .app.dark-mode .fleet-row { border-color:#334155; }
     .fleet-row-main { min-width:0; }
     .fleet-row-main b, .fleet-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .fleet-source-badge { display:inline-flex; align-items:center; border:1px solid #cbd5e1; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:800; color:#475569; }
     .fleet-relation-lock { display:inline-flex; align-items:center; border:1px solid #f59e0b; background:#fffbeb; color:#92400e; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:900; white-space:nowrap; }
     .app.dark-mode .fleet-relation-lock { background:#451a03; border-color:#d97706; color:#fde68a; }
+    @media(max-width:900px){ .fleet-admin-reassign { grid-template-columns:1fr; } .fleet-row.admin-selectable { grid-template-columns:24px minmax(180px,1fr) minmax(160px,1fr) minmax(130px,.8fr) minmax(150px,.8fr) auto; } }
     .fleet-delete-locked { opacity:.58; cursor:not-allowed !important; }
     .audit-toolbar { display:grid; grid-template-columns:minmax(170px,1fr) minmax(170px,1fr) minmax(140px,.8fr) minmax(140px,.8fr) auto; gap:10px; align-items:end; margin-bottom:12px; }
     .audit-list { display:grid; gap:7px; max-height:560px; overflow:auto; }
@@ -82712,6 +82739,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             syncDriverTransferPopup();
           }
         }
+        if (action === "bulk-reassign") {
+          state.fleetAdminReassignBusy = false;
+          if (ok) state.fleetAdminSelectedAssignments = {};
+        }
         if (action === "update") {
           state.fleetEditBusy = false;
           if (ok) window.closeFleetEdit?.();
@@ -82823,6 +82854,73 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
       };
 
+      function adminFleetSelectedDrivers(rows = DRIVERS) {
+        const selected = state.fleetAdminSelectedAssignments || {};
+        return rows.filter(driver => driver?.supabaseFleet && driver?.dbAssignmentId && selected[String(driver.dbAssignmentId)]);
+      }
+
+      function renderAdminFleetReassign(rows) {
+        if (!isAdminUser()) return "";
+        const selectable = rows.filter(driver => driver?.supabaseFleet && driver?.dbAssignmentId);
+        const selected = adminFleetSelectedDrivers(selectable);
+        const allSelected = Boolean(selectable.length && selected.length === selectable.length);
+        const dispatcherUsers = USERS
+          .filter(user => user?.role === "spedytor" && user?.supabaseId)
+          .slice()
+          .sort((a,b) => String(a.branch || "").localeCompare(String(b.branch || ""), "pl") || String(a.login || "").localeCompare(String(b.login || ""), "pl"));
+        return `<div class="fleet-admin-reassign">
+          <label><input type="checkbox" ${allSelected ? "checked" : ""} onchange="toggleAllAdminFleetAssignments(this.checked)"> Zaznacz wszystkich (${selectable.length})</label>
+          <label class="field"><span>Przepisz zaznaczonych na stałe do</span><select id="fleet-admin-target-dispatcher" class="select"><option value="">Wybierz spedytora</option>${dispatcherUsers.map(user => `<option value="${attr(user.supabaseId)}">${esc(user.login)}${user.branch ? ` · ${esc(user.branch)}` : ""}</option>`).join("")}</select></label>
+          <button type="button" class="btn btn-dark" ${!selected.length || state.fleetAdminReassignBusy ? "disabled" : ""} onclick="confirmAdminFleetReassignment()">${state.fleetAdminReassignBusy ? "Zapisywanie…" : `Przepisz zaznaczonych (${selected.length})`}</button>
+        </div>`;
+      }
+
+      window.toggleAdminFleetAssignment = function(assignmentId, checked) {
+        if (!isAdminUser()) return;
+        state.fleetAdminSelectedAssignments = { ...(state.fleetAdminSelectedAssignments || {}), [String(assignmentId || "")]: Boolean(checked) };
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+      };
+
+      window.toggleAllAdminFleetAssignments = function(checked) {
+        if (!isAdminUser()) return;
+        const next = { ...(state.fleetAdminSelectedAssignments || {}) };
+        DRIVERS.filter(driver => driver?.supabaseFleet && driver?.dbAssignmentId).forEach(driver => { next[String(driver.dbAssignmentId)] = Boolean(checked); });
+        state.fleetAdminSelectedAssignments = next;
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+      };
+
+      window.confirmAdminFleetReassignment = function() {
+        if (!isAdminUser() || state.fleetAdminReassignBusy) return;
+        const selected = adminFleetSelectedDrivers();
+        const targetDispatcherId = String(document.getElementById("fleet-admin-target-dispatcher")?.value || "").trim();
+        const target = USERS.find(user => String(user?.supabaseId || "") === targetDispatcherId && user?.role === "spedytor");
+        if (!selected.length || !target) {
+          showAppMessage("Uzupełnij przypisanie", "Zaznacz co najmniej jednego kierowcę i wybierz spedytora docelowego.", "error");
+          return;
+        }
+        if (selected.some(driver => String(driver.branchId || "") !== String(target.branchId || ""))) {
+          showAppMessage("Różne oddziały", "Zaznaczeni kierowcy i spedytor docelowy muszą należeć do tego samego oddziału.", "error");
+          return;
+        }
+        const changed = selected.filter(driver => String(driver.dispatcher || "") !== String(target.login || ""));
+        if (!changed.length) {
+          showAppMessage("Brak zmian", "Wszyscy zaznaczeni kierowcy są już przypisani do wybranego spedytora.", "info");
+          return;
+        }
+        if (!window.confirm(`Przepisać na stałe ${changed.length} ${changed.length === 1 ? "kierowcę" : "kierowców"} do spedytora ${target.login}?`)) return;
+        state.fleetAdminReassignBusy = true;
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        window.parent?.postMessage({
+          type:"top-dragon-fleet-bulk-reassign",
+          requestId:`fleet-bulk-reassign-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          assignmentIds:changed.map(driver => String(driver.dbAssignmentId)),
+          toDispatcherId:targetDispatcherId
+        }, window.location.origin);
+      };
+
       window.renderFleetManagement = function() {
         if (!state.user || !["spedytor","kierownik","admin"].includes(state.user.role)) return `<div class="commercial-empty">Brak uprawnień do zarządzania flotą.</div>`;
         const dispatcher = currentFleetDispatcher();
@@ -82848,6 +82946,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           <div class="fleet-form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:9px;"><b>Flota (${rows.length})</b><span class="small">${isAdminUser() ? "Wszystkie przypisania" : isBranchManagerUser() ? `Oddział ${esc(state.user.branch || "")}` : `Spedytor ${esc(state.user.login)}`}</span></div>
+            ${renderAdminFleetReassign(rows)}
             <div class="fleet-list">${rows.length ? rows.map(driver => {
               const hasRelationHistory = driverHasRelationHistory(driver.id);
               const deleteControl = driver.supabaseFleet && isAdminUser()
@@ -82861,7 +82960,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               const editControl = canChangeVisibility
                 ? `<button type="button" class="btn-mini ${missingFleetFields ? "fleet-needs-data" : ""}" onclick="openFleetEdit('${attr(driver.id)}')" title="Uzupełnij lub popraw dane kierowcy, ciągnika i naczepy">${missingFleetFields ? `Uzupełnij (${missingFleetFields})` : "Edytuj"}</button>`
                 : "";
-              return `<div class="fleet-row"><div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "-")}${driver.fleetHidden ? ` · <b>ukryty</b>` : ""}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "-")} / ${esc(driver.trailerReg || "-")}</span><span>${esc(driver.base || "-")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${editControl}${visibilityControl}${deleteControl}</div></div>`;
+              const assignmentId = String(driver.dbAssignmentId || "");
+              const selectControl = isAdminUser() && driver.supabaseFleet && assignmentId
+                ? `<input type="checkbox" aria-label="Zaznacz kierowcę ${attr(driver.driver)}" ${state.fleetAdminSelectedAssignments?.[assignmentId] ? "checked" : ""} onchange="toggleAdminFleetAssignment('${attr(assignmentId)}',this.checked)">`
+                : "";
+              return `<div class="fleet-row ${selectControl ? "admin-selectable" : ""}">${selectControl}<div class="fleet-row-main"><b>${esc(driver.driver)}</b><div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span> · ${esc(driver.phone || "-")}${driver.fleetHidden ? ` · <b>ukryty</b>` : ""}</div></div><span>${esc(driver.carrier)}</span><span>${esc([driver.vehicleBrand, driver.tractorReg].filter(Boolean).join(" ") || "-")} / ${esc(driver.trailerReg || "-")}</span><span>${esc(driver.base || "-")} · ${Number(driver.trailerHeight || 0).toFixed(2)} m</span><div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;"><span class="fleet-source-badge">${driver.customFleet ? "dodany" : "systemowy"}</span>${hasRelationHistory ? `<span class="fleet-relation-lock" title="Rekord pozostaje w systemie, ponieważ jest powiązany z co najmniej jedną relacją.">historia relacji</span>` : ""}${editControl}${visibilityControl}${deleteControl}</div></div>`;
             }).join("") : `<div class="commercial-empty">Brak dodanych kierowców, pojazdów i przewoźników.</div>`}</div>
           </div>
         </div>`;
@@ -84495,12 +84598,33 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.parent?.postMessage({ type:"top-dragon-client-assignment-response", requestId:`client-assignment-response-${Date.now()}`, assignmentRequestId:requestId, status, comment:"" }, window.location.origin);
       };
 
+      window.deletePendingClient = function(clientId) {
+        if (state.user?.supabaseRole !== "admin") {
+          showAppMessage("Brak uprawnień", "Klienta oczekującego na akceptację może usunąć wyłącznie administrator.", "error");
+          return;
+        }
+        if (!deleteClient(clientId)) return;
+        state.workflowClientAssignments = (state.workflowClientAssignments || []).filter(item => String(item?.clientRef || "") !== String(clientId || ""));
+        syncClientDatabaseSection();
+        showAppMessage("Klient usunięty", "Karta klienta i oczekujące wnioski zostały przekazane do usunięcia.", "success");
+      };
+
       function renderClientAssignmentApprovalCard() {
         const pendingCount = workflowPendingClientAssignments().length;
         const rows = [...(state.workflowClientAssignments || [])]
           .sort((a,b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")))
           .slice(0, 20);
-        return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3><div class="small">Przypisania opiekunów klientów. Status jest widoczny również po decyzji kierownika.</div></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => { const status=String(item.status || "pending"); const dispatcherName=String(item.requestedDispatcherName || "").trim(); return `<div class="workflow-row"><div><b>${esc(item.clientName || item.clientRef)}</b><div class="small">Wniosek: ${esc(item.requestedByName || "-")}</div></div><div><span class="workflow-status ${attr(status)}">${esc(workflowStatusLabel(status))}</span><div class="small" style="margin-top:4px;">Opiekun: ${dispatcherName ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcherName)}">${esc(dispatcherName)}</span>` : "-"}</div></div><div class="workflow-actions">${status === "pending" ? (workflowCanApproveClients() ? `<button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','accepted')">Zatwierdź</button><button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','rejected')">Odrzuć</button>` : `<span class="small">Oczekuje na kierownika</span>`) : `<span class="small">${item.respondedAt ? esc(new Date(item.respondedAt).toLocaleString("pl-PL")) : ""}</span>`}</div></div>`; }).join("")}</div>` : `<div class="small">Brak wniosków o przypisanie opiekuna.</div>`}</div>`;
+        return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => {
+          const status = String(item.status || "pending");
+          const dispatcherName = String(item.requestedDispatcherName || "").trim();
+          const decisionActions = status === "pending"
+            ? (workflowCanApproveClients() ? `<button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','accepted')">Zatwierdź</button><button type="button" class="btn-mini" onclick="respondClientAssignment('${attr(item.id)}','rejected')">Odrzuć</button>` : `<span class="small">Oczekuje na kierownika</span>`)
+            : `<span class="small">${item.respondedAt ? esc(new Date(item.respondedAt).toLocaleString("pl-PL")) : ""}</span>`;
+          const deleteAction = state.user?.supabaseRole === "admin"
+            ? `<button type="button" class="btn-mini danger" onclick="deletePendingClient('${attr(item.clientRef)}')">Usuń klienta</button>`
+            : "";
+          return `<div class="workflow-row"><div><b>${esc(item.clientName || item.clientRef)}</b><div class="small">Wniosek: ${esc(item.requestedByName || "-")}</div></div><div><span class="workflow-status ${attr(status)}">${esc(workflowStatusLabel(status))}</span><div class="small" style="margin-top:4px;">Opiekun: ${dispatcherName ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcherName)}">${esc(dispatcherName)}</span>` : "-"}</div></div><div class="workflow-actions">${decisionActions}${deleteAction}</div></div>`;
+        }).join("")}</div>` : `<div class="small">Brak wniosków o przypisanie opiekuna.</div>`}</div>`;
       }
 
       const originalRenderClientDatabase3L31 = renderClientDatabase;
@@ -89387,5 +89511,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .route-order-extracted-overlay { max-height:46%; }
     }
   </style>
+  <script src="/order-entry.js?build=v123"></script>
 </body>
 </html>
