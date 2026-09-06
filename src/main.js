@@ -544,6 +544,21 @@ function adminPanelLayoutStyles() {
       .admin-summary-item span { display:block; margin-bottom:2px; color:#64748b; font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
       .admin-summary-item strong { color:#0f172a; font-size:18px; }
       #admin-role-preview { margin-bottom:14px!important; border-radius:12px!important; box-shadow:none!important; }
+      .admin-role-guide { margin:0 0 16px; padding:16px; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 5px 18px rgba(15,23,42,.055); }
+      .admin-role-guide-head { display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:13px; }
+      .admin-role-guide-head h2 { margin:0 0 4px; color:#0f172a; font-size:17px; }
+      .admin-role-guide-head p { margin:0; }
+      .admin-role-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+      .admin-role-card { min-width:0; padding:13px; border:1px solid #e2e8f0; border-radius:13px; background:#f8fafc; }
+      .admin-role-card h3 { display:flex; align-items:center; gap:8px; margin:0 0 8px; color:#0f172a; font-size:14px; }
+      .admin-role-mark { width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:#64748b; }
+      .admin-role-card--dispatcher .admin-role-mark { background:#2563eb; }
+      .admin-role-card--manager .admin-role-mark { background:#7c3aed; }
+      .admin-role-card--accounting .admin-role-mark { background:#059669; }
+      .admin-role-card--admin .admin-role-mark { background:#dc2626; }
+      .admin-role-card p { min-height:34px; margin:0 0 8px; color:#475569; font-size:11px; line-height:1.45; }
+      .admin-role-card ul { display:grid; gap:5px; margin:0; padding-left:17px; color:#1e293b; font-size:11px; line-height:1.4; }
+      .admin-role-card .admin-role-limit { margin-top:9px; padding-top:8px; border-top:1px solid #e2e8f0; color:#64748b; font-size:10px; line-height:1.4; }
       .admin-section-title { display:flex; align-items:end; justify-content:space-between; gap:16px; margin:26px 2px 12px; }
       .admin-section-title h2 { margin:0; font-size:18px; color:#0f172a; }
       .admin-section-title p { margin:4px 0 0; }
@@ -574,6 +589,7 @@ function adminPanelLayoutStyles() {
       .compact-form { padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
       #admin-message-box { position:sticky; top:12px; z-index:20; margin-bottom:16px; box-shadow:0 6px 18px rgba(15,23,42,.12); }
       @media(max-width:1120px) {
+        .admin-role-grid { grid-template-columns:1fr 1fr; }
         .user-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
         .user-identity { grid-column:1/-1; }
       }
@@ -582,6 +598,7 @@ function adminPanelLayoutStyles() {
         .admin-header { align-items:flex-start; padding:15px; }
         .admin-header-summary { display:none; }
         .admin-grid { grid-template-columns:1fr; }
+        .admin-role-guide { padding:13px; }
         .admin-card .section-heading { min-height:0; }
         .user-row { grid-template-columns:1fr 1fr; }
         .user-identity { grid-column:1/-1; }
@@ -590,11 +607,72 @@ function adminPanelLayoutStyles() {
       @media(max-width:560px) {
         .admin-header-identity img { width:88px!important; height:58px!important; }
         .admin-card { padding:13px; border-radius:13px; }
+        .admin-role-grid { grid-template-columns:1fr; }
+        .admin-role-card p { min-height:0; }
         .user-row { grid-template-columns:1fr; }
         .user-identity { grid-column:auto; }
         .admin-row .row-actions { justify-content:flex-start; }
       }
     </style>
+  `
+}
+
+function renderAdminRoleGuide() {
+  return `
+    <section class="admin-role-guide" aria-labelledby="admin-role-guide-title">
+      <div class="admin-role-guide-head">
+        <div><h2 id="admin-role-guide-title">Funkcje kategorii użytkowników</h2><p class="muted">Zakres pracy i najważniejsze ograniczenia każdej kategorii.</p></div>
+      </div>
+      <div class="admin-role-grid">
+        <article class="admin-role-card admin-role-card--dispatcher">
+          <h3><span class="admin-role-mark"></span>Spedytor</h3>
+          <p>Codziennie planuje i prowadzi transporty przypisanych kierowców.</p>
+          <ul>
+            <li>Tworzy, edytuje i usuwa własne relacje.</li>
+            <li>Analizuje PDF, Word i tekst przez AI oraz przygotowuje SMS.</li>
+            <li>Zarządza własnymi kierowcami, pojazdami i kolejkami zleceń.</li>
+            <li>Dodaje i edytuje klientów oraz wysyła wniosek o opiekuna.</li>
+            <li>Obsługuje zapytania swoich klientów i własne operacje finansowe.</li>
+          </ul>
+          <div class="admin-role-limit">Przypisanie klienta zaczyna obowiązywać dopiero po akceptacji kierownika oddziału.</div>
+        </article>
+        <article class="admin-role-card admin-role-card--manager">
+          <h3><span class="admin-role-mark"></span>Kierownik oddziału</h3>
+          <p>Jest również spedytorem i dodatkowo odpowiada za cały swój oddział.</p>
+          <ul>
+            <li>Ma wszystkie funkcje Spedytora, w tym analizę zleceń przez AI.</li>
+            <li>Zarządza relacjami, flotą i kolejkami swojego oddziału.</li>
+            <li>Zatwierdza lub odrzuca każde przypisanie klienta w oddziale.</li>
+            <li>Przejmuje zapytania podczas urlopu opiekuna klienta.</li>
+            <li>Wyznacza zastępcę do klientów na czas swojej nieobecności.</li>
+          </ul>
+          <div class="admin-role-limit">Nie zarządza kontami ani danymi pozostałych oddziałów.</div>
+        </article>
+        <article class="admin-role-card admin-role-card--accounting">
+          <h3><span class="admin-role-mark"></span>Rozliczenia</h3>
+          <p>Kontrolują zakończone transporty i ich stan rozliczeniowy.</p>
+          <ul>
+            <li>Przeglądają relacje, dokumenty, stawki, koszty i marże.</li>
+            <li>Zmieniają status rozliczenia relacji i tygodnia.</li>
+            <li>Korzystają z podsumowań i eksportów rozliczeniowych.</li>
+            <li>Mają podgląd wyrównań i transferów finansowych.</li>
+          </ul>
+          <div class="admin-role-limit">Nie planują tras, nie zmieniają danych relacji i nie dodają wyrównań przewoźników.</div>
+        </article>
+        <article class="admin-role-card admin-role-card--admin">
+          <h3><span class="admin-role-mark"></span>Administrator</h3>
+          <p>Zarządza konfiguracją i danymi całej firmy.</p>
+          <ul>
+            <li>Zarządza użytkownikami, kategoriami i oddziałami.</li>
+            <li>Ma dostęp do relacji, klientów i floty wszystkich oddziałów.</li>
+            <li>Przepisuje kierowców, usuwa klientów i ustawia wspólną stawkę.</li>
+            <li>Korzysta z AI, importu, eksportu i historii operacji.</li>
+            <li>Może uruchomić podgląd funkcji każdej kategorii.</li>
+          </ul>
+          <div class="admin-role-limit">Może usunąć klienta oczekującego, ale przypisanie opiekuna zatwierdza kierownik właściwego oddziału.</div>
+        </article>
+      </div>
+    </section>
   `
 }
 
@@ -630,6 +708,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       </header>
 
       ${renderAdminPreviewBar()}
+      ${renderAdminRoleGuide()}
 
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
@@ -1672,9 +1751,12 @@ async function upsertCentralClientFromTms(message) {
     if (existingError) throw existingError
     // Nowa karta tworzona przez spedytora zawsze zaczyna bez opiekuna.
     // Przypisanie jest osobnym procesem akceptowanym przez kierownika oddziału.
-    const clientPayload = !existing && hasRole('dispatcher')
+    let clientPayload = !existing && hasRole('dispatcher', 'branch_manager')
       ? { ...client, databaseType: 'operations', dispatcher: '', coDispatchers: [] }
       : client
+    if (existing && hasRole('dispatcher')) {
+      clientPayload = { ...clientPayload, coDispatchers: Array.isArray(existing?.payload?.coDispatchers) ? existing.payload.coDispatchers : [] }
+    }
     if (hasRole('dispatcher', 'branch_manager')) {
       const oldOwner = String(existing?.payload?.dispatcher || '').trim()
       const newOwner = String(clientPayload?.dispatcher || '').trim()
@@ -3318,7 +3400,7 @@ async function refreshWeeklySettlementAfterMutation(weekStart) {
 async function createCarrierWeekAdjustmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart)
-  if (!hasRole('dispatcher', 'branch_manager', 'accounting', 'admin')) {
+  if (!hasRole('dispatcher', 'branch_manager', 'admin')) {
     sendWeeklySettlementOperationResult(requestId, false, 'carrier-adjustment-create', 'Brak uprawnień do korekt przewoźnika.')
     return
   }
@@ -3391,8 +3473,8 @@ async function deleteCarrierWeekAdjustmentFromTms(message) {
 async function createDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart)
-  if (!hasRole('dispatcher')) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', 'Transfer wyniku może utworzyć wyłącznie spedytor.')
+  if (!hasRole('dispatcher', 'branch_manager')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-create', 'Transfer wyniku może utworzyć spedytor lub kierownik oddziału działający jako spedytor.')
     return
   }
   try {
@@ -3414,8 +3496,8 @@ async function respondDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
   const status = String(message?.status || '').trim().toLowerCase()
-  if (!hasRole('dispatcher')) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', 'Transfer może potwierdzić wyłącznie spedytor będący jego odbiorcą.')
+  if (!hasRole('dispatcher', 'branch_manager')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-response', 'Transfer może potwierdzić wyłącznie jego odbiorca: spedytor lub kierownik oddziału.')
     return
   }
   try {
@@ -3434,8 +3516,8 @@ async function respondDispatcherWeekTransferFromTms(message) {
 async function deleteDispatcherWeekTransferFromTms(message) {
   const requestId = String(message?.requestId || '')
   const weekStart = normalizeWeekStart(message?.weekStart || weeklySettlementWeekStart)
-  if (!hasRole('dispatcher')) {
-    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', 'Usunięcie transferu uzgadniają wyłącznie uczestniczący spedytorzy.')
+  if (!hasRole('dispatcher', 'branch_manager')) {
+    sendWeeklySettlementOperationResult(requestId, false, 'dispatcher-transfer-delete', 'Usunięcie transferu uzgadniają wyłącznie uczestnicy transferu.')
     return
   }
   try {
@@ -3595,8 +3677,8 @@ function sendWorkflowResult(requestId, ok, action, message) {
 
 async function createClientAssignmentRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
-  if (!hasRole('dispatcher')) {
-    sendWorkflowResult(requestId, false, 'client-assignment-create', 'Wniosek o opiekuna klienta może utworzyć wyłącznie spedytor.')
+  if (!hasRole('dispatcher', 'branch_manager')) {
+    sendWorkflowResult(requestId, false, 'client-assignment-create', 'Wniosek o opiekuna klienta może utworzyć spedytor lub kierownik oddziału.')
     return
   }
   try {
@@ -3622,8 +3704,8 @@ async function createClientAssignmentRequestFromTms(message) {
 async function respondClientAssignmentFromTms(message) {
   const requestId = String(message?.requestId || '')
   const status = String(message?.status || '').trim().toLowerCase()
-  if (!hasRole('branch_manager', 'admin')) {
-    sendWorkflowResult(requestId, false, 'client-assignment-response', 'Przypisanie klienta może zatwierdzić kierownik oddziału lub administrator.')
+  if (!hasRole('branch_manager')) {
+    sendWorkflowResult(requestId, false, 'client-assignment-response', 'Każde przypisanie klienta musi zatwierdzić kierownik oddziału.')
     return
   }
   try {
@@ -3755,8 +3837,8 @@ async function handleAiAnalyzerRequestFromTms(message) {
     if (kind === 'admin-import' && !isActualAdmin()) {
       throw new Error('Import administracyjny AI jest dostępny wyłącznie dla administratora.')
     }
-    if (['document', 'pdf', 'text'].includes(kind) && !hasRole('dispatcher', 'admin')) {
-      throw new Error('Analiza zleceń AI jest dostępna wyłącznie dla spedytora.')
+    if (['document', 'pdf', 'text'].includes(kind) && !hasRole('dispatcher', 'branch_manager', 'admin')) {
+      throw new Error('Analiza zleceń AI jest dostępna dla spedytora, kierownika oddziału i administratora.')
     }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
     if (sessionError) throw sessionError
@@ -4009,7 +4091,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v123-order-entry-tutorial"
+          src="/tms.html?embedded=1&build=request-workflow-v125-admin-role-guide"
         title="Top Dragon TMS"
       ></iframe>
     </main>
