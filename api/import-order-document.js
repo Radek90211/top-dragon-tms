@@ -117,8 +117,8 @@ async function authenticateOperationalUser(req) {
   const profileResponse = await fetch(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userData.id)}&select=role,active&limit=1`, { headers })
   const profileData = await profileResponse.json().catch(() => ([]))
   const profile = Array.isArray(profileData) ? profileData[0] : null
-  if (!profileResponse.ok || !profile || profile.active === false || !['dispatcher', 'admin'].includes(String(profile.role || ''))) {
-    throw Object.assign(new Error('Analiza zleceń AI jest dostępna wyłącznie dla spedytora i administratora.'), { statusCode: 403 })
+  if (!profileResponse.ok || !profile || profile.active === false || !['dispatcher', 'branch_manager', 'admin'].includes(String(profile.role || ''))) {
+    throw Object.assign(new Error('Analiza zleceń AI jest dostępna dla spedytora, kierownika oddziału i administratora.'), { statusCode: 403 })
   }
   return { user: userData, profile }
 }
