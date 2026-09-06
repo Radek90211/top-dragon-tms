@@ -61182,7 +61182,7 @@
     const QUEUE_SAMPLE_CITY_PAIRS = [];
 
     function queueDispatchers() {
-      return USERS.filter(user => user.role === "spedytor").map(user => user.login);
+      return USERS.filter(user => ["spedytor", "kierownik"].includes(user.role)).map(user => user.login);
     }
 
     function nextBusinessDateFromOffset(offset) {
@@ -65180,7 +65180,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       ];
       if (["spedytor","kierownik","admin"].includes(role)) topics.unshift({ key:"relations", title:"Tworzenie relacji", text:"Formularz relacji krok po kroku, aż do przycisku Zapisz trasę." });
       if (["spedytor","kierownik","admin"].includes(role)) topics.push({ key:"fleet", title:"Kierowcy i pojazdy", text:"Dodawanie kierowcy i przewoźnika, edycja oraz ukrywanie floty." });
-      if (["spedytor", "admin"].includes(role)) topics.push({ key:"ai", title:"AI", text:"Import z PDF lub wiadomości i wybór miejsca docelowego." });
+      if (["spedytor", "kierownik", "admin"].includes(role)) topics.push({ key:"ai", title:"AI", text:"Import z PDF lub wiadomości i wybór miejsca docelowego." });
       topics.push(
         { key:"assistant", title:"Asystent spedytora", text:"Historia, klienci w rejonie, zapytania o ładunek i flota." },
         { key:"nearest", title:"Najbliższy pojazd", text:"Wyszukiwanie pojazdu według miejsca, dnia i wymagań." },
@@ -67598,6 +67598,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
     }
 
+    function clientLoadRequestDeputies(item) {
+      const client = clientRecordByIdOrName(item?.clientId || "", encodeURIComponent(item?.clientName || ""));
+      const primary = String(client?.dispatcher || item?.ownerDispatcher || "").toUpperCase();
+      return (Array.isArray(client?.coDispatchers) ? client.coDispatchers : [])
+        .map(value => String(value || "").trim().toUpperCase())
+        .filter(value => value && value !== primary);
+    }
+
+    function clientLoadRequestIsDeputy(item, login = state.user?.login) {
+      return clientLoadRequestDeputies(item).includes(String(login || "").trim().toUpperCase());
+    }
+
     function renderClientLoadRequestRow(item) {
       const client = clientRecordByIdOrName(item.clientId || "", encodeURIComponent(item.clientName || ""));
       const owner = String(item.ownerDispatcher || "").toUpperCase();
@@ -67605,14 +67617,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const participants = clientLoadRequestParticipants(item);
       const isOwner = login === owner;
       const isParticipant = clientLoadRequestIsParticipant(item, login);
+      const isDeputy = clientLoadRequestIsDeputy(item, login);
       const canAdminister = clientLoadRequestCanAdminister(item);
-      const canRespond = isOwner || canAdminister;
+      const canRespond = isOwner || isDeputy || canAdminister;
       const participantBadges = participants.length
         ? participants.map(participant => `<span class="client-load-request-participant"><span class="dispatcher-map-badge ${dispatcherBadgeClass(participant.dispatcher)}">${esc(participant.dispatcher)}</span>${participant.driverName ? `<span>${esc(participant.driverName)}</span>` : ""}</span>`).join("")
         : `<span class="small">Brak zgłoszonych pojazdów</span>`;
-      const ownerActions = (isOwner || canAdminister) && ["new", "contacting"].includes(item.status)
+      const ownerActions = (isOwner || isDeputy || canAdminister) && ["new", "contacting"].includes(item.status)
         ? `<button type="button" class="btn-mini" ${item.status === "contacting" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','contacting')">W trakcie weryfikacji</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','available')">Ładunek dostępny</button><button type="button" class="btn-mini" onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunków</button>`
-        : (isOwner || canAdminister) && ["available", "unavailable"].includes(item.status)
+        : (isOwner || isDeputy || canAdminister) && ["available", "unavailable"].includes(item.status)
           ? `<button type="button" class="btn-mini" ${item.status === "available" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','available')">Ładunek dostępny</button><button type="button" class="btn-mini" ${item.status === "unavailable" ? "disabled" : ""} onclick="setClientLoadRequestStatus('${attr(item.id)}','unavailable')">Brak ładunków</button>`
           : "";
       const closeAction = "";
@@ -67628,7 +67641,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         : "";
       return `<div class="client-load-request-row status-${attr(item.status)}">
         <div class="client-load-request-head">
-          <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "-"}</div></div>
+          <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "-"}${clientLoadRequestDeputies(item).length ? ` · zastępstwo: ${clientLoadRequestDeputies(item).map(name => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(name)}">${esc(name)}</span>`).join(" ")}` : ""}</div></div>
           <div class="client-load-request-meta">Aktualizacja: ${item.updatedAt ? esc(new Date(item.updatedAt).toLocaleString("pl-PL")) : "-"}</div>
         </div>
         <div class="client-load-request-grid">
@@ -67645,7 +67658,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const waiting = rows.filter(item => ["new", "contacting"].includes(item.status)).length;
       const available = rows.filter(item => item.status === "available").length;
       const unavailable = rows.filter(item => item.status === "unavailable").length;
-      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci w rejonie”.</div>`}</div>`;
+      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div><div class="small" style="margin:0 0 9px;">Zapytanie obsługuje opiekun klienta. Podczas jego urlopu przejmuje je kierownik oddziału albo wyznaczony przez niego zastępca.</div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci w rejonie”.</div>`}</div>`;
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
@@ -67738,7 +67751,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const login = String(state.user?.login || "").toUpperCase();
       const isOwner = login === request.ownerDispatcher;
       const canAdminister = clientLoadRequestCanAdminister(request);
-      const ownerAllowed = (isOwner || canAdminister) && ["contacting", "available", "unavailable", "closed"].includes(status);
+      const ownerAllowed = (isOwner || clientLoadRequestIsDeputy(request, login) || canAdminister) && ["contacting", "available", "unavailable", "closed"].includes(status);
       if (!ownerAllowed) {
         showAppMessage("Brak uprawnień", "Status może zmienić opiekun klienta lub administrator.", "error");
         return;
@@ -67764,7 +67777,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!request) return;
       const login = String(state.user?.login || "").toUpperCase();
       const canAdminister = clientLoadRequestCanAdminister(request);
-      if (login !== request.ownerDispatcher && !canAdminister) {
+      if (login !== request.ownerDispatcher && !clientLoadRequestIsDeputy(request, login) && !canAdminister) {
         showAppMessage("Brak uprawnień", "Relację, komentarz i stawkę może wprowadzić opiekun klienta lub administrator.", "error");
         return;
       }
@@ -68047,7 +68060,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Nazwa klienta</label><input id="client-name" class="input" required value="${attr(editClient?.name || "")}" placeholder="np. Klient ABC" /></div>
               <div><label class="field-label" style="margin-top:0;">NIP</label><input id="client-nip" class="input" inputmode="numeric" maxlength="10" value="${attr(editClient?.nip || "")}" placeholder="10 cyfr" /></div>
               <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label><select id="client-dispatcher" class="select dispatcher-color-select" style="${attr(dispatcherOptionStyle(editClient?.dispatcher || ""))}" onchange="applyDispatcherSelectColor(this)"><option value="">- bez przypisanego spedytora -</option>${queueDispatchers().map(dispatcher => `<option value="${attr(dispatcher)}" style="${attr(dispatcherOptionStyle(dispatcher))}" ${editClient?.dispatcher === dispatcher ? "selected" : ""}>${esc(dispatcher)}</option>`).join("")}</select></div>
-              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie</label><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) ? "checked" : ""} /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
+              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Zastępcy podczas urlopu</label><div class="small" style="margin-bottom:6px;">Kierownik oddziału przejmuje zapytania klientów nieobecnego opiekuna. Na czas własnej nieobecności wyznacza tutaj innego użytkownika oddziału do opieki nad klientami.</div><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
               ${isAdminUser() ? `<div class="client-bases-admin" style="grid-column:1/-1">
                 <div class="client-bases-admin-head"><div><b>Bazy i magazyny klienta</b><div class="small">Tylko potwierdzone tutaj lokalizacje będą wyświetlane jako bazy klienta na mapie.</div></div><span class="badge">${Array.isArray(editClient?.bases) ? editClient.bases.length : 0}</span></div>
@@ -70711,7 +70724,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function canUseOperationalAi() {
-      return Boolean(state.user && ["spedytor", "admin"].includes(state.user.role));
+      return Boolean(state.user && (["spedytor", "kierownik", "admin"].includes(state.user.role) || ["dispatcher", "branch_manager", "admin"].includes(String(state.user.supabaseRole || ""))));
     }
 
     function renderPdfImportUi() {
@@ -83362,7 +83375,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           .filter(item => {
             if (["admin","accounting"].includes(role)) return true;
             if (role === "branch_manager") return clientLoadRequestCanAdminister(item);
-            return String(item?.ownerDispatcher || "").toUpperCase() === login || clientLoadRequestIsParticipant(item, login);
+            return String(item?.ownerDispatcher || "").toUpperCase() === login || clientLoadRequestIsDeputy(item, login) || clientLoadRequestIsParticipant(item, login);
           })
           .slice().sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
       };
@@ -83936,7 +83949,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.createWeeklyDispatcherTransfer = function() {
-        if (state.weeklySettlementBusy || state.user?.role !== "spedytor") return;
+        if (state.weeklySettlementBusy || !["spedytor", "kierownik"].includes(state.user?.role)) return;
         const weekStart = String(document.getElementById("weekly-transfer-week")?.value || weeklyWeekStart()).slice(0,10);
         const toDispatcherId = String(document.getElementById("weekly-transfer-to")?.value || "").trim();
         const amount = Number(String(document.getElementById("weekly-transfer-amount")?.value || "").replace(",","."));
@@ -83992,8 +84005,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const payout = baseCarrierCost + adjustments;
         const adjustedProfit = revenue - payout;
         const carriers = weeklyAvailableCarriers();
-        const canAddAdjustment = ["spedytor","rozliczenia","admin"].includes(state.user?.role);
-        const transferTargets = USERS.filter(user => user.role === "spedytor" && user.supabaseId && String(user.supabaseId) !== String(state.user?.supabaseId || ""));
+        const canAddAdjustment = ["spedytor","kierownik","admin"].includes(state.user?.role);
+        const transferTargets = USERS.filter(user => ["spedytor", "kierownik"].includes(user.role) && user.supabaseId && String(user.supabaseId) !== String(state.user?.supabaseId || ""));
 
         return `<section class="weekly-settlement-section">
           <div class="weekly-settlement-head"><div><h3>Podsumowanie tygodniowe rozliczeniowe</h3><p>${esc(formatDateForInput(weekStart))} - ${esc(formatDateForInput(weekEnd))} · wyrównania przewoźników i zaakceptowane przelewy są wspólne i widoczne dla użytkowników TMS.</p></div><span class="stats-pill">Tydzień</span></div>
@@ -84588,7 +84601,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return status === "accepted" ? "Zatwierdzone" : status === "rejected" ? "Odrzucone" : status === "cancelled" ? "Anulowane" : "Do akceptacji";
       }
       function workflowCanApproveClients() {
-        return state.user?.supabaseRole === "branch_manager" || state.user?.supabaseRole === "admin";
+        return state.user?.supabaseRole === "branch_manager";
       }
       function clientAssignmentForClient(clientId) {
         return (state.workflowClientAssignments || []).find(item => item?.clientRef === clientId && item.status === "pending") || null;
@@ -84653,15 +84666,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const desiredLogin = String(select?.value || "").trim();
         const existing = (state.clients || []).find(client => client.id === state.clientEditId) || null;
         const existingLogin = String(existing?.dispatcher || "").trim();
-        const dispatcherRole = state.user?.supabaseRole === "dispatcher";
-        const changingOwner = dispatcherRole && desiredLogin !== existingLogin;
+        const operationalRole = ["dispatcher", "branch_manager"].includes(String(state.user?.supabaseRole || ""));
+        const changingOwner = operationalRole && desiredLogin !== existingLogin;
         if (!changingOwner) return originalSaveClientFromForm3L31.call(this, event);
 
         if (!desiredLogin) {
           showAppMessage("Zmiana wymaga kierownika", "Spedytor może wnioskować o przypisanie opiekuna. Usunięcie istniejącego opiekuna wykonuje kierownik oddziału lub administrator.");
           return;
         }
-        const targetUser = USERS.find(user => user.supabaseRole === "dispatcher" && user.login === desiredLogin);
+        const targetUser = USERS.find(user => ["dispatcher", "branch_manager"].includes(String(user.supabaseRole || "")) && user.login === desiredLogin);
         if (!targetUser?.supabaseId) {
           showAppMessage("Nie znaleziono spedytora", "Wybrany opiekun nie jest aktywnym spedytorem.", "error");
           return;
@@ -87841,7 +87854,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function receivedTransferDeleteAction3L108(item,weekStart){
         const currentId=String(state.user?.supabaseId||'');
-        const isRecipient=state.user?.role==='spedytor' && currentId && currentId===String(item?.toDispatcherId||'');
+        const isRecipient=['spedytor','kierownik'].includes(state.user?.role) && currentId && currentId===String(item?.toDispatcherId||'');
         if(!isRecipient || String(item?.status||'pending')==='deleted') return '';
         const requesterId=String(item?.deleteRequestedBy||'');
         const requested=Boolean(item?.deleteRequestedAt && requesterId);
@@ -88106,7 +88119,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
          ------------------------------------------------------------------ */
       function canCreateCarrierAdjustment3L52(driver) {
         const role = String(state.user?.supabaseRole || '');
-        if (!['dispatcher','branch_manager','accounting','admin'].includes(role)) return false;
+        if (!['dispatcher','branch_manager','admin'].includes(role)) return false;
         if (role === 'dispatcher') return String(driver?.dispatcher || '') === String(state.user?.login || '');
         if (role === 'branch_manager') return String(driver?.branchId || '') === String(state.user?.branchId || '');
         return true;
@@ -88115,14 +88128,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function transferTargets3L52() {
         const self = String(state.user?.supabaseId || '');
         return USERS.filter(user =>
-          String(user?.supabaseRole || '') === 'dispatcher'
+          ['dispatcher','branch_manager'].includes(String(user?.supabaseRole || ''))
           && user?.supabaseId
           && String(user.supabaseId) !== self
         );
       }
 
       function canCreateDispatcherTransfer3L52(driver) {
-        return String(state.user?.supabaseRole || '') === 'dispatcher'
+        return ['dispatcher','branch_manager'].includes(String(state.user?.supabaseRole || ''))
           && String(driver?.dispatcher || '') === String(state.user?.login || '');
       }
 
@@ -89511,6 +89524,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .route-order-extracted-overlay { max-height:46%; }
     }
   </style>
-  <script src="/order-entry.js?build=v123"></script>
+  <script src="/order-entry.js?build=v124"></script>
 </body>
 </html>
