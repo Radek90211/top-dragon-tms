@@ -525,7 +525,7 @@ function showAdminMessage(message = '', messageType = 'success') {
 function setAdminBusy(busy) {
   adminPanelBusy = busy
   document.querySelectorAll(
-    '#branch-create-form button, .branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-data-transfer, #admin-refresh'
+    '.branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-data-transfer, #admin-refresh'
   ).forEach((button) => {
     button.disabled = busy || button.dataset.locked === 'true'
   })
@@ -543,7 +543,7 @@ function adminPanelLayoutStyles() {
       .admin-summary-item { min-width:112px; padding:10px 14px; border:1px solid #dbe3ee; border-radius:12px; background:#f8fafc; }
       .admin-summary-item span { display:block; margin-bottom:2px; color:#64748b; font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
       .admin-summary-item strong { color:#0f172a; font-size:18px; }
-      #admin-role-preview { margin-bottom:22px!important; border-radius:14px!important; box-shadow:none!important; }
+      #admin-role-preview { margin-bottom:14px!important; border-radius:12px!important; box-shadow:none!important; }
       .admin-section-title { display:flex; align-items:end; justify-content:space-between; gap:16px; margin:26px 2px 12px; }
       .admin-section-title h2 { margin:0; font-size:18px; color:#0f172a; }
       .admin-section-title p { margin:4px 0 0; }
@@ -554,7 +554,12 @@ function adminPanelLayoutStyles() {
       .admin-card .section-heading h2 { margin:0 0 5px; font-size:17px; }
       .admin-card .section-heading .muted { margin:0; line-height:1.45; }
       .admin-card--rate .section-heading, .admin-card--users .section-heading { min-height:0; }
-      .admin-card--rate { margin-top:0; }
+      .admin-card--rate { margin-top:0; padding:12px 14px; }
+      .admin-card--rate .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; padding-bottom:8px; }
+      .admin-card--rate .section-heading h2 { margin:0; font-size:15px; }
+      #common-carrier-rate-form { display:grid; grid-template-columns:minmax(190px,1fr) minmax(170px,1fr) auto; gap:10px; align-items:end; padding:10px; }
+      #common-carrier-rate-form .wide { grid-column:auto; min-height:38px; }
+      .admin-card--rate > .muted { margin:8px 0 0; font-size:11px; }
       .admin-card--users { margin-top:0; }
       .admin-list, .user-list { display:grid; gap:10px; margin-top:14px; }
       .admin-row { gap:12px; padding:12px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
@@ -580,6 +585,7 @@ function adminPanelLayoutStyles() {
         .admin-card .section-heading { min-height:0; }
         .user-row { grid-template-columns:1fr 1fr; }
         .user-identity { grid-column:1/-1; }
+        #common-carrier-rate-form { grid-template-columns:1fr; }
       }
       @media(max-width:560px) {
         .admin-header-identity img { width:88px!important; height:58px!important; }
@@ -619,8 +625,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           </div>
         </div>
         <div class="admin-header-summary" aria-label="Podsumowanie administracji">
-          <div class="admin-summary-item"><span>Oddziały</span><strong>${activeBranches.length}</strong></div>
-          <div class="admin-summary-item"><span>Użytkownicy</span><strong>${users.length}</strong></div>
           <div class="admin-summary-item"><span>Stawka</span><strong>${commonCarrierRateValue.toFixed(2).replace('.', ',')}</strong></div>
         </div>
       </header>
@@ -640,13 +644,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
               <p class="muted">Nieaktywny oddział zachowuje całą historię. Trwałe usunięcie jest możliwe tylko dla oddziału, który nigdy nie był używany.</p>
             </div>
           </div>
-
-          <form id="branch-create-form" class="compact-form">
-            <label>Nazwa nowego oddziału
-              <input id="branch-name" type="text" placeholder="np. Oddział Łódź" required minlength="2" />
-            </label>
-            <button class="primary compact-primary" type="submit">+ Dodaj oddział</button>
-          </form>
 
           <div class="admin-list">
             ${branches.length ? branches.map((branch) => `
@@ -786,27 +783,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 
   document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
   wireAdminPreviewControls()
-
-  document.querySelector('#branch-create-form')?.addEventListener('submit', async (event) => {
-    event.preventDefault()
-    if (adminPanelBusy) return
-
-    const name = document.querySelector('#branch-name')?.value.trim() || ''
-    setAdminBusy(true)
-
-    try {
-      const result = await adminApi('/api/admin/branches', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      })
-      writeCurrentUserAudit('Dodano oddział', 'branch', result.branch?.id || '', name)
-      updateAdminCacheBranch(result.branch)
-      renderAdminPanelFromCache('Oddział został dodany.')
-    } catch (error) {
-      showAdminMessage(error.message, 'error')
-      setAdminBusy(false)
-    }
-  })
 
   document.querySelectorAll('.admin-row').forEach((row) => {
     const id = row.dataset.branchId
@@ -3821,18 +3797,18 @@ async function loadCompanyDispatcherStatisticsFromTms(message) {
 function renderAdminPreviewBar() {
   if (!isActualAdmin()) return ''
   return `
-    <section id="admin-role-preview" style="display:grid;grid-template-columns:minmax(250px,1fr) auto auto auto;align-items:center;gap:12px;padding:14px 18px;margin:0 0 16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 2px 8px rgba(15,23,42,.08);">
-      <div style="display:flex;align-items:center;min-height:44px;"><strong>Podgląd funkcji kategorii</strong></div>
-      <label style="display:flex;align-items:center;gap:10px;min-height:44px;font-size:12px;line-height:1;font-weight:800;text-transform:uppercase;color:#64748b;">Kategoria
-        <select id="admin-preview-role" style="box-sizing:border-box;min-width:274px;height:44px;margin:0;padding:0 38px 0 14px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font:inherit;font-size:13px;font-weight:700;text-transform:none;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
+    <section id="admin-role-preview" style="display:grid;grid-template-columns:minmax(190px,1fr) auto auto auto;align-items:center;gap:8px;padding:8px 12px;margin:0 0 12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;box-shadow:0 1px 5px rgba(15,23,42,.06);">
+      <div style="display:flex;align-items:center;min-height:34px;font-size:14px;"><strong>Podgląd funkcji kategorii</strong></div>
+      <label style="display:flex;align-items:center;gap:8px;min-height:34px;font-size:11px;line-height:1;font-weight:800;text-transform:uppercase;color:#64748b;">Kategoria
+        <select id="admin-preview-role" style="box-sizing:border-box;min-width:220px;height:34px;margin:0;padding:0 30px 0 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;font:inherit;font-size:12px;font-weight:700;text-transform:none;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer;">
           <option value="admin" ${!adminPreview ? 'selected' : ''}>Administrator</option>
           <option value="accounting" ${adminPreview?.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
           <option value="dispatcher" ${adminPreview?.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
           <option value="branch_manager" ${adminPreview?.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
         </select>
       </label>
-      <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;padding:0 22px;align-self:center;">Pokaż funkcje</button>
-      ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary" style="box-sizing:border-box;height:44px;min-height:44px;margin:0;align-self:center;">Wróć do Administratora</button>' : ''}
+      <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:34px;min-height:34px;margin:0;padding:0 14px;align-self:center;">Pokaż funkcje</button>
+      ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary" style="box-sizing:border-box;height:34px;min-height:34px;margin:0;padding:0 12px;align-self:center;">Wróć do Administratora</button>' : ''}
     </section>
     <style>@media(max-width:900px){#admin-role-preview{grid-template-columns:1fr!important}#admin-role-preview label{justify-content:space-between}#admin-preview-role{min-width:0!important;flex:1}}</style>
   `
@@ -3944,7 +3920,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v117-admin-layout"
+          src="/tms.html?embedded=1&build=request-workflow-v121-grouped-map-routes"
         title="Top Dragon TMS"
       ></iframe>
     </main>
