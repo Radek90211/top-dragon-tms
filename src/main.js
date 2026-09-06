@@ -1814,6 +1814,24 @@ async function archiveCentralClientFromTms(message) {
   }
 
   try {
+    // Usunięcie klienta przez administratora zamyka również oczekujące
+    // wnioski o przypisanie opiekuna. Dzięki temu rekord nie wraca do sekcji
+    // „Do akceptacji” po odświeżeniu danych workflow.
+    const { data: pendingAssignments, error: pendingAssignmentsError } = await supabase
+      .from('tms_client_assignment_requests')
+      .select('id')
+      .eq('client_ref', clientId)
+      .eq('status', 'pending')
+    if (pendingAssignmentsError && !isMissingWorkflowSchemaError(pendingAssignmentsError)) throw pendingAssignmentsError
+    for (const request of pendingAssignments || []) {
+      const { error: rejectError } = await supabase.rpc('respond_tms_client_assignment', {
+        p_request_id: String(request?.id || '').trim() || null,
+        p_status: 'rejected',
+        p_comment: 'Klient usunięty przez administratora.',
+      })
+      if (rejectError && !isMissingWorkflowSchemaError(rejectError)) throw rejectError
+    }
+
     const { data: existingRows, error: existingError } = await supabase
       .from('tms_clients_central')
       .select('branch_id')
@@ -1839,7 +1857,7 @@ async function archiveCentralClientFromTms(message) {
     }
 
     sendClientOperationResult(requestId, true, 'archive', clientId, '', 'Klient został usunięty z aktywnej globalnej bazy.')
-    await syncCentralClientsToTms()
+    await Promise.all([syncCentralClientsToTms(), syncWorkflowToTms()])
   } catch (error) {
     sendClientOperationResult(requestId, false, 'archive', clientId, '', error?.message || 'Nie udało się usunąć klienta z aktywnej bazy.')
   }
@@ -2829,7 +2847,9 @@ async function reassignFleetSetFromTms(message) {
 
     const { data: updated, error: updateError } = await supabase
       .from('fleet_assignments')
-      .update({ assigned_dispatcher_id: toDispatcherId })
+      // Zbiorcza operacja administratora zmienia także spedytora macierzystego.
+      // Odróżnia ją to od pojedynczego przypisania używanego przy zastępstwie.
+      .update({ assigned_dispatcher_id: toDispatcherId, created_by: toDispatcherId })
       .eq('id', assignmentId)
       .eq('active', true)
       .select('id')
@@ -2838,9 +2858,78 @@ async function reassignFleetSetFromTms(message) {
     if (!updated) throw new Error('Przypisanie nie zostało zmienione. Sprawdź uprawnienia bazy danych.')
 
     await syncFleetDataToTms()
-    sendFleetOperationResult(requestId, true, 'reassign', `Kierowca został tymczasowo przypisany do: ${target.display_name || 'wybrany spedytor'}.`)
+    sendFleetOperationResult(requestId, true, 'reassign', `Kierowca został przypisany do: ${target.display_name || 'wybrany spedytor'}.`)
   } catch (error) {
     sendFleetOperationResult(requestId, false, 'reassign', error?.message || 'Nie udało się zmienić przypisania kierowcy.')
+  }
+}
+
+async function bulkReassignFleetSetsFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const assignmentIds = Array.from(new Set((Array.isArray(message?.assignmentIds) ? message.assignmentIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(isValidUuid)))
+  const toDispatcherId = String(message?.toDispatcherId || '').trim()
+
+  if (!isActualAdmin()) {
+    sendFleetOperationResult(requestId, false, 'bulk-reassign', 'Stałe przepisywanie wielu kierowców jest dostępne wyłącznie dla administratora.')
+    return
+  }
+  if (!assignmentIds.length || !isValidUuid(toDispatcherId)) {
+    sendFleetOperationResult(requestId, false, 'bulk-reassign', 'Zaznacz kierowców i wybierz prawidłowego spedytora docelowego.')
+    return
+  }
+  if (assignmentIds.length > 500) {
+    sendFleetOperationResult(requestId, false, 'bulk-reassign', 'Jednorazowo można przepisać maksymalnie 500 kierowców.')
+    return
+  }
+
+  try {
+    const { data: target, error: targetError } = await supabase
+      .from('profiles')
+      .select('id,branch_id,display_name')
+      .eq('id', toDispatcherId)
+      .eq('role', 'dispatcher')
+      .eq('active', true)
+      .maybeSingle()
+    if (targetError) throw targetError
+    if (!target) throw new Error('Spedytor docelowy nie jest aktywny.')
+
+    const { data: assignments, error: assignmentsError } = await supabase
+      .from('fleet_assignments')
+      .select('id,branch_id,assigned_dispatcher_id')
+      .in('id', assignmentIds)
+      .eq('active', true)
+    if (assignmentsError) throw assignmentsError
+    if ((assignments || []).length !== assignmentIds.length) throw new Error('Część zaznaczonych przypisań jest już nieaktywna albo nie istnieje.')
+    if ((assignments || []).some((row) => String(row?.branch_id || '') !== String(target.branch_id || ''))) {
+      throw new Error('Kierowców można przepisać do spedytora z tego samego oddziału.')
+    }
+
+    const changedIds = (assignments || [])
+      .filter((row) => String(row?.assigned_dispatcher_id || '') !== toDispatcherId)
+      .map((row) => String(row.id))
+    if (!changedIds.length) throw new Error('Wszyscy zaznaczeni kierowcy są już przypisani do wybranego spedytora.')
+
+    const { data: updated, error: updateError } = await supabase
+      .from('fleet_assignments')
+      .update({ assigned_dispatcher_id: toDispatcherId })
+      .in('id', changedIds)
+      .eq('active', true)
+      .select('id')
+    if (updateError) throw updateError
+    if ((updated || []).length !== changedIds.length) throw new Error('Nie wszystkie przypisania zostały zapisane.')
+
+    void writeCentralAuditFromTms({
+      action: 'Stałe przepisanie kierowców',
+      entityType: 'fleet_assignments',
+      entityId: changedIds.join(','),
+      details: `${changedIds.length} przypisań → ${target.display_name || toDispatcherId}`,
+    })
+    await syncFleetDataToTms()
+    sendFleetOperationResult(requestId, true, 'bulk-reassign', `${changedIds.length} ${changedIds.length === 1 ? 'kierowca został przepisany' : 'kierowców zostało przepisanych'} na stałe do: ${target.display_name || 'wybrany spedytor'}.`)
+  } catch (error) {
+    sendFleetOperationResult(requestId, false, 'bulk-reassign', error?.message || 'Nie udało się przepisać zaznaczonych kierowców.')
   }
 }
 
@@ -3920,7 +4009,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v121-grouped-map-routes"
+          src="/tms.html?embedded=1&build=request-workflow-v123-order-entry-tutorial"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4106,6 +4195,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-fleet-reassign') {
       await reassignFleetSetFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-fleet-bulk-reassign') {
+      await bulkReassignFleetSetsFromTms(event.data)
       return
     }
 
