@@ -51,6 +51,8 @@ const ROLE_LABELS = {
   admin: 'Administrator',
 }
 
+const PRIMARY_ADMIN_EMAIL = 'radek90211@gmail.com'
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isValidUuid(value) {
@@ -67,6 +69,10 @@ function actualRole() {
 
 function isActualAdmin() {
   return actualRole() === 'admin'
+}
+
+function isPrimaryAdminAccount() {
+  return isActualAdmin() && String(currentUser?.email || '').trim().toLowerCase() === PRIMARY_ADMIN_EMAIL
 }
 
 function currentActorId() {
@@ -544,21 +550,26 @@ function adminPanelLayoutStyles() {
       .admin-summary-item span { display:block; margin-bottom:2px; color:#64748b; font-size:11px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
       .admin-summary-item strong { color:#0f172a; font-size:18px; }
       #admin-role-preview { margin-bottom:14px!important; border-radius:12px!important; box-shadow:none!important; }
-      .admin-role-guide { margin:0 0 16px; padding:16px; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 5px 18px rgba(15,23,42,.055); }
-      .admin-role-guide-head { display:flex; align-items:end; justify-content:space-between; gap:16px; margin-bottom:13px; }
-      .admin-role-guide-head h2 { margin:0 0 4px; color:#0f172a; font-size:17px; }
-      .admin-role-guide-head p { margin:0; }
-      .admin-role-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
-      .admin-role-card { min-width:0; padding:13px; border:1px solid #e2e8f0; border-radius:13px; background:#f8fafc; }
+      .admin-role-guide { margin:0 0 14px; border:1px solid #dbe3ee; border-radius:12px; background:#fff; box-shadow:0 2px 9px rgba(15,23,42,.045); }
+      .admin-role-guide > summary { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:48px; padding:7px 12px; color:#0f172a; cursor:pointer; list-style:none; }
+      .admin-role-guide > summary::-webkit-details-marker { display:none; }
+      .admin-role-guide-summary-copy { display:flex; align-items:center; gap:10px; min-width:0; }
+      .admin-role-guide-summary-copy strong { font-size:14px; white-space:nowrap; }
+      .admin-role-guide-categories { overflow:hidden; color:#64748b; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+      .admin-role-guide-toggle { flex:0 0 auto; padding:6px 9px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; color:#334155; font-size:11px; font-weight:800; }
+      .admin-role-guide-toggle::after { content:'Rozwiń'; }
+      .admin-role-guide[open] .admin-role-guide-toggle::after { content:'Zwiń'; }
+      .admin-role-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0 10px 10px; }
+      .admin-role-card { min-width:0; padding:11px; border:1px solid #e2e8f0; border-radius:11px; background:#f8fafc; }
       .admin-role-card h3 { display:flex; align-items:center; gap:8px; margin:0 0 8px; color:#0f172a; font-size:14px; }
       .admin-role-mark { width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:#64748b; }
       .admin-role-card--dispatcher .admin-role-mark { background:#2563eb; }
       .admin-role-card--manager .admin-role-mark { background:#7c3aed; }
       .admin-role-card--accounting .admin-role-mark { background:#059669; }
       .admin-role-card--admin .admin-role-mark { background:#dc2626; }
-      .admin-role-card p { min-height:34px; margin:0 0 8px; color:#475569; font-size:11px; line-height:1.45; }
-      .admin-role-card ul { display:grid; gap:5px; margin:0; padding-left:17px; color:#1e293b; font-size:11px; line-height:1.4; }
-      .admin-role-card .admin-role-limit { margin-top:9px; padding-top:8px; border-top:1px solid #e2e8f0; color:#64748b; font-size:10px; line-height:1.4; }
+      .admin-role-card p { min-height:31px; margin:0 0 7px; color:#475569; font-size:10px; line-height:1.4; }
+      .admin-role-card ul { display:grid; gap:4px; margin:0; padding-left:16px; color:#1e293b; font-size:10px; line-height:1.35; }
+      .admin-role-card .admin-role-limit { margin-top:7px; padding-top:7px; border-top:1px solid #e2e8f0; color:#64748b; font-size:9px; line-height:1.35; }
       .admin-section-title { display:flex; align-items:end; justify-content:space-between; gap:16px; margin:26px 2px 12px; }
       .admin-section-title h2 { margin:0; font-size:18px; color:#0f172a; }
       .admin-section-title p { margin:4px 0 0; }
@@ -587,6 +598,14 @@ function adminPanelLayoutStyles() {
       .user-row .active-check { align-self:center; }
       .user-row .user-save { min-height:40px; }
       .compact-form { padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
+      .admin-tools-grid { display:grid; grid-template-columns:minmax(240px,.55fr) minmax(0,1.45fr); gap:14px; margin-bottom:16px; }
+      .admin-tool-card { margin:0; }
+      .admin-tool-card .section-heading { min-height:0; }
+      .admin-tool-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .admin-audit-list { display:grid; gap:7px; max-height:420px; overflow:auto; margin-top:10px; padding-right:4px; }
+      .admin-audit-row { display:grid; grid-template-columns:145px minmax(120px,.7fr) minmax(150px,.8fr) minmax(220px,1.5fr); gap:10px; align-items:center; padding:9px 10px; border:1px solid #e2e8f0; border-radius:10px; background:#fbfdff; font-size:12px; }
+      .admin-user-badge { display:inline-flex; align-items:center; width:max-content; max-width:100%; padding:3px 8px; border:1px solid rgba(15,23,42,.14); border-radius:999px; color:#0f172a; font-weight:850; }
+      .admin-audit-details { min-width:0; overflow:hidden; color:#52627a; text-overflow:ellipsis; white-space:nowrap; }
       #admin-message-box { position:sticky; top:12px; z-index:20; margin-bottom:16px; box-shadow:0 6px 18px rgba(15,23,42,.12); }
       @media(max-width:1120px) {
         .admin-role-grid { grid-template-columns:1fr 1fr; }
@@ -598,7 +617,10 @@ function adminPanelLayoutStyles() {
         .admin-header { align-items:flex-start; padding:15px; }
         .admin-header-summary { display:none; }
         .admin-grid { grid-template-columns:1fr; }
-        .admin-role-guide { padding:13px; }
+        .admin-tools-grid { grid-template-columns:1fr; }
+        .admin-audit-row { grid-template-columns:1fr 1fr; }
+        .admin-audit-details { grid-column:1/-1; white-space:normal; }
+        .admin-role-guide-categories { display:none; }
         .admin-card .section-heading { min-height:0; }
         .user-row { grid-template-columns:1fr 1fr; }
         .user-identity { grid-column:1/-1; }
@@ -609,6 +631,8 @@ function adminPanelLayoutStyles() {
         .admin-card { padding:13px; border-radius:13px; }
         .admin-role-grid { grid-template-columns:1fr; }
         .admin-role-card p { min-height:0; }
+        .admin-role-guide > summary { align-items:flex-start; }
+        .admin-role-guide-summary-copy { display:grid; gap:2px; }
         .user-row { grid-template-columns:1fr; }
         .user-identity { grid-column:auto; }
         .admin-row .row-actions { justify-content:flex-start; }
@@ -619,10 +643,11 @@ function adminPanelLayoutStyles() {
 
 function renderAdminRoleGuide() {
   return `
-    <section class="admin-role-guide" aria-labelledby="admin-role-guide-title">
-      <div class="admin-role-guide-head">
-        <div><h2 id="admin-role-guide-title">Funkcje kategorii użytkowników</h2><p class="muted">Zakres pracy i najważniejsze ograniczenia każdej kategorii.</p></div>
-      </div>
+    <details class="admin-role-guide">
+      <summary>
+        <span class="admin-role-guide-summary-copy"><strong>Kategorie użytkowników i uprawnienia</strong><span class="admin-role-guide-categories">Spedytor · Kierownik oddziału · Rozliczenia · Administrator</span></span>
+        <span class="admin-role-guide-toggle" aria-hidden="true"></span>
+      </summary>
       <div class="admin-role-grid">
         <article class="admin-role-card admin-role-card--dispatcher">
           <h3><span class="admin-role-mark"></span>Spedytor</h3>
@@ -669,11 +694,55 @@ function renderAdminRoleGuide() {
             <li>Korzysta z AI, importu, eksportu i historii operacji.</li>
             <li>Może uruchomić podgląd funkcji każdej kategorii.</li>
           </ul>
-          <div class="admin-role-limit">Może usunąć klienta oczekującego, ale przypisanie opiekuna zatwierdza kierownik właściwego oddziału.</div>
+          <div class="admin-role-limit">Może usunąć klienta oczekującego, ale przypisanie opiekuna zatwierdza kierownik właściwego oddziału. Rolę Administratora może nadawać wyłącznie właściciel konta radek90211@gmail.com.</div>
         </article>
       </div>
-    </section>
+    </details>
   `
+}
+
+function adminAuditActorBadge(row, users) {
+  const actorId = String(row?.actorId || '')
+  const actorName = String(row?.actorName || 'Nieznany użytkownik')
+  const user = users.find((item) => String(item?.id || '') === actorId)
+    || users.find((item) => String(item?.display_name || '').toLocaleLowerCase('pl') === actorName.toLocaleLowerCase('pl'))
+  const color = String(user?.ui_color || (row?.actorRole === 'admin' ? '#FCA5A5' : '#E2E8F0'))
+  return `<span class="admin-user-badge" style="background:${escapeHtml(color)}">${escapeHtml(actorName)}</span>`
+}
+
+function renderAdminTools(auditRows, users) {
+  const rows = Array.isArray(auditRows) ? auditRows.slice(0, 500) : []
+  return `
+    <div class="admin-section-title"><div><h2>Narzędzia administratora</h2></div></div>
+    <div class="admin-tools-grid">
+      <section class="admin-card admin-tool-card">
+        <div class="section-heading"><div><h2>Import / eksport</h2></div></div>
+        <div class="admin-tool-actions"><button id="admin-data-transfer" class="primary" type="button">Otwórz import / eksport</button></div>
+      </section>
+      <section class="admin-card admin-tool-card">
+        <div class="section-heading">
+          <div><h2>Historia operacji</h2></div>
+          <div class="admin-tool-actions"><button id="admin-audit-refresh" class="secondary" type="button">Odśwież</button><button id="admin-audit-export" class="secondary" type="button" ${rows.length ? '' : 'disabled'}>Eksport CSV</button></div>
+        </div>
+        <div class="admin-audit-list">${rows.length ? rows.map((row) => `<div class="admin-audit-row"><span>${escapeHtml(new Date(row.createdAt).toLocaleString('pl-PL'))}</span>${adminAuditActorBadge(row, users)}<strong>${escapeHtml(row.action || '-')}</strong><span class="admin-audit-details" title="${escapeHtml(row.details || '')}">${escapeHtml(row.details || `${row.entityType || ''} ${row.entityId || ''}`.trim() || '-')}</span></div>`).join('') : '<p class="muted">Brak zapisanych operacji.</p>'}</div>
+      </section>
+    </div>`
+}
+
+function exportAdminAuditCsv(rows = []) {
+  const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
+  const lines = [
+    ['Data', 'Użytkownik', 'Rola', 'Oddział', 'Operacja', 'Typ', 'ID', 'Szczegóły'],
+    ...rows.map((row) => [row.createdAt, row.actorName, row.actorRole, row.branchName, row.action, row.entityType, row.entityId, row.details]),
+  ].map((row) => row.map(quote).join(';')).join('\n')
+  const blob = new Blob([`\ufeff${lines}`], { type: 'text/csv;charset=utf-8' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `historia-operacji-${adminLocalDateIso()}.csv`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
 function renderAdminPanelFromCache(message = '', messageType = 'success') {
@@ -689,6 +758,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   const commonRateHistory = Array.from(new Map(
     (carrierRates.rateHistory || []).slice().reverse().map((item) => [`${item.effectiveFrom}|${item.ratePerKm}`, item])
   ).values()).slice(0, 5)
+  const primaryAdmin = isPrimaryAdminAccount()
+  const auditRows = adminCache.audit || []
 
   app.innerHTML = `${adminPanelLayoutStyles()}
     <main class="admin-shell">
@@ -709,6 +780,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 
       ${renderAdminPreviewBar()}
       ${renderAdminRoleGuide()}
+      ${renderAdminTools(auditRows, users)}
 
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
@@ -761,7 +833,9 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                 <option value="dispatcher">Spedytor</option>
                 <option value="branch_manager">Kierownik oddziału</option>
                 <option value="accounting">Rozliczenia</option>
+                ${primaryAdmin ? '<option value="admin">Administrator</option>' : ''}
               </select>
+              ${primaryAdmin ? '<small class="muted">Tylko to konto może nadawać rolę Administratora.</small>' : ''}
             </label>
             <label>Oddział
               <select id="invite-branch" required>
@@ -819,8 +893,9 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 
         <div class="user-list">
           ${users.length ? users.map((item) => {
-            const lockedAdmin = item.role === 'admin'
-            const userColor = lockedAdmin ? '#EF4444' : (item.ui_color || '#E2E8F0')
+            const ownPrimaryAccount = primaryAdmin && String(item.id || '') === String(currentUser?.id || '')
+            const lockedAdmin = item.role === 'admin' && (!primaryAdmin || ownPrimaryAccount)
+            const userColor = item.role === 'admin' ? '#EF4444' : (item.ui_color || '#E2E8F0')
             return `
               <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
                 <div class="user-identity">
@@ -835,7 +910,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                     <option value="dispatcher" ${item.role === 'dispatcher' ? 'selected' : ''}>Spedytor</option>
                     <option value="branch_manager" ${item.role === 'branch_manager' ? 'selected' : ''}>Kierownik oddziału</option>
                     <option value="accounting" ${item.role === 'accounting' ? 'selected' : ''}>Rozliczenia</option>
-                    ${lockedAdmin ? '<option value="admin" selected>Administrator</option>' : ''}
+                    ${primaryAdmin || item.role === 'admin' ? `<option value="admin" ${item.role === 'admin' ? 'selected' : ''}>Administrator</option>` : ''}
                   </select>
                 </label>
                 <label>Oddział
@@ -862,6 +937,30 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 
   document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
   wireAdminPreviewControls()
+  document.querySelector('#admin-data-transfer')?.addEventListener('click', () => {
+    if (!isActualAdmin()) return
+    openAdminDataTransferAfterAuth = true
+    renderDashboard(currentUser)
+  })
+  document.querySelector('#admin-audit-refresh')?.addEventListener('click', () => renderAdminPanel('', 'success', true))
+  document.querySelector('#admin-audit-export')?.addEventListener('click', () => exportAdminAuditCsv(auditRows))
+
+  const inviteRole = document.querySelector('#invite-role')
+  const inviteBranch = document.querySelector('#invite-branch')
+  const inviteColor = document.querySelector('#invite-ui-color')
+  const syncAdminInviteFields = () => {
+    const selectedAdmin = inviteRole?.value === 'admin'
+    if (inviteBranch) {
+      inviteBranch.required = !selectedAdmin
+      if (selectedAdmin) inviteBranch.value = ''
+    }
+    if (inviteColor) {
+      inviteColor.disabled = selectedAdmin
+      if (selectedAdmin) inviteColor.value = '#ef4444'
+    }
+  }
+  inviteRole?.addEventListener('change', syncAdminInviteFields)
+  syncAdminInviteFields()
 
   document.querySelectorAll('.admin-row').forEach((row) => {
     const id = row.dataset.branchId
@@ -939,12 +1038,16 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
     if (button) button.textContent = 'Wysyłanie…'
 
     try {
+      const requestedRole = document.querySelector('#invite-role')?.value
+      if (requestedRole === 'admin' && !isPrimaryAdminAccount()) {
+        throw new Error(`Rolę Administratora może nadawać wyłącznie ${PRIMARY_ADMIN_EMAIL}.`)
+      }
       const result = await adminApi('/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           displayName: document.querySelector('#invite-display-name')?.value.trim(),
           email: document.querySelector('#invite-email')?.value.trim(),
-          role: document.querySelector('#invite-role')?.value,
+          role: requestedRole,
           branchId: document.querySelector('#invite-branch')?.value,
           uiColor: document.querySelector('#invite-ui-color')?.value,
         }),
@@ -1008,12 +1111,16 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       setAdminBusy(true)
 
       try {
+        const requestedRole = row.querySelector('.user-role')?.value
+        if (requestedRole === 'admin' && !isPrimaryAdminAccount()) {
+          throw new Error(`Rolę Administratora może nadawać wyłącznie ${PRIMARY_ADMIN_EMAIL}.`)
+        }
         const result = await adminApi('/api/admin/users', {
           method: 'PATCH',
           body: JSON.stringify({
             userId,
             displayName: row.querySelector('.user-display-name')?.value.trim(),
-            role: row.querySelector('.user-role')?.value,
+            role: requestedRole,
             branchId: row.querySelector('.user-branch')?.value,
             uiColor: row.querySelector('.user-ui-color')?.value,
             active: Boolean(row.querySelector('.user-active')?.checked),
@@ -1050,6 +1157,9 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   suspendTmsRuntimeForAdminPanel()
 
   if (adminCache && !forceReload) {
+    if (!Array.isArray(adminCache.audit)) {
+      try { adminCache.audit = await loadCentralAudit() } catch (error) { adminCache.audit = [] }
+    }
     renderAdminPanelFromCache(message, messageType)
     return
   }
@@ -1070,7 +1180,8 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   `
 
   try {
-    adminCache = await loadAdminData()
+    const [adminData, audit] = await Promise.all([loadAdminData(), loadCentralAudit().catch(() => [])])
+    adminCache = { ...adminData, audit }
     renderAdminPanelFromCache(message, messageType)
   } catch (error) {
     app.innerHTML = `
@@ -1176,7 +1287,7 @@ async function loadFleetData() {
   const usageRows = usage || []
 
   let preferenceRows = []
-  if (currentRole() === 'dispatcher' && currentActorId()) {
+  if (['dispatcher', 'admin'].includes(currentRole()) && currentActorId()) {
     const { data: preferences, error: preferencesError } = await supabase
       .from('driver_row_preferences')
       .select('driver_id, color')
@@ -2921,7 +3032,7 @@ async function reassignFleetSetFromTms(message) {
       .select('id,branch_id,display_name')
       .eq('id', toDispatcherId)
       .eq('branch_id', String(assignment?.branch_id || ''))
-      .eq('role', 'dispatcher')
+      .in('role', ['dispatcher', 'branch_manager'])
       .eq('active', true)
       .maybeSingle()
     if (targetError) throw targetError
@@ -2971,7 +3082,7 @@ async function bulkReassignFleetSetsFromTms(message) {
       .from('profiles')
       .select('id,branch_id,display_name')
       .eq('id', toDispatcherId)
-      .eq('role', 'dispatcher')
+      .in('role', ['dispatcher', 'branch_manager'])
       .eq('active', true)
       .maybeSingle()
     if (targetError) throw targetError
@@ -3021,8 +3132,8 @@ async function setDriverRowColorFromTms(message) {
   const color = String(message?.color || '').trim().toLowerCase()
   const allowedColors = new Set(['', 'yellow', 'green', 'blue', 'pink', 'purple', 'orange', 'gray'])
 
-  if (currentRole() !== 'dispatcher' || !currentActorId()) {
-    sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić wyłącznie spedytor.')
+  if (!['dispatcher', 'admin'].includes(currentRole()) || !currentActorId()) {
+    sendFleetOperationResult(requestId, false, 'color', 'Kolor wiersza może ustawić spedytor lub administrator.')
     return
   }
   if (!driverId || !allowedColors.has(color)) {
@@ -3031,15 +3142,16 @@ async function setDriverRowColorFromTms(message) {
   }
 
   try {
-    const { data: visibleAssignments, error: ownershipError } = await supabase
+    let assignmentQuery = supabase
       .from('fleet_assignments')
       .select('id')
       .eq('driver_id', driverId)
-      .eq('branch_id', currentBranchId())
       .eq('active', true)
       .limit(1)
+    if (currentRole() !== 'admin') assignmentQuery = assignmentQuery.eq('branch_id', currentBranchId())
+    const { data: visibleAssignments, error: ownershipError } = await assignmentQuery
     if (ownershipError) throw ownershipError
-    if (!visibleAssignments?.length) throw new Error('Możesz oznaczać kolorem tylko kierowców widocznych w Twoim oddziale.')
+    if (!visibleAssignments?.length) throw new Error('Nie znaleziono aktywnego kierowcy dostępnego w Twoim zakresie.')
 
     if (!color) {
       const { error } = await supabase
@@ -3981,7 +4093,23 @@ function renderAdminPreviewBar() {
       <button id="admin-preview-apply" type="button" class="primary compact-primary" style="box-sizing:border-box;height:34px;min-height:34px;margin:0;padding:0 14px;align-self:center;">Pokaż funkcje</button>
       ${adminPreview ? '<button id="admin-preview-clear" type="button" class="secondary" style="box-sizing:border-box;height:34px;min-height:34px;margin:0;padding:0 12px;align-self:center;">Wróć do Administratora</button>' : ''}
     </section>
-    <style>@media(max-width:900px){#admin-role-preview{grid-template-columns:1fr!important}#admin-role-preview label{justify-content:space-between}#admin-preview-role{min-width:0!important;flex:1}}</style>
+    <style>
+      #admin-role-preview { display:flex!important; flex-wrap:wrap; align-items:center!important; gap:10px!important; padding:12px!important; }
+      #admin-role-preview > div:first-child { flex:1 1 230px; min-height:36px!important; margin:0; padding:0; font-size:14px!important; line-height:20px; }
+      #admin-role-preview > label { display:flex!important; flex-direction:row!important; align-items:center!important; gap:10px!important; min-height:36px!important; margin:0!important; padding:0!important; font-size:12px!important; line-height:20px!important; text-transform:none!important; }
+      #admin-role-preview select, #admin-role-preview button { box-sizing:border-box!important; display:inline-flex; align-items:center; justify-content:center; height:36px!important; min-height:36px!important; max-height:36px!important; margin:0!important; padding:0 14px!important; border:1px solid transparent; border-radius:8px!important; font-family:inherit!important; font-size:14px!important; font-weight:700!important; line-height:20px!important; white-space:nowrap; }
+      #admin-role-preview select { width:220px; min-width:220px!important; padding-right:30px!important; border-color:#cbd5e1; }
+      #admin-role-preview button { flex:0 0 auto; }
+      @media(max-width:760px) {
+        #admin-role-preview > div:first-child { flex-basis:100%; }
+        #admin-role-preview > label { flex:1 1 260px; }
+        #admin-role-preview select { flex:1; width:auto; min-width:0!important; }
+      }
+      @media(max-width:480px) {
+        #admin-role-preview > label { flex-basis:100%; }
+        #admin-role-preview button { flex:1 1 auto; }
+      }
+    </style>
   `
 }
 
@@ -4091,7 +4219,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v125-admin-role-guide"
+          src="/tms.html?embedded=1&build=request-workflow-v130-admin-tools"
         title="Top Dragon TMS"
       ></iframe>
     </main>
