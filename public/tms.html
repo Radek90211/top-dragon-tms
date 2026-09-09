@@ -62091,6 +62091,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     let CENTRAL_LOAD_QUEUE_READY = false;
     const CENTRAL_LOAD_QUEUE_BASELINE = new Map();
     const CENTRAL_LOAD_QUEUE_PENDING_UPSERT = new Set();
+    const CENTRAL_LOAD_QUEUE_PENDING_SINCE = new Map();
     const CENTRAL_LOAD_QUEUE_PENDING_DELETE = new Set();
     let CENTRAL_LOAD_QUEUE_SYNC_TIMER = null;
     let CENTRAL_LOAD_QUEUE_ERROR_AT = 0;
@@ -63359,7 +63360,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeUnloadBoardLabel(route) {
       if (route?.emptyTile) return "PUSTY";
       if (isFreeDayRoute(route)) return "WOLNE";
-      return [route?.unload, route?.secondUnload]
+      return (route?.orderStops?.length ? route.orderStops.filter(p => p.type === "delivery").map(orderStopLabel) : [route?.unload, route?.secondUnload])
         .map(value => displayCity(value) || cityFromText(value) || compactRouteLocationLabel(value))
         .filter(Boolean)
         .join(" / ") || "ROZŁADUNEK";
@@ -63368,7 +63369,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeUnloadBoardTitle(route) {
       if (route?.emptyTile) return "PUSTY kafelek - otwórz szczegóły, aby go uzupełnić";
       if (isFreeDayRoute(route)) return "WOLNE";
-      return [route?.unload, route?.secondUnload]
+      return (route?.orderStops?.length ? route.orderStops.filter(p => p.type === "delivery").map(orderStopLabel) : [route?.unload, route?.secondUnload])
         .map(value => displayLocationWithPostal(value))
         .filter(Boolean)
         .join(" / ") || "ROZŁADUNEK";
@@ -63377,7 +63378,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeLoadBoardLabel(route) {
       if (route?.emptyTile) return "do uzupełnienia";
       if (isFreeDayRoute(route)) return "WOLNE";
-      return compactRouteLocationLabel(route?.load) || "-";
+      return (route?.orderStops?.length ? route.orderStops.filter(p => p.type === "pickup").map(p => compactRouteLocationLabel(orderStopLabel(p))).join(" / ") : compactRouteLocationLabel(route?.load)) || "-";
     }
 
     function renderRouteLoadSub(route, forceVisible = false) {
@@ -63588,7 +63589,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function plannedRouteVisible(route) {
-      return Boolean(route && queueEntryIsTodayOrFuture(route));
+      return Boolean(route);
     }
 
     function visibleFutureRoutes() {
@@ -68893,7 +68894,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const key = exactAddressKey(value);
       const cached = key ? EXACT_ADDRESS_COORDS_CACHE.get(key) : null;
       if (!cached) return null;
-      return { city: cached.city || cityFromText(value), coords: [Number(cached.lat), Number(cached.lng)], exact: true, label: cached.label || String(value || "") };
+      return { city: cached.city || cityFromText(value), lat: Number(cached.lat), lng: Number(cached.lng), coords: [Number(cached.lat), Number(cached.lng)], exact: true, label: cached.label || String(value || "") };
     }
 
     function cacheGeocodeResult(value, point) {
@@ -69367,7 +69368,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function visibleProposedLoadsForPanel() {
       return (state.proposedLoads || [])
-        .filter(route => !proposedLoadExpiredForPanel3L51(route) && queueRouteVisible(route) && queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
+        .filter(route => queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.startHour ?? 8) - Number(b.startHour ?? 8));
     }
 
@@ -69970,7 +69971,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="proposed-drawer-head">
             <div>
               <h2 style="font-size:18px;">Wolne ładunki</h2>
-              <div class="hint">${availableCount} wolnych ładunków · dzisiaj i przyszłe daty</div>
+              <div class="hint">${availableCount} wolnych ładunków</div>
             </div>
             <button class="btn" type="button" onclick="toggleProposedPanel(false)">Zamknij</button>
           </div>
@@ -70028,6 +70029,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
                 ${esc(displayLocationWithPostal(route.load) || route.load || "-")} → ${esc(displayLocationWithPostal(route.unload) || route.unload || "-")}
               </div>
+              ${orderStopsSummary(route)}
               <div class="proposed-load-dates">
                 <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
                 <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
@@ -70112,7 +70114,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
       state.proposedEditId = route.id;
-      state.prefill = { ...route, proposedLoad: true };
+      state.prefill = { ...route, queueBranchId:centralLoadQueueBranchId(route), proposedLoad: true };
       state.addOpen = true;
       syncAddModal();
     }
@@ -71069,18 +71071,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function normalizePdfOrderAnalysis(payload = {}) {
       const defaults = pdfImportData();
       const pickup = payload.pickup || payload.load || payload.loading || payload.zaladunek || {};
+      const lastDelivery = (payload.stops || payload.orderStops || []).filter(p => p.type === "delivery").at(-1);
       const delivery = payload.delivery || payload.unload || payload.unloading || payload.rozladunek || {};
       const listToText = value => Array.isArray(value) ? value.filter(Boolean).join("\n") : String(value || "");
       const cityLabel = point => [point.city, point.postalCode].filter(Boolean).join(" ") || point.city || point.place || point.location || point.fullAddress || "";
       const addressLabel = point => point.fullAddress || point.address || [point.street, point.number].filter(Boolean).join(" ") || "";
       return {
         ...defaults,
+        ...orderStopFields(payload),
         loadDate: pickup.date || defaults.loadDate,
         loadTime: pickup.time || pickup.hour || defaults.loadTime,
         loadCity: cityLabel(pickup) || defaults.loadCity,
         loadAddress: addressLabel(pickup) || defaults.loadAddress,
-        unloadDate: delivery.date || defaults.unloadDate,
-        unloadTime: delivery.time || delivery.hour || defaults.unloadTime,
+        unloadDate: lastDelivery?.date || delivery.date || defaults.unloadDate,
+        unloadTime: lastDelivery?.time || delivery.time || delivery.hour || defaults.unloadTime,
         unloadCity: cityLabel(delivery) || defaults.unloadCity,
         unloadAddress: addressLabel(delivery) || defaults.unloadAddress,
         client: String(payload.client || payload.customer || defaults.client || "").trim(),
@@ -71270,6 +71274,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         : endDate;
       state.newRouteBaseKm = 0;
       state.prefill = {
+        ...orderStopFields(data),
         proposedLoad: targetProposed,
         futureQueue: !targetProposed && !targetPlan,
         driverId: selectedDriverId,
@@ -71479,13 +71484,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!Array.isArray(list)) return [];
       return list.map((item, index) => {
         const pickup = item.pickup || item.load || item.loading || item.zaladunek || item.załadunek || {};
+        const lastDelivery = (item.stops || item.orderStops || []).filter(p => p.type === "delivery").at(-1);
         const delivery = item.delivery || item.unload || item.unloading || item.rozladunek || item.rozładunek || {};
-        const loadLabel = pickup.fullAddress || [pickup.city, pickup.postalCode].filter(Boolean).join(" ") || pickup.place || pickup.location || item.loadCity || item.load || "";
-        const unloadLabel = delivery.fullAddress || [delivery.city, delivery.postalCode].filter(Boolean).join(" ") || delivery.place || delivery.location || item.unloadCity || item.unload || "";
+        const loadLabel = [pickup.city, pickup.postalCode].filter(Boolean).join(" ") || pickup.fullAddress || pickup.place || pickup.location || item.loadCity || item.load || "";
+        const unloadLabel = [delivery.city, delivery.postalCode].filter(Boolean).join(" ") || delivery.fullAddress || delivery.place || delivery.location || item.unloadCity || item.unload || "";
         const load = normalizeLocation(loadLabel) || String(loadLabel || "").trim();
         const unload = normalizeLocation(unloadLabel) || String(unloadLabel || "").trim();
         if (!load || !unload) return null;
         return {
+          ...orderStopFields(item),
           load,
           unload,
           loadAddress: pickup.address || pickup.fullAddress || item.loadAddress || "",
@@ -71493,8 +71500,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           date: normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate()),
           loadDate: normalizeTextImportDate(pickup.date || item.loadDate || item.date, state.reportDate || currentAppDate()),
           startHour: textImportHour(pickup.time || pickup.hour || item.startTime || item.startHour, 12),
-          endDate: normalizeTextImportDate(delivery.date || item.unloadDate || item.endDate, normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate())),
-          endHour: textImportHour(delivery.time || delivery.hour || item.endTime || item.endHour, 10),
+          endDate: normalizeTextImportDate(lastDelivery?.date || delivery.date || item.unloadDate || item.endDate, normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate())),
+          endHour: textImportHour(lastDelivery?.time || delivery.time || delivery.hour || item.endTime || item.endHour, 10),
           notes: [
             item.reference ? `Ref.: ${item.reference}` : "",
             item.currency && String(item.currency).toUpperCase() !== "PLN" && Number(item.rate || 0) > 0 ? `Stawka z wiadomości: ${item.rate} ${String(item.currency).toUpperCase()}` : "",
@@ -71525,6 +71532,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rate = Number(item.rate || 0);
       const oversizedCost = Number(item.oversizedCost || 0);
       return {
+        ...orderStopFields(item),
         id: `ptext${Date.now()}${index}${Math.random().toString(36).slice(2, 7)}`,
         driverId: "",
         date: routeDate,
@@ -72211,7 +72219,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="future-drawer-head">
             <div>
               <h2>Planowane relacje</h2>
-              <div class="hint">Relacje planowane dla oddziału · dzisiaj i przyszłe daty.</div>
+              <div class="hint">Relacje planowane dla oddziału</div>
             </div>
             <button class="btn" type="button" onclick="toggleFuturePanel(false)">Zamknij</button>
           </div>
@@ -72254,6 +72262,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
                 ${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayLocationWithPostal(route.load) || "-")} → ${esc(displayLocationWithPostal(route.unload) || "-")}
               </div>
+              ${orderStopsSummary(route)}
               ${detailsHidden ? "" : `
                 <div class="future-card-meta">Data relacji: <b>${esc(formatDateForInput(route.date))}</b> · ${hourLabel(Number(route.startHour ?? 8))} · ${totalKm(route)} km · ${money(profit(route))}</div>
                 <div class="future-card-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'branch')}</div>
@@ -72306,7 +72315,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
       state.futureEditId = route.id;
-      state.prefill = { ...route, futureQueue: true };
+      state.prefill = { ...route, queueBranchId:centralLoadQueueBranchId(route), futureQueue: true };
       state.addOpen = true;
       syncAddModal();
     }
@@ -74896,6 +74905,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function applyRouteOrderAnalysis(route, payload = {}) {
       const data = normalizePdfOrderAnalysis(payload);
+      Object.assign(route, orderStopFields(payload));
       const fields = routeOrderExtractedFields(payload, data);
       const keys = new Set(fields.map(field => field.key));
       let changed = 0;
@@ -75345,6 +75355,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <section class="section" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:800;">Ta relacja została odrzucona.</section>
             ` : ""}
 
+            ${renderOrderStops(route, route.id)}
             <section class="section details-route-section">
               <div class="details-section-title">Trasa</div>
               <div class="details-stop-card">
@@ -77405,8 +77416,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!address && postalGeoCoordsFromText(location)) return false;
       if (!searchTextNeedsPreciseGeocode(combined) && !searchTextHasPostalCode(location) && getCoords(location)) return false;
       return scheduleGeocodeThenRefresh(combined, point => {
-        route[config.coordKey] = { lat: Number(point.lat), lng: Number(point.lng), label: point.label || combined };
-        if (typeof refreshFn === "function") refreshFn();
+        const next = { lat: Number(point.lat), lng: Number(point.lng), label: point.label || combined };
+        if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
+        const previous = route[config.coordKey];
+        const changed = !previous || Number(previous.lat) !== next.lat || Number(previous.lng) !== next.lng || previous.label !== next.label;
+        route[config.coordKey] = next;
+        // A cached result may be requested again during rendering. Refresh only
+        // when it changed; otherwise callbacks can starve saves and input events.
+        if (changed && typeof refreshFn === "function") refreshFn();
       });
     }
 
@@ -79055,7 +79072,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function duplicateRouteForBulk(route, idPrefix, index) {
-      const copy = { ...route };
+      const copy = { ...route, orderStops: cloneData(route.orderStops || []) };
       copy.id = `${idPrefix}${Date.now()}${index}${Math.random().toString(36).slice(2, 7)}`;
       copy.bulkIndex = index + 1;
       copy.bulkTotal = Number(route.bulkTotal || 1);
@@ -79101,6 +79118,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route[field] = field === "orderCurrency"
         ? (["PLN", "EUR"].includes(String(value || "").toUpperCase()) ? String(value).toUpperCase() : "PLN")
         : (shouldNormalize ? normalizeLocation(value) : value);
+      reconcileOrderStops(route);
       if (field === "client") {
         const client = (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(route.client || ""));
         route.clientId = client?.id || "";
@@ -79396,7 +79414,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const oversizedTransportValue = Boolean(String(document.getElementById("new-oversized")?.value || "0") === "1" || oversizedCostValue > 0);
       const futureGroupValue = formValue("new-future-group").trim();
       const visibilityScopeValue = proposedMode || futureMode ? (formValue("new-visibility-scope") === "branch" ? "branch" : "all") : "all";
-      const visibilityBranchValue = visibilityScopeValue === "branch" ? String(state.user?.branch || dispatcherBranch(createdBy) || "") : "";
+      const selectedQueueBranchId = String(document.getElementById("new-queue-branch")?.value || state.prefill?.queueBranchId || state.prefill?._centralBranchId || state.user?.branchId || "");
+      const selectedQueueBranchName = USERS.find(user => user.branchId === selectedQueueBranchId)?.branch || "";
+      const visibilityBranchValue = visibilityScopeValue === "branch" ? String(selectedQueueBranchName || state.user?.branch || dispatcherBranch(createdBy) || "") : "";
       const bulkCountValue = Math.max(1, Math.min(200, Math.floor(Number(formValue("new-bulk-count") || 1) || 1)));
       const baseValue = Number(state.newRouteBaseKm || state.prefill?.baseKm || 0);
       const carrierRatePerKmValue = freeDayValue ? 0 : carrierRatePerKmForDriver(driverId, routeDate);
@@ -79455,6 +79475,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         loadDate: state.prefill?.loadDate || "",
         load: freeDayValue ? "WOLNE" : loadValue,
         loadAddress: loadAddressValue,
+        orderStops: cloneData(state.prefill?.orderStops || []),
+        queueBranchId: selectedQueueBranchId,
         secondLoad: secondLoadValue,
         secondLoadAddress: secondLoadAddressValue,
         unload: freeDayValue ? "WOLNE" : unloadValue,
@@ -79524,6 +79546,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         aiSourceType: String(state.prefill?.aiSourceType || "")
       };
 
+      reconcileOrderStops(route);
+      if ((proposedMode || futureMode) && EMBEDDED_MODE && !centralLoadQueueBranchId(route)) {
+        showAppMessage("Wybierz oddział", "Wskaż oddział relacji przed zapisaniem.", "error");
+        return;
+      }
       if (state.prefill?.orderSourceFile instanceof Blob) {
         try {
           route.orderDocumentDataUrl = await routeOrderFileDataUrl(state.prefill.orderSourceFile);
@@ -79534,7 +79561,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
 
-      if (!freeDayValue && categoryCEstimate?.elapsedMin > 0) {
+      if (!freeDayValue && categoryCEstimate?.elapsedMin > 0 && !route.orderStops?.some(p => p.type === "delivery" && p.date)) {
         const estimatedHours = Number(categoryCEstimate.elapsedMin) / 60;
         if (proposedMode || futureMode) {
           // Dla kolejek liczymy koniec kalendarzowo, bez przycinania do aktualnego
@@ -79589,7 +79616,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const savedProposedItems = state.proposedEditId
           ? (state.proposedLoads || []).filter(item => item.id === route.id)
           : (state.proposedLoads || []).slice(-bulkCountValue);
-        if (!state.proposedEditId) savedProposedItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
+        savedProposedItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedProposedItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { proposed:true }));
         state.reportDate = route.date || state.reportDate || START_DATE;
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
@@ -79639,7 +79666,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const savedFutureItems = state.futureEditId
           ? (state.futureRoutes || []).filter(item => item.id === route.id)
           : (state.futureRoutes || []).slice(-bulkCountValue);
-        if (!state.futureEditId) savedFutureItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
+        savedFutureItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedFutureItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { future:true }));
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
@@ -80487,7 +80514,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function centralLoadQueueBranchId(route) {
-      const own = String(route?._centralBranchId || "").trim();
+      const own = String(route?._centralBranchId || route?.queueBranchId || "").trim();
       if (own) return own;
       const creator = String(route?.createdBy || route?.ownerDispatcher || "").trim();
       const creatorUser = creator ? USERS.find(user => String(user?.login || "").trim() === creator) : null;
@@ -80511,7 +80538,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function centralLoadQueueFingerprint(route) {
       const payload = centralSerializableLoadQueueRoute(route);
-      return payload ? JSON.stringify(payload) : "";
+      if (payload) {
+        payload.futureQueue = Boolean(payload.futureQueue);
+        payload.proposedLoad = Boolean(payload.proposedLoad);
+      }
+      return payload ? stableQueueJson(payload) : "";
     }
 
     function centralLoadQueueSetFingerprint() {
@@ -80534,6 +80565,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function applyCentralLoadQueueData(message) {
+      if (!CENTRAL_LOAD_QUEUE_READY) restoreQueueOutbox();
       const rows = Array.isArray(message?.rows) ? message.rows : [];
       const expiredStatsBefore = JSON.stringify(state.expiredProposedLoadStats || []);
       state.expiredProposedLoadStats = Array.isArray(message?.expiredProposedStats)
@@ -80551,7 +80583,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const kind = centralLoadQueueKind(route);
         const branchId = centralLoadQueueBranchId(route);
         const id = String(route?.id || "").trim();
-        if (kind && branchId && id) currentByKey.set(centralLoadQueueKey(branchId, kind, id), route);
+        if (kind && id) currentByKey.set(centralLoadQueueKey(branchId, kind, id), route);
       });
 
       const mergedFuture = [];
@@ -80580,10 +80612,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const local = currentByKey.get(key) || null;
         const localFingerprint = local ? centralLoadQueueFingerprint(local) : "";
         const baseline = CENTRAL_LOAD_QUEUE_BASELINE.get(key);
-        const localDirty = Boolean(local) && (baseline === undefined || localFingerprint !== baseline);
+        const localDirty = Boolean(local) && (Boolean(local._centralLocalCreatedAt) || baseline === undefined || localFingerprint !== baseline);
         const pending = CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key);
         const route = (pending || localDirty) && local ? local : payload;
-        if (local?._centralLocalCreatedAt) delete local._centralLocalCreatedAt;
+        if (local && localFingerprint === centralLoadQueueFingerprint(payload)) {
+          delete local._centralLocalCreatedAt;
+          CENTRAL_LOAD_QUEUE_BASELINE.set(key, localFingerprint);
+        }
 
         try {
           Object.defineProperty(route, "_centralBranchId", {
@@ -80602,7 +80637,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       currentByKey.forEach((route, key) => {
         if (remoteKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
-        const locallyCreatedRecently = Number(route?._centralLocalCreatedAt || 0) > Date.now() - 30000;
+        const locallyCreatedRecently = Boolean(route?._centralLocalCreatedAt) || centralLoadQueueFingerprint(route) !== CENTRAL_LOAD_QUEUE_BASELINE.get(key);
         if (!wasReady || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key) || !CENTRAL_LOAD_QUEUE_BASELINE.has(key) || locallyCreatedRecently) {
           addMerged(route, centralLoadQueueKind(route));
         }
@@ -80621,12 +80656,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const expiredStatsChanged = expiredStatsBefore !== JSON.stringify(state.expiredProposedLoadStats || []);
       if (beforeFingerprint !== afterFingerprint) renderKeepingScroll();
       else if (expiredStatsChanged) syncProposedPanel();
+      persistQueueOutbox();
       scheduleCentralLoadQueueDiff(120);
     }
 
     function syncCentralLoadQueueDiff() {
+      persistQueueOutbox();
       if (!EMBEDDED_MODE || !state.user || !CENTRAL_LOAD_QUEUE_READY) return;
       if (String(state.user?.supabaseRole || "") === "accounting") return;
+
+      for (const [key, sentAt] of CENTRAL_LOAD_QUEUE_PENDING_SINCE) {
+        if (Date.now() - sentAt < 30000) continue;
+        CENTRAL_LOAD_QUEUE_PENDING_UPSERT.delete(key);
+        CENTRAL_LOAD_QUEUE_PENDING_SINCE.delete(key);
+        CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+      }
 
       const currentKeys = new Set();
       const all = [...(state.futureRoutes || []), ...(state.proposedLoads || [])];
@@ -80652,7 +80696,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const payload = centralSerializableLoadQueueRoute(route);
         if (!payload) return;
 
+        route._centralLocalCreatedAt = route._centralLocalCreatedAt || Date.now();
         CENTRAL_LOAD_QUEUE_PENDING_UPSERT.add(key);
+        CENTRAL_LOAD_QUEUE_PENDING_SINCE.set(key, Date.now());
         CENTRAL_LOAD_QUEUE_BASELINE.set(key, fingerprint);
         window.parent?.postMessage({
           type: "top-dragon-load-queue-upsert",
@@ -80664,6 +80710,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }, window.location.origin);
       });
 
+      persistQueueOutbox();
       for (const key of Array.from(CENTRAL_LOAD_QUEUE_BASELINE.keys())) {
         if (currentKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key) || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) continue;
         const parts = key.split("::");
@@ -80696,7 +80743,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadId = String(message?.loadId || "").trim();
       const key = centralLoadQueueKey(branchId, queueType, loadId);
       if (message?.action === "archive") CENTRAL_LOAD_QUEUE_PENDING_DELETE.delete(key);
-      else if (message?.action === "upsert") CENTRAL_LOAD_QUEUE_PENDING_UPSERT.delete(key);
+      else if (message?.action === "upsert") {
+        CENTRAL_LOAD_QUEUE_PENDING_UPSERT.delete(key);
+        CENTRAL_LOAD_QUEUE_PENDING_SINCE.delete(key);
+      }
 
       if (message?.ok) {
         scheduleCentralLoadQueueDiff(0);
@@ -80996,6 +81046,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_LOAD_QUEUE_READY = false;
         CENTRAL_LOAD_QUEUE_BASELINE.clear();
         CENTRAL_LOAD_QUEUE_PENDING_UPSERT.clear();
+        CENTRAL_LOAD_QUEUE_PENDING_SINCE.clear();
         CENTRAL_LOAD_QUEUE_PENDING_DELETE.clear();
         CENTRAL_LOAD_REQUESTS_READY = false;
         CENTRAL_LOAD_REQUEST_BASELINE.clear();
@@ -89634,16 +89685,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
   </style>
   <style id="targeted-v130-open-panel-tabs-and-stats-cleanup">
-    .app:has(.workspace-inline-panel.is-open) .side-tool-tab,
-    .app:has(.future-drawer.open) .side-tool-tab,
-    .app:has(.proposed-drawer.open) .side-tool-tab,
-    .app:has(.stats-drawer.open) .side-tool-tab {
-      opacity:0 !important;
-      pointer-events:none !important;
-      transform:translateX(64px) !important;
+    .app .side-tool-tab {
+      opacity:1 !important;
+      pointer-events:auto !important;
+      transform:none !important;
+      right:10px !important;
+    }
+    .app .workspace-inline-panel.is-open { margin-right:66px !important; }
+    .app .future-drawer.open,
+    .app .proposed-drawer.open,
+    .app .stats-drawer.open,
+    .app .side-panel.open {
+      right:66px !important;
+      max-width:calc(100vw - 78px) !important;
     }
     .stats-section-head:has(.stats-hourly-period) h3 + p { display:none !important; }
   </style>
-  <script src="/order-entry.js?build=v124"></script>
+  <script src="/order-stops.js?build=v131-final"></script>
+  <script src="/order-entry.js?build=v131-final"></script>
 </body>
 </html>

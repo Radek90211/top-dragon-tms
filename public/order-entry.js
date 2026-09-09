@@ -30,7 +30,8 @@
   document.head.appendChild(style);
 
   renderAddModal = function() {
-    const html = originalRender.apply(this, arguments);
+    let html = originalRender.apply(this, arguments);
+    if (state.addOpen && state.prefill) html = html.replace('<div class="modal-body">', '<div class="modal-body">' + renderQueueBranchChoice(state.prefill) + renderOrderStops(state.prefill));
     if (!isPlan()) return html;
     const template = document.createElement('template'); template.innerHTML = html;
     const form = template.content.querySelector('form.modal');
@@ -132,6 +133,14 @@
         if (id.includes('date') && /^\d{4}-\d{2}-\d{2}$/.test(value)) { el.value = value; draft[key] = value; }
         else if (/^\d{2}:\d{2}$/.test(value)) { el.value = value; draft[key] = Number(value.slice(0,2))+Number(value.slice(3))/60; }
       }
+      Object.assign(draft, orderStopFields(payload));
+      for (const [field, value] of Object.entries(orderStopFields(payload))) {
+        const id = {'secondLoad':'new-second-load','secondLoadAddress':'new-second-load-address','secondUnload':'new-second-unload','secondUnloadAddress':'new-second-unload-address'}[field];
+        const el = id && document.getElementById(id);
+        if (el && el.value === before.get(id)) { el.value = value; el.setAttribute('data-ai-filled',''); el.closest('.optional-stop-section')?.classList.remove('hidden-by-toggle'); }
+      }
+      document.querySelector('.plan-order-entry .order-stops-editor')?.remove();
+      document.querySelector('.plan-order-entry .modal-body')?.insertAdjacentHTML('afterbegin',renderOrderStops(draft));
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
       updateNewRouteFinance('rate');
       status.textContent = 'Analiza zakończona. Sprawdź żółte pola, terminy i kilometry przed zapisaniem.';
