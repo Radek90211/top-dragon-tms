@@ -471,13 +471,14 @@ async function loadAdminCarrierRateData() {
 
 async function loadAdminData() {
   const [branchesResult, usersResult, carrierRates] = await Promise.all([
-    adminApi('/api/admin/branches'),
+    supabase.from('branches').select('id,name,active').order('name'),
     adminApi('/api/admin/users'),
     loadAdminCarrierRateData(),
   ])
 
+  if (branchesResult.error) throw new Error(`Nie udało się pobrać oddziałów: ${branchesResult.error.message}`)
   return {
-    branches: branchesResult.branches || [],
+    branches: branchesResult.data || [],
     users: usersResult.users || [],
     carrierRates,
   }
@@ -2108,41 +2109,26 @@ function isExpiredProposedLoadPayload(payload) {
 async function loadCentralLoadQueue() {
   if (!currentProfile) return { rows: [], expiredProposedStats: [] }
 
-  // 3L.60: housekeeping Wolnych ładunków. Wpis pozostaje aktywny przez cały
-  // dzień załadunku w Europe/Warsaw i jest przenoszony poza kolejkę dopiero następnego dnia.
-  // RPC jest celowo idempotentne - można je wywoływać przy każdym odświeżeniu.
-  const { error: expireError } = await supabase.rpc('archive_expired_tms_proposed_loads')
-  if (expireError) {
-    const message = String(expireError.message || '')
-    if (!message.includes('archive_expired_tms_proposed_loads') && !message.includes('Could not find the function')) {
-      console.warn('Nie udało się automatycznie wygasić przeterminowanych wolnych ładunków:', expireError)
-    }
+  // Fetch every page. A truncated snapshot must never remove valid local entries.
+  if (isBranchScopedRole() && !currentBranchId()) return { rows: [], expiredProposedStats: [] }
+  const data = []
+  const pageSize = 500
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase.from('tms_load_queue')
+      .select('branch_id, queue_type, load_ref, payload, updated_at')
+      .eq('active', true)
+      .order('branch_id').order('queue_type').order('load_ref')
+      .range(offset, offset + pageSize - 1)
+    if (isBranchScopedRole()) query = query.eq('branch_id', currentBranchId())
+    const result = await query
+    if (result.error) throw new Error(`Nie udało się pobrać kolejki ładunków: ${result.error.message}`)
+    data.push(...(result.data || []))
+    if ((result.data || []).length < pageSize) break
   }
-
-  let queueQuery = supabase
-    .from('tms_load_queue')
-    .select('branch_id, queue_type, load_ref, payload, updated_at')
-    .eq('active', true)
-    .order('updated_at', { ascending: true })
-  if (isBranchScopedRole()) {
-    if (!currentBranchId()) return { rows: [], expiredProposedStats: [] }
-    queueQuery = queueQuery.eq('branch_id', currentBranchId())
-  }
-
-  const [{ data, error }, statsResult] = await Promise.all([
-    queueQuery,
-    hasRole('admin') ? supabase.rpc('tms_expired_proposed_load_stats') : Promise.resolve({ data: [], error: null }),
-  ])
-
-  if (error) {
-    throw new Error(`Nie udało się pobrać kolejki ładunków: ${error.message}`)
-  }
+  const statsResult = hasRole('admin') ? await supabase.rpc('tms_expired_proposed_load_stats') : { data: [] }
 
   const rows = (data || [])
     .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
-    // 3L.60: nawet jeśli housekeeping Supabase chwilowo się opóźni, do panelu
-    // nie wracają wpisy z poprzednich dni; bieżący dzień pozostaje widoczny w całości.
-    .filter((row) => !(row?.queue_type === 'proposed' && isExpiredProposedLoadPayload(row?.payload)))
     .map((row) => ({
       id: String(row.load_ref || ''),
       branchId: String(row.branch_id || ''),
@@ -2162,8 +2148,12 @@ async function loadCentralLoadQueue() {
   return { rows, expiredProposedStats }
 }
 
+let loadQueueReadGeneration = 0
 async function syncCentralLoadQueueToTms() {
+  const generation = ++loadQueueReadGeneration
+  const profile = currentProfile
   const { rows, expiredProposedStats } = await loadCentralLoadQueue()
+  if (generation !== loadQueueReadGeneration || profile !== currentProfile) return
   activeLoadQueueMessage = {
     type: 'top-dragon-load-queue-data',
     rows,
@@ -4219,7 +4209,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v130-admin-tools"
+          src="/tms.html?embedded=1&build=request-workflow-v131-queue-admin-tabs"
         title="Top Dragon TMS"
       ></iframe>
     </main>
