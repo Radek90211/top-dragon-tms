@@ -129,6 +129,7 @@ function analysisInstructions(referenceDate = '') {
     'Odczytaj wyłącznie dane występujące w dokumencie. Nie zgaduj i nie uzupełniaj braków.',
     `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.`,
     'Zwróć wyłącznie poprawny JSON bez Markdown i bez dodatkowego tekstu.',
+    'Każde zlecenie musi zawierać stops: wszystkie punkty w kolejności wykonania, również powtarzające się adresy. Każdy punkt ma type (pickup lub delivery), date, time, city, postalCode, address, fullAddress. Nie ograniczaj liczby załadunków ani rozładunków. Nie dziel jednego zlecenia na osobne relacje dla kolejnych punktów. Nie traktuj siedziby lub adresu fakturowania jako punktu. pickup jest pierwszym załadunkiem, delivery pierwszym rozładunkiem. Nie zgaduj kolejności; zachowaj kolejność podaną w źródle.',
     'Format odpowiedzi:',
     '{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","clientNip":"","clientAddress":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"reminders":[],"driverNotes":[],"confidence":0}',
     'confidence ma być liczbą od 0 do 1. Kwoty i kilometry zwracaj jako liczby. Brakujące wartości pozostaw puste lub ustaw na 0.',
@@ -224,11 +225,13 @@ function normalizeResult(value = {}) {
     address: String(input?.address || '').trim().slice(0, 600),
     fullAddress: String(input?.fullAddress || '').trim().slice(0, 700),
   })
+  const stops = (Array.isArray(value.stops) ? value.stops : []).filter(stop => ['pickup', 'delivery'].includes(stop?.type)).map(stop => ({type: stop.type, ...point(stop)}))
   const number = (input) => Number.isFinite(Number(input)) ? Number(input) : 0
   const textList = (input) => (Array.isArray(input) ? input : [input]).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 30)
   return {
-    pickup: point(value.pickup || value.load || value.loading),
-    delivery: point(value.delivery || value.unload || value.unloading),
+    stops,
+    pickup: point(stops.find(stop => stop.type === 'pickup') || value.pickup || value.load || value.loading),
+    delivery: point(stops.find(stop => stop.type === 'delivery') || value.delivery || value.unload || value.unloading),
     client: String(value.client || value.customer || '').trim().slice(0, 500),
     clientNip: String(value.clientNip || value.nip || value.taxId || '').replace(/\D/g, '').slice(0, 10),
     clientAddress: String(value.clientAddress || value.customerAddress || '').trim().slice(0, 700),
@@ -248,6 +251,11 @@ function normalizeResult(value = {}) {
 const ORDER_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    stops: { type: 'array', items: { type: 'object', properties: {
+      type: { type: 'string', enum: ['pickup', 'delivery'] },
+      date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+      postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' }
+    }, required: ['type', 'date', 'time', 'city', 'postalCode', 'address', 'fullAddress'] } },
     pickup: {
       type: 'object',
       properties: {
@@ -269,7 +277,7 @@ const ORDER_RESPONSE_SCHEMA = {
     oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
     reminders: { type: 'array', items: { type: 'string' } }, driverNotes: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
   },
-  required: ['pickup', 'delivery', 'client', 'clientNip', 'clientAddress', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'driverNotes', 'confidence'],
+  required: ['stops', 'pickup', 'delivery', 'client', 'clientNip', 'clientAddress', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'reminders', 'driverNotes', 'confidence'],
 }
 
 export default async function handler(req, res) {

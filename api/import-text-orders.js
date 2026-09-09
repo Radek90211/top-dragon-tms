@@ -86,6 +86,7 @@ function instructions(referenceDate = '') {
     'Nie zgaduj danych. Brakujące teksty pozostaw puste, a brakujące liczby ustaw na 0.',
     `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.`,
     'Zwróć wyłącznie poprawny JSON bez Markdown i komentarzy.',
+    'Każde zlecenie musi zawierać stops: wszystkie punkty w kolejności wykonania, również powtarzające się adresy. Każdy punkt ma type (pickup lub delivery), date, time, city, postalCode, address, fullAddress. Nie ograniczaj liczby załadunków ani rozładunków. Nie dziel jednego zlecenia na osobne relacje dla kolejnych punktów. Nie traktuj siedziby lub adresu fakturowania jako punktu. pickup jest pierwszym załadunkiem, delivery pierwszym rozładunkiem. Nie zgaduj kolejności; zachowaj kolejność podaną w źródle.',
     'Format: {"routes":[{"pickup":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"delivery":{"date":"YYYY-MM-DD","time":"HH:MM","city":"","postalCode":"","address":"","fullAddress":""},"client":"","clientNip":"","clientAddress":"","reference":"","rate":0,"currency":"","loadedKm":0,"cost":0,"oversizedCost":0,"extraInfo":[],"driverNotes":[],"confidence":0}],"warnings":[]}.',
     'Relację zwróć tylko wtedy, gdy można wskazać miejsce załadunku i rozładunku.',
     'Oddziel miejscowość i kod pocztowy od dokładnego adresu. fullAddress ma być pełnym adresem możliwym do wyszukania w mapach: nazwa obiektu, ulica i numer, kod pocztowy, miejscowość oraz kraj, jeśli są podane.',
@@ -118,7 +119,12 @@ const TEXT_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          pickup: {
+          stops: { type: 'array', items: { type: 'object', properties: {
+      type: { type: 'string', enum: ['pickup', 'delivery'] },
+      date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
+      postalCode: { type: 'string' }, address: { type: 'string' }, fullAddress: { type: 'string' }
+    }, required: ['type', 'date', 'time', 'city', 'postalCode', 'address', 'fullAddress'] } },
+    pickup: {
             type: 'object',
             properties: {
               date: { type: 'string' }, time: { type: 'string' }, city: { type: 'string' },
@@ -139,7 +145,7 @@ const TEXT_RESPONSE_SCHEMA = {
           oversizedCost: { type: 'number' }, extraInfo: { type: 'array', items: { type: 'string' } },
           driverNotes: { type: 'array', items: { type: 'string' } }, confidence: { type: 'number' },
         },
-        required: ['pickup', 'delivery', 'client', 'clientNip', 'clientAddress', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'driverNotes', 'confidence'],
+        required: ['stops', 'pickup', 'delivery', 'client', 'clientNip', 'clientAddress', 'reference', 'rate', 'currency', 'loadedKm', 'cost', 'oversizedCost', 'extraInfo', 'driverNotes', 'confidence'],
       },
     },
     warnings: { type: 'array', items: { type: 'string' } },
@@ -185,10 +191,12 @@ function finiteNumber(value) {
 }
 
 function normalizeRoute(value = {}) {
-  const pickup = normalizePoint(value.pickup || value.load || value.loading || value.zaladunek || value.załadunek)
-  const delivery = normalizePoint(value.delivery || value.unload || value.unloading || value.rozladunek || value.rozładunek)
+  const stops = (Array.isArray(value.stops) ? value.stops : []).filter(stop => ['pickup', 'delivery'].includes(stop?.type)).map(stop => ({type: stop.type, ...normalizePoint(stop)}))
+  const pickup = normalizePoint(stops.find(stop => stop.type === 'pickup') || value.pickup || value.load || value.loading || value.zaladunek || value.załadunek)
+  const delivery = normalizePoint(stops.find(stop => stop.type === 'delivery') || value.delivery || value.unload || value.unloading || value.rozladunek || value.rozładunek)
   if (!pointLabel(pickup) || !pointLabel(delivery)) return null
   return {
+    stops,
     pickup,
     delivery,
     client: String(value.client || value.customer || '').trim().slice(0, 500),
