@@ -7,11 +7,26 @@ function env(name, fallback = '') {
 }
 
 function supabaseUrl() {
-  return env('SUPABASE_URL', env('VITE_SUPABASE_URL')).replace(/\/$/, '')
+  const candidates = [
+    'SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL',
+    // Akceptujemy również zamienione miejscami wartości, aby panel nie budował
+    // adresu typu "sb_publishable_…/auth/v1/user".
+    'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
+    'VITE_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ].map((name) => env(name)).filter(Boolean)
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate)
+      if (url.protocol === 'https:' && /\.supabase\.(co|in)$/i.test(url.hostname)) return url.origin
+    } catch {}
+  }
+  return ''
 }
 
 function secretKey() {
-  return env('SUPABASE_SECRET_KEY', env('SUPABASE_SERVICE_ROLE_KEY'))
+  return [env('SUPABASE_SECRET_KEY'), env('SUPABASE_SERVICE_ROLE_KEY')]
+    .find((value) => value && !/^(?:https?:\/\/|sb_publishable_)/i.test(value)) || ''
 }
 
 function normalizeEmail(value) {
@@ -39,7 +54,7 @@ async function authenticateAdmin(req) {
   const baseUrl = supabaseUrl()
   const key = secretKey()
   const token = String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1] || ''
-  if (!baseUrl || !key) throw Object.assign(new Error('Brak konfiguracji SUPABASE_URL lub SUPABASE_SECRET_KEY.'), { statusCode: 500 })
+  if (!baseUrl || !key) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. Ustaw SUPABASE_URL jako adres https://…supabase.co, a SUPABASE_SECRET_KEY jako tajny klucz serwera.'), { statusCode: 500 })
   if (!token) throw Object.assign(new Error('Brak tokenu sesji.'), { statusCode: 401 })
 
   const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {
