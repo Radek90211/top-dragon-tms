@@ -78,7 +78,7 @@ function renderQueueBranchChoice(route) {
   const branches=new Map();
   [...USERS,...DRIVERS].forEach(u=>{if(u.branchId) branches.set(u.branchId,u.branch || u.branchName || u.branchId);});
   const current=route.queueBranchId || route._centralBranchId || state.user?.branchId || '';
-  return `<label>Oddział relacji<select id="new-queue-branch" class="select" required onchange="state.prefill.queueBranchId=this.value"><option value="">Wybierz oddział</option>${[...branches].map(([id,name])=>`<option value="${attr(id)}" ${id===current?'selected':''}>${esc(name)}</option>`).join('')}</select></label>`;
+  return `<input id="new-queue-branch" type="hidden" value="${attr(current)}" />`;
 }
 function queueOutboxKey() { return 'tms-queue-outbox-v131:'+String(state.user?.supabaseId || state.user?.login || '')+':'+String(state.user?.branchId || ''); }
 const restoredQueueOutboxScopes = new Set();

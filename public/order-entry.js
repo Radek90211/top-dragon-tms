@@ -13,17 +13,21 @@
     .tutorial-modal.tutorial-modal-portal { z-index:30002!important; }
     .tutorial-foot button:disabled { opacity:.4; cursor:not-allowed; }
     .modal-backdrop:has(.plan-order-entry) { z-index:20000!important; }
-    .modal.plan-order-entry { width:calc(100vw - 24px)!important; max-width:1500px!important; height:calc(100vh - 24px)!important; max-height:calc(100vh - 24px)!important; transform:none!important; display:flex!important; flex-direction:column; overflow:hidden!important; }
-    .plan-order-entry .order-entry-workspace { display:grid; grid-template-columns:minmax(340px,440px) minmax(0,1fr); flex:1; min-height:0; overflow:hidden; }
+    .modal.plan-order-entry { width:min(1180px,calc(100vw - 40px))!important; max-width:1180px!important; height:min(88vh,820px)!important; max-height:88vh!important; transform:none!important; display:flex!important; flex-direction:column; overflow:hidden!important; }
+    .plan-order-entry .order-entry-workspace { display:grid; grid-template-columns:minmax(320px,410px) minmax(0,1fr); flex:1; min-height:0; overflow:hidden; }
     .plan-order-entry .order-entry-workspace.no-document-preview { grid-template-columns:minmax(0,1fr); }
     .plan-order-entry .order-entry-workspace.no-document-preview .order-entry-preview { display:none; }
-    .plan-order-entry .modal-body { overflow:auto!important; min-height:0; max-height:none!important; padding:12px; }
-    .plan-order-entry .modal-head,.plan-order-entry .modal-foot { flex-shrink:0; }
+    .plan-order-entry .modal-body { overflow:auto!important; min-height:0; max-height:none!important; padding:10px; }
+    .plan-order-entry .modal-head,.plan-order-entry .modal-foot { flex-shrink:0; padding:10px 14px!important; }
+    .plan-order-entry .field-label { margin-top:8px!important; margin-bottom:3px!important; font-size:10px!important; }
+    .plan-order-entry .input,.plan-order-entry .select { min-height:34px!important; padding-top:6px!important; padding-bottom:6px!important; }
+    .plan-order-entry .grid-2,.plan-order-entry .grid-3,.plan-order-entry .grid-4 { gap:7px!important; }
+    .plan-order-entry .section { margin-top:8px!important; }
     .plan-order-entry .order-entry-preview { min-width:0; overflow:auto; border-left:1px solid var(--border); padding:12px; background:var(--card); }
     .plan-order-entry .order-entry-preview iframe { width:100%; height:65vh; border:0; }
-    .plan-order-entry .order-entry-upload { padding:14px; border:1px solid var(--border); border-radius:14px; margin-bottom:12px; }
+    .plan-order-entry .order-entry-upload { padding:10px; border:1px solid var(--border); border-radius:12px; margin-bottom:8px; }
     .plan-order-entry .details-location-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .plan-order-entry .details-stop-card { margin-bottom:12px; padding:12px; border:1px solid var(--border); border-radius:12px; }
+    .plan-order-entry .details-stop-card { margin-bottom:8px; padding:9px; border:1px solid var(--border); border-radius:11px; }
     .plan-order-entry .details-stop-card:last-child { background:var(--soft); }
     .plan-order-entry .details-location-grid > .optional-stop-section,.plan-order-entry .optional-stop-action-row { grid-column:1/-1; }
     form.modal.plan-order-entry .modal-body [data-ai-filled] { background:#fff3b0!important; color:#422006!important; border-color:#eab308!important; }
@@ -39,7 +43,7 @@
     const form = template.content.querySelector('form.modal');
     const body = form.querySelector('.modal-body');
     form.classList.add('plan-order-entry');
-    form.querySelector('h2').textContent = 'Szczegóły zlecenia';
+    form.querySelector('h2').textContent = state.prefill?.proposedLoad ? 'Dodaj wolne ładunki' : state.prefill?.futureQueue ? 'Dodaj planowaną relację' : 'Szczegóły zlecenia';
     const workspace = document.createElement('div'); workspace.className = 'order-entry-workspace' + (state.prefill.orderSourceFile ? '' : ' no-document-preview');
     body.before(workspace); workspace.append(body);
     const upload = document.createElement('details'); upload.className = 'order-entry-upload';

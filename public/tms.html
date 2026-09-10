@@ -60163,7 +60163,7 @@ function renderQueueBranchChoice(route) {
   const branches=new Map();
   [...USERS,...DRIVERS].forEach(u=>{if(u.branchId) branches.set(u.branchId,u.branch || u.branchName || u.branchId);});
   const current=route.queueBranchId || route._centralBranchId || state.user?.branchId || '';
-  return `<label>Oddział relacji<select id="new-queue-branch" class="select" required onchange="state.prefill.queueBranchId=this.value"><option value="">Wybierz oddział</option>${[...branches].map(([id,name])=>`<option value="${attr(id)}" ${id===current?'selected':''}>${esc(name)}</option>`).join('')}</select></label>`;
+  return `<input id="new-queue-branch" type="hidden" value="${attr(current)}" />`;
 }
 function queueOutboxKey() { return 'tms-queue-outbox-v131:'+String(state.user?.supabaseId || state.user?.login || '')+':'+String(state.user?.branchId || ''); }
 const restoredQueueOutboxScopes = new Set();
@@ -60874,7 +60874,7 @@ function restoreQueueOutbox() {
     applyStoredDriverAssignments();
 
     const BOARD_PAST_DAYS = 7;
-    const BOARD_FUTURE_DAYS = 7;
+    const BOARD_FUTURE_DAYS = 14;
     const START_DATE = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
 
     function currentAppDate() {
@@ -69884,8 +69884,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const target = [Number(targetPoint.lat), Number(targetPoint.lng)];
 
       const activeDrivers = operationalDrivers();
-      const drivers = options.currentDispatcherOnly && state.user?.role === "spedytor"
-        ? activeDrivers.filter(driver => driver.dispatcher === state.user.login)
+      const restrictToCurrentDispatcher = Boolean(options.currentDispatcherOnly) && ["spedytor","kierownik"].includes(state.user?.role);
+      const currentDispatcherLogin = String(state.user?.login || "").trim().toUpperCase();
+      const drivers = restrictToCurrentDispatcher
+        ? activeDrivers.filter(driver => String(driver?.dispatcher || "").trim().toUpperCase() === currentDispatcherLogin)
         : activeDrivers;
 
       return drivers
@@ -70603,7 +70605,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const route = (state.futureRoutes || []).find(item => item.id === routeId);
       if (!route || !futureCardCanDrag(route)) return false;
       state.futureRoutes = state.futureRoutes.filter(item => item.id !== routeId);
-      state.proposedLoads.push({ ...route, futureQueue:false, proposedLoad:true, status:"available", driverId:"", ownerDispatcher:"", visibilityScope:"all", visibilityBranch:"" });
+      const movedRoute = { ...route, futureQueue:false, proposedLoad:true, status:"available", driverId:"", ownerDispatcher:"", visibilityScope:"all", visibilityBranch:"" };
+      state.proposedLoads.push(movedRoute);
+      window.registerQueueMatchCandidateV142?.("proposed", movedRoute);
       showAppMessage("Przeniesiono relację", "Relacja jest teraz widoczna w Wolnych ładunkach dla wszystkich spedytorów.");
       return true;
     }
@@ -70612,7 +70616,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const route = (state.proposedLoads || []).find(item => item.id === routeId);
       if (!route || !proposedLoadCanModify(route) || route.status === "taken") return false;
       state.proposedLoads = state.proposedLoads.filter(item => item.id !== routeId);
-      state.futureRoutes.push({ ...route, futureQueue:true, proposedLoad:false, status:"planned", driverId:"", ownerDispatcher:route.createdBy || state.user?.login || "", visibilityScope:"branch", visibilityBranch:dispatcherBranch(route.createdBy || state.user?.login) });
+      const movedRoute = { ...route, futureQueue:true, proposedLoad:false, status:"planned", driverId:"", ownerDispatcher:route.createdBy || state.user?.login || "", visibilityScope:"branch", visibilityBranch:dispatcherBranch(route.createdBy || state.user?.login) };
+      state.futureRoutes.push(movedRoute);
+      window.registerQueueMatchCandidateV142?.("future", movedRoute);
       clearProposedLoadClaim(routeId);
       showAppMessage("Przeniesiono relację", "Relacja jest teraz widoczna w Planowanych relacjach dla oddziału autora.");
       return true;
@@ -79763,6 +79769,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           : (state.proposedLoads || []).slice(-bulkCountValue);
         savedProposedItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedProposedItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { proposed:true }));
+        savedProposedItems.forEach(item => window.registerQueueMatchCandidateV142?.("proposed", item));
         state.reportDate = route.date || state.reportDate || START_DATE;
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
@@ -79813,6 +79820,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           : (state.futureRoutes || []).slice(-bulkCountValue);
         savedFutureItems.forEach(item => { item._centralLocalCreatedAt = Date.now(); });
         savedFutureItems.forEach(item => scheduleSavedRoutePointGeocodes(item, { future:true }));
+        savedFutureItems.forEach(item => window.registerQueueMatchCandidateV142?.("future", item));
         const continueAiBatch = Boolean(state.prefill?.aiTextBatch);
         disposeNewRoutePlanner();
         state.futureEditId = null;
@@ -84992,7 +85000,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function renderClientAssignmentApprovalCard() {
         const pendingCount = workflowPendingClientAssignments().length;
-        const rows = [...(state.workflowClientAssignments || [])]
+        const rows = workflowPendingClientAssignments()
           .sort((a,b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")))
           .slice(0, 20);
         return `<div class="workflow-card" id="client-assignment-approval-card"><div class="workflow-card-head"><div><h3>Do akceptacji</h3></div><span class="badge">${pendingCount}</span></div>${rows.length ? `<div class="workflow-list">${rows.map(item => {
@@ -88245,7 +88253,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const clickAttrs=canOpenStatus
             ? `role="button" tabindex="0" title="Rozliczenia tygodnia · status: ${attr(status.status||'Nowe')}" onclick="if(event.target===this){openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')}" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')}"`
             : '';
-          return `<div class="week-settlement-cell-3l50 ${canOpenStatus?'status-editable':''} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" data-week-start="${attr(boundary.weekStart)}" ${clickAttrs} style="grid-column:${boundary.gridColumn};grid-row:${row};">${marker}${dot}</div>`;
+          return `<div class="week-settlement-cell-3l50 ${active?'has-finance-value-3l142':'empty-finance-value-3l142'} ${canOpenStatus?'status-editable':''} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" data-week-start="${attr(boundary.weekStart)}" ${clickAttrs} style="grid-column:${boundary.gridColumn};grid-row:${row};">${marker}${dot}</div>`;
         }).join('');
       };
 
@@ -89354,6 +89362,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .week-settlement-cell-3l50 { z-index:40 !important; pointer-events:none; background:transparent !important; }
     .week-settlement-cell-3l50 .week-settlement-dollar-3l48,
     .week-settlement-cell-3l50 .week-settlement-status-dot-3l50 { pointer-events:auto; z-index:42 !important; }
+    /* V142: pusty znacznik $ pozostaje pod kafelkiem relacji, aby nie zasłaniał treści.
+       Gdy tydzień ma wartość/transfer, znacznik zachowuje dotychczasowy priorytet. */
+    .week-settlement-cell-3l50.empty-finance-value-3l142 { z-index:20 !important; }
+    .week-settlement-cell-3l50.empty-finance-value-3l142 .week-settlement-dollar-3l48.empty { z-index:21 !important; }
+    .week-settlement-cell-3l50.has-finance-value-3l142 { z-index:40 !important; }
     .board .sticky-a { z-index:74 !important; }
     .board .sticky-b { z-index:73 !important; }
     .board .sticky-c { z-index:72 !important; }
@@ -90096,10 +90109,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function queueRouteMatchesCurrentDispatcherV135(route) {
         if (!route || !['spedytor','kierownik'].includes(state.user?.role)) return false;
         const date = route.date || state.reportDate || START_DATE;
+        const login = String(state.user?.login || '').trim().toUpperCase();
         try {
           return preferredQueueMatchRows(proposedDistancesForRoute(route, date, {
             currentDispatcherOnly:true
-          })).length > 0;
+          })).some(item => {
+            const dispatcher = String(item?.driver?.dispatcher || '').trim().toUpperCase();
+            return !dispatcher || dispatcher === login;
+          });
         } catch (error) {
           return false;
         }
@@ -90355,9 +90372,32 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const rows = queueType === "proposed" ? (state.proposedLoads || []) : (state.futureRoutes || []);
         return rows.find(route => String(route?.id || "") === String(loadId || "")) || null;
       }
+      function candidateKeyV142(queueType, route, branchId = "") {
+        const loadId = String(route?.id || "").trim();
+        const branch = String(branchId || centralLoadQueueBranchId(route) || state.user?.branchId || state.user?.branch || "local").trim();
+        return loadId && QUEUE_TYPES.includes(queueType) ? `${branch}::${queueType}::${loadId}` : "";
+      }
+      function registerCandidateV142(queueType, route, branchId = "") {
+        if (!route || !state.user || !["spedytor","kierownik"].includes(state.user?.role)) return false;
+        const key = candidateKeyV142(queueType, route, branchId);
+        if (!key) return false;
+        const current = ensureStore();
+        if (!current.pending[key]) {
+          current.pending[key] = { queueType, loadId:String(route.id), routeIds:[], seenRouteIds:[], createdAt:new Date().toISOString() };
+          persist();
+        }
+        refreshMatches();
+        if (typeof setTimeout === "function") {
+          setTimeout(refreshMatches, 180);
+          setTimeout(refreshMatches, 900);
+        }
+        return true;
+      }
+      window.registerQueueMatchCandidateV142 = registerCandidateV142;
       function matchedBoardRouteIds(queueType, route) {
         if (!route || !["spedytor","kierownik"].includes(state.user?.role)) return [];
         const login = String(state.user?.login || "").trim().toUpperCase();
+        if (!login) return [];
         try {
           const rows = preferredQueueMatchRows(proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {
             maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:true
@@ -90437,7 +90477,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         current.known = versions;
         Object.keys(current.pending || {}).forEach(key => { if (!Object.prototype.hasOwnProperty.call(versions, key)) delete current.pending[key]; });
         fresh.forEach(item => {
-          if (!current.pending[item.key]) current.pending[item.key] = { queueType:item.queueType, loadId:item.loadId, routeIds:[], seenRouteIds:[], createdAt:new Date().toISOString() };
+          const route = queueRoute(item.queueType, item.loadId);
+          if (route) registerCandidateV142(item.queueType, route, item.key.split('::')[0]);
+          else if (!current.pending[item.key]) current.pending[item.key] = { queueType:item.queueType, loadId:item.loadId, routeIds:[], seenRouteIds:[], createdAt:new Date().toISOString() };
         });
         persist();
         requestAnimationFrame(refreshMatches);
@@ -90457,6 +90499,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-  <script src="/order-entry.js?build=v138-ai-client-owner-column"></script>
+  <script src="/order-entry.js?build=v142-board-match-scope"></script>
 </body>
 </html>
