@@ -148,6 +148,9 @@ function parseStructuredClientTable(sourceText) {
     postalCode: new Set(['kodpocztowy', 'kod', 'postalcode', 'postcode']),
     kind: new Set(['rodzaj', 'typ', 'branza', 'branża', 'ladunki', 'typyladunkow', 'cargotypes', 'businesstype']),
     nip: new Set(['nip', 'taxid']),
+    owner1: new Set(['opiekun', 'nazwaopiekuna', 'glownyopiekun', 'opiekun1', 'spedytor', 'dispatcher', 'accountmanager', 'handlowiec']),
+    owner2: new Set(['opiekun2', 'drugipopiekun', 'spedytor2', 'dispatcher2', 'accountmanager2']),
+    owner3: new Set(['opiekun3', 'trzeciopiekun', 'spedytor3', 'dispatcher3', 'accountmanager3']),
   }
   let headerIndex = -1
   let delimiter = ''
@@ -162,6 +165,7 @@ function parseStructuredClientTable(sourceText) {
     const candidate = {
       name: indexFor('name'), city: indexFor('city'), address: indexFor('address'),
       postalCode: indexFor('postalCode'), kind: indexFor('kind'), nip: indexFor('nip'),
+      owner1: indexFor('owner1'), owner2: indexFor('owner2'), owner3: indexFor('owner3'),
     }
     if (candidate.name >= 0 && [candidate.city, candidate.address, candidate.postalCode].some((value) => value >= 0)) {
       headerIndex = index
@@ -198,6 +202,8 @@ function parseStructuredClientTable(sourceText) {
           nip: get(indexes.nip),
           cargoTypes: kind,
           businessType: kind,
+          dispatcher: get(indexes.owner1),
+          dispatchers: [get(indexes.owner1), get(indexes.owner2), get(indexes.owner3)].filter(Boolean).slice(0, 3),
           reason: !name && !address
             ? 'Brak nazwy klienta oraz miejscowości/adresu.'
             : !name
@@ -207,9 +213,10 @@ function parseStructuredClientTable(sourceText) {
       }
       continue
     }
+    const owners = Array.from(new Set([get(indexes.owner1), get(indexes.owner2), get(indexes.owner3)].filter(Boolean))).slice(0, 3)
     items.push({
       id: '', name, address, postalCode, city, nip: get(indexes.nip),
-      cargoTypes: kind, businessType: kind, dispatcher: '', lat: 0, lng: 0,
+      cargoTypes: kind, businessType: kind, dispatcher: owners[0] || '', dispatchers: owners, coDispatchers: owners.slice(1), lat: 0, lng: 0,
       approximate: true, qualityRating: 3, paymentDays: 30,
       cooperationNotes: '', lastContactAt: '', confidence: 1,
     })
@@ -271,6 +278,7 @@ function instructionsForKind(kind, referenceDate = '') {
     'Zachowaj polskie znaki, nie zmieniaj identyfikatorów i nie łącz dwóch rekordów w jeden.',
     schemaForKind(kind),
     kind === 'clients' ? 'Klient jest poprawny tylko wtedy, gdy ma name i address albo jednoznaczny adres z postalCode/city.' : '',
+    kind === 'clients' ? 'Rozpoznaj również kolumny opisujące opiekuna klienta, np. Opiekun, Nazwa opiekuna, Główny opiekun, Spedytor lub Account Manager. Pierwszego wpisz do dispatcher, a do dispatchers wpisz maksymalnie 3 rozpoznanych opiekunów w kolejności ze źródła. Nie przypisuj opiekuna, jeśli kolumna lub wartość jest pusta.' : '',
     kind === 'relations' ? 'Relacja jest poprawna tylko wtedy, gdy ma load, unload i datę załadunku.' : '',
     kind === 'relations' ? `Data odniesienia do interpretacji dat względnych: ${referenceDate || 'brak'}.` : '',
     kind === 'vehicles' ? 'Zestaw jest poprawny tylko wtedy, gdy ma driverName lub vehicleRegistrationNo.' : '',
