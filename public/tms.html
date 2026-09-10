@@ -61495,11 +61495,15 @@ function restoreQueueOutbox() {
           updatedAt: String(base?.updatedAt || item.updatedAt || new Date().toISOString())
         };
       }).filter(Boolean);
+      const normalizedPrimaryDispatcher = String(item.dispatcher || "").trim().toUpperCase();
       const coDispatchers = Array.from(new Set([
-        item.dispatcher,
+        normalizedPrimaryDispatcher,
         ...(Array.isArray(item.coDispatchers) ? item.coDispatchers : []),
         ...(Array.isArray(item.dispatchers) ? item.dispatchers : [])
-      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean)));
+      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0, 3);
+      const primaryDispatcher = normalizedPrimaryDispatcher || coDispatchers[0] || "";
+      if (primaryDispatcher && !coDispatchers.includes(primaryDispatcher)) coDispatchers.unshift(primaryDispatcher);
+      if (coDispatchers.length > 3) coDispatchers.length = 3;
       return {
         id: String(item.id || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
         databaseType,
@@ -61508,7 +61512,7 @@ function restoreQueueOutbox() {
         nip: normalizeClientNip(item.nip || (item.sample ? sampleClientNip(item.id) : "")),
         cargoTypes: String(item.cargoTypes ?? item.cargo_types ?? "").trim(),
         businessType: String(item.businessType ?? item.business_type ?? item.activityType ?? "").trim(),
-        dispatcher: String(item.dispatcher || "").trim(),
+        dispatcher: primaryDispatcher,
         coDispatchers,
         lat: Number.isFinite(lat) ? lat : 0,
         lng: Number.isFinite(lng) ? lng : 0,
@@ -62032,10 +62036,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function clientNameLink(value, fallbackName = "", fallbackDispatcher = "") {
       const client = clientRecordFromValue(value) || (typeof value === "object" && value?.name ? value : null);
       const name = String(client?.name || fallbackName || (typeof value === "string" ? value : "") || "Klient nieprzypisany").trim();
-      const dispatcher = String(client?.dispatcher || fallbackDispatcher || "").trim();
+      const fallbackOwners = String(fallbackDispatcher || "").trim() ? [String(fallbackDispatcher || "").trim().toUpperCase()] : [];
+      const owners = client ? clientOwnerLogins(client) : fallbackOwners;
       const clientId = String(client?.id || "");
-      const badge = dispatcher ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>` : "";
-      return `<span class="client-name-link-wrap"><button type="button" class="client-name-link" onclick="openClientDetails('${attr(clientId)}','${attr(encodeURIComponent(name))}')">${esc(name)}</button>${badge}</span>`;
+      const badges = owners.map(owner => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>`).join(" ");
+      return `<span class="client-name-link-wrap"><button type="button" class="client-name-link" onclick="openClientDetails('${attr(clientId)}','${attr(encodeURIComponent(name))}')">${esc(name)}</button>${badges}</span>`;
     }
 
     function closeClientDetails() {
@@ -62060,7 +62065,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const totalKm = sum("loadedKm");
       const avgRatePerKm = totalKm > 0 ? totalRate / totalKm : 0;
       const marginPercent = totalRate > 0 ? totalMargin / totalRate * 100 : 0;
-      const dispatcher = String(client?.dispatcher || rows.find(item => item.dispatcher)?.dispatcher || "").trim();
+      const owners = client ? clientOwnerLogins(client) : Array.from(new Set(rows.map(item => String(item.dispatcher || "").trim().toUpperCase()).filter(Boolean))).slice(0,3);
       const routeGroups = new Map();
       rows.forEach(item => {
         const key = `${removePolishChars(item.load || "")}|${removePolishChars(item.unload || "")}`;
@@ -62076,7 +62081,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       overlay.innerHTML = `
         <section class="client-details-dialog" role="dialog" aria-modal="true" aria-label="Szczegóły klienta" onclick="event.stopPropagation()">
           <header class="client-details-head">
-            <div><h2>${esc(name)}</h2><div class="client-details-meta">${dispatcher ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>` : `<span class="badge">Bez opiekuna</span>`}${client?.nip ? `<span>NIP: <b>${esc(client.nip)}</b></span>` : ""}${(client?.bases || []).length ? `<span>Bazy: ${esc(client.bases.map(base => base.name || base.address).join(", "))}</span>` : ""}</div></div>
+            <div><h2>${esc(name)}</h2><div class="client-details-meta">${owners.length ? owners.map(owner => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>`).join(" ") : `<span class="badge">Bez opiekuna</span>`}${client?.nip ? `<span>NIP: <b>${esc(client.nip)}</b></span>` : ""}${(client?.bases || []).length ? `<span>Bazy: ${esc(client.bases.map(base => base.name || base.address).join(", "))}</span>` : ""}</div></div>
             <button type="button" class="client-details-close" onclick="closeClientDetails()" aria-label="Zamknij">×</button>
           </header>
           <div class="client-details-body">
@@ -62102,9 +62107,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     document.addEventListener("keydown", event => { if (event.key === "Escape" && document.getElementById("client-details-overlay")) closeClientDetails(); });
 
     function clientOwnerBadge(value) {
-      const client = clientRecordFromValue(value);
-      if (!client || !client.dispatcher) return "";
-      return `<span class="dispatcher-map-badge ${dispatcherBadgeClass(client.dispatcher)}">${esc(client.dispatcher)}</span>`;
+      const client = clientRecordFromValue(value) || (typeof value === "object" ? value : null);
+      const owners = clientOwnerLogins(client);
+      return owners.map(owner => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>`).join(" ");
     }
 
     function dispatcherSvgBadgeColors(dispatcher) {
@@ -63325,7 +63330,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!point) return "";
       const match = nearbyClientsForCoords([Number(point.lat), Number(point.lng)], 1)[0];
       if (!match) return "";
-      const title = `${match.client.name} · ${match.client.address} · spedytor: ${match.client.dispatcher || "-"} · ok. ${Math.round(match.distanceKm)} km`;
+      const title = `${match.client.name} · ${match.client.address} · opiekunowie: ${clientOwnerLogins(match.client).join(", ") || "-"} · ok. ${Math.round(match.distanceKm)} km`;
       return `<span class="time-route-client-badge" title="${attr(title)}">KLIENT ${Math.round(match.distanceKm)} km</span>`;
     }
 
@@ -63917,16 +63922,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderRouteSmsChoices(route, canEdit) {
       const choices = [
-        ["distance", "Kilometry", true],
-        ["greeting", "Powitanie i data", true],
-        ["pickup", "Załadunek i godzina", true],
         ["secondPickup", "Drugi załadunek", Boolean(route?.secondLoad)],
-        ["delivery", "Rozładunek i godzina", true],
         ["secondDelivery", "Drugi rozładunek", Boolean(route?.secondUnload)],
         ["driverNotes", "Informacje dla kierowcy", Boolean(String(route?.driverNotes || route?.aiDriverNotes || "").trim())]
       ].filter(([, , visible]) => visible);
-      return `<div class="sms-content-choices" aria-label="Wybierz dane do SMS">
-        <div class="sms-content-choices-title">Wybierz dane wysyłane w SMS</div>
+      if (!choices.length) return "";
+      return `<div class="sms-content-choices" aria-label="Wybierz dodatkowe dane do SMS">
+        <div class="sms-content-choices-title">Dodatkowe dane do SMS</div>
         <div class="sms-content-choice-list">${choices.map(([key, label]) => `<label><input type="checkbox" ${routeSmsSectionEnabled(route, key) ? "checked" : ""} ${canEdit ? "" : "disabled"} onchange="toggleRouteSmsSection('${attr(route.id)}','${attr(key)}',this.checked)" />${esc(label)}</label>`).join("")}</div>
       </div>`;
     }
@@ -65179,7 +65181,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           { key: "clients-filters", title: "Opiekun i filtry", text: "Możesz zawęzić listę do konkretnego spedytora, klientów z opiekunem albo klientów bez opiekuna.", selector: '.client-directory-toolbar .dispatcher-color-select' },
         ];
         if (["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""))) {
-          steps.push({ key: "clients-add", title: "Dodawanie klienta", text: "W tym formularzu wpisujesz nazwę, NIP, adres, opiekuna i notatkę. Przycisk Dodaj klienta zapisuje nową pozycję w kartotece.", selector: '.client-db-form' });
+          steps.push({ key: "clients-add", title: "Dodawanie klienta", text: "W tym formularzu wpisujesz nazwę, NIP, adres, maksymalnie trzech opiekunów i notatkę. Przycisk Dodaj klienta zapisuje nową pozycję w kartotece.", selector: '.client-db-form' });
         }
         steps.push({ key: "clients-list", title: "Lista klientów", text: "Na liście sprawdzisz podstawowe dane klienta. Dostępne przyciski Edytuj i Usuń zależą od kategorii użytkownika.", selector: '#client-directory-list' });
         return steps;
@@ -67261,13 +67263,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             item.client.name,
             item.client.address,
             item.client.nip,
-            item.client.dispatcher,
+            ...clientOwnerLogins(item.client),
             ...item.rows.map(row => row.load),
             ...item.rows.map(row => row.unload)
           ].map(removePolishChars).join(" ");
           return haystack.includes(key);
         })
-        .sort((a, b) => String(a.client.dispatcher || "").localeCompare(String(b.client.dispatcher || ""), "pl") || a.client.name.localeCompare(b.client.name, "pl"))
+        .sort((a, b) => clientOwnerLogins(a.client).join(",").localeCompare(clientOwnerLogins(b.client).join(","), "pl") || a.client.name.localeCompare(b.client.name, "pl"))
         .slice(0, 30);
     }
 
@@ -67754,36 +67756,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return [String(item?.clientId || ""), String(item?.requestedDate || "").slice(0, 10), clientLoadRequestLocationKey(item?.location)].join("|");
     }
 
+    function clientLoadRequestOwners(item) {
+      const client = clientRecordByIdOrName(item?.clientId || "", encodeURIComponent(item?.clientName || ""));
+      return Array.from(new Set([
+        ...clientOwnerLogins(client),
+        ...(Array.isArray(item?.ownerDispatchers) ? item.ownerDispatchers : []),
+        item?.ownerDispatcher
+      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0,3);
+    }
+
     function clientLoadRequestCanAdminister(item) {
       if (String(state.user?.supabaseRole || "") === "admin") return true;
       if (String(state.user?.supabaseRole || "") !== "branch_manager") return false;
-      const owner = String(item?.ownerDispatcher || "").toUpperCase();
-      const ownerUser = USERS.find(user => String(user?.login || "").toUpperCase() === owner);
-      return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
+      const owners = clientLoadRequestOwners(item);
+      if (!owners.length) return false;
+      return owners.some(owner => {
+        const ownerUser = USERS.find(user => String(user?.login || "").toUpperCase() === owner);
+        return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
+      });
     }
 
     function clientLoadRequestDeputies(item) {
-      const client = clientRecordByIdOrName(item?.clientId || "", encodeURIComponent(item?.clientName || ""));
-      const primary = String(client?.dispatcher || item?.ownerDispatcher || "").toUpperCase();
-      return (Array.isArray(client?.coDispatchers) ? client.coDispatchers : [])
-        .map(value => String(value || "").trim().toUpperCase())
-        .filter(value => value && value !== primary);
+      const owners = clientLoadRequestOwners(item);
+      return owners.slice(1);
     }
 
     function clientLoadRequestIsDeputy(item, login = state.user?.login) {
-      return clientLoadRequestDeputies(item).includes(String(login || "").trim().toUpperCase());
+      return clientLoadRequestOwners(item).includes(String(login || "").trim().toUpperCase());
     }
 
     function renderClientLoadRequestRow(item) {
       const client = clientRecordByIdOrName(item.clientId || "", encodeURIComponent(item.clientName || ""));
-      const owner = String(item.ownerDispatcher || "").toUpperCase();
+      const owners = clientLoadRequestOwners(item);
+      const owner = owners[0] || String(item.ownerDispatcher || "").toUpperCase();
       const login = String(state.user?.login || "").toUpperCase();
       const participants = clientLoadRequestParticipants(item);
-      const isOwner = login === owner;
+      const isOwner = owners.includes(login);
       const isParticipant = clientLoadRequestIsParticipant(item, login);
-      const isDeputy = clientLoadRequestIsDeputy(item, login);
+      const isDeputy = isOwner;
       const canAdminister = clientLoadRequestCanAdminister(item);
-      const canRespond = isOwner || isDeputy || canAdminister;
+      const canRespond = isOwner || canAdminister;
       const participantBadges = participants.length
         ? participants.map(participant => `<span class="client-load-request-participant"><span class="dispatcher-map-badge ${dispatcherBadgeClass(participant.dispatcher)}">${esc(participant.dispatcher)}</span>${participant.driverName ? `<span>${esc(participant.driverName)}</span>` : ""}</span>`).join("")
         : `<span class="small">Brak zgłoszonych pojazdów</span>`;
@@ -67799,19 +67811,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const hasOwnerResponse = Boolean(responseRelation || responseRate > 0 || responseComment);
       const responseSummary = hasOwnerResponse
         ? `<div class="client-load-request-response"><div class="client-load-request-response-grid"><div><b>Relacja:</b> ${esc(responseRelation || "-")}</div><div><b>Stawka:</b> ${responseRate > 0 ? money(responseRate) : "-"}</div>${responseComment ? `<div class="full"><b>Komentarz:</b> ${esc(responseComment)}</div>` : ""}<div class="full small">Odpowiedział: ${item.responseAuthor ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.responseAuthor)}">${esc(item.responseAuthor)}</span>` : owner || "-"}${item.responseAt ? ` · ${esc(new Date(item.responseAt).toLocaleString("pl-PL"))}` : ""}</div></div></div>`
-        : `<div class="client-load-request-waiting">Opiekun klienta nie wprowadził jeszcze relacji, stawki ani komentarza.</div>`;
+        : `<div class="client-load-request-waiting">Opiekunowie klienta nie wprowadzili jeszcze relacji, stawki ani komentarza.</div>`;
       const responseComposer = canRespond && item.status !== "closed"
         ? `<div class="client-load-request-response-form"><div><label class="field-label">Relacja</label><input id="client-load-response-relation-${attr(item.id)}" class="input" value="${attr(responseRelation)}" placeholder="np. Łódź → Poznań"></div><div><label class="field-label">Stawka [PLN]</label><input id="client-load-response-rate-${attr(item.id)}" class="input" type="number" min="0" step="10" value="${responseRate > 0 ? attr(responseRate) : ""}" placeholder="0"></div><div class="full"><label class="field-label">Komentarz opiekuna</label><textarea id="client-load-response-comment-${attr(item.id)}" class="input" placeholder="np. 24 t, załadunek od 13:00, klient czeka na potwierdzenie">${esc(responseComment)}</textarea></div><button type="button" class="btn btn-dark" onclick="sendClientLoadRequestResponse('${attr(item.id)}')">Zapisz odpowiedź dla spedytorów</button></div>`
         : "";
       return `<div class="client-load-request-row status-${attr(item.status)}">
         <div class="client-load-request-head">
-          <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekun: ${owner ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>` : "-"}${clientLoadRequestDeputies(item).length ? ` · zastępstwo: ${clientLoadRequestDeputies(item).map(name => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(name)}">${esc(name)}</span>`).join(" ")}` : ""}</div></div>
+          <div class="client-load-request-main"><strong>${clientNameLink(client, item.clientName || "Klient", owner)} <span class="client-load-request-status status-${attr(item.status)}">${esc(clientLoadRequestStatusLabel(item.status))}</span></strong><div class="client-load-request-meta">Opiekunowie: ${owners.length ? owners.map(name => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(name)}">${esc(name)}</span>`).join(" ") : "-"}</div></div>
           <div class="client-load-request-meta">Aktualizacja: ${item.updatedAt ? esc(new Date(item.updatedAt).toLocaleString("pl-PL")) : "-"}</div>
         </div>
         <div class="client-load-request-grid">
           <div class="client-load-request-box"><div class="client-load-request-box-title">Zapytanie</div><div class="client-load-request-note"><b>Termin:</b> ${esc(clientLoadRequestDateLabel(item.requestedDate))}<br><b>Rejon:</b> ${esc(item.location || "-")}<br><span>${item.note ? esc(item.note) : "Zapytanie o dostępność ładunku."}</span></div></div>
           <div class="client-load-request-box"><div class="client-load-request-box-title">Zainteresowani spedytorzy</div><div class="client-load-request-participants">${participantBadges}</div></div>
-          <div class="client-load-request-box"><div class="client-load-request-box-title">Odpowiedź opiekuna klienta</div>${responseSummary}${responseComposer}</div>
+          <div class="client-load-request-box"><div class="client-load-request-box-title">Odpowiedź opiekunów klienta</div>${responseSummary}${responseComposer}</div>
         </div>
         <div class="client-load-request-actions">${ownerActions}${closeAction}</div>
       </div>`;
@@ -67822,7 +67834,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const waiting = rows.filter(item => ["new", "contacting"].includes(item.status)).length;
       const available = rows.filter(item => item.status === "available").length;
       const unavailable = rows.filter(item => item.status === "unavailable").length;
-      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div><div class="small" style="margin:0 0 9px;">Zapytanie obsługuje opiekun klienta. Podczas jego urlopu przejmuje je kierownik oddziału albo wyznaczony przez niego zastępca.</div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci w rejonie”.</div>`}</div>`;
+      return `<div class="client-load-request-section client-load-request-shared"><div class="client-load-request-section-title"><span>Wspólne zapytania o ładunek</span><span class="badge">${rows.length}</span></div><div class="small" style="margin:0 0 9px;">Zapytanie mogą obsłużyć wszyscy przypisani opiekunowie klienta. Podczas ich nieobecności dostęp zachowuje właściwy kierownik oddziału.</div>${rows.length ? `<div class="client-load-request-summary"><span>W toku: ${waiting}</span><span>Ładunek dostępny: ${available}</span><span>Brak ładunków: ${unavailable}</span></div><div class="client-load-request-list">${rows.map(renderClientLoadRequestRow).join("")}</div>` : `<div class="commercial-empty">Brak aktywnych zapytań. Zapytanie wyślesz z zakładki „Klienci w rejonie”.</div>`}</div>`;
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
@@ -67830,7 +67842,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const resolvedClient = quickRequestClientOwner(sourceClient);
       const client = (state.clients || []).find(item => String(item.id) === String(resolvedClient.requestClientId)) || resolvedClient.client || sourceClient;
       const requesterDispatcher = String(state.user?.login || "").toUpperCase();
-      const ownerDispatcher = String(resolvedClient.ownerDispatcher || client?.dispatcher || "").toUpperCase();
+      const ownerDispatchers = Array.from(new Set([...(Array.isArray(resolvedClient.ownerDispatchers) ? resolvedClient.ownerDispatchers : []), ...clientOwnerLogins(client), resolvedClient.ownerDispatcher].map(value => String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0,3);
+      const ownerDispatcher = ownerDispatchers[0] || "";
       const requestedDate = currentAppDate();
       const normalizedLocation = String(location || client?.address || "").trim();
       if (!canSendQuickClientLoadRequest()) {
@@ -67845,7 +67858,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         showAppMessage("Brak spedytora", "Nie można ustalić autora zapytania.", "error");
         return false;
       }
-      if (ownerDispatcher === requesterDispatcher) {
+      if (ownerDispatchers.includes(requesterDispatcher)) {
         showAppMessage("To Twój klient", "Możesz skontaktować się z klientem bezpośrednio.", "info");
         return false;
       }
@@ -67869,7 +67882,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         } : item);
         saveClientLoadRequests();
         syncCommercialIntelligenceSection();
-        showAppMessage(alreadyJoined ? "Zapytanie już istnieje" : "Dołączono do zapytania", `${ownerDispatcher} widzi wspólne zapytanie dotyczące klienta ${client.name}.`, alreadyJoined ? "info" : "success");
+        showAppMessage(alreadyJoined ? "Zapytanie już istnieje" : "Dołączono do zapytania", `${ownerDispatchers.join(", ")} widzą wspólne zapytanie dotyczące klienta ${client.name}.`, alreadyJoined ? "info" : "success");
         return true;
       }
       const request = {
@@ -67877,6 +67890,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         clientId: String(client.id),
         clientName: client.name || "Klient",
         ownerDispatcher,
+        ownerDispatchers,
         requesterDispatcher,
         driverId:"",
         driverName:"",
@@ -67898,7 +67912,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.clientLoadRequests = [...(state.clientLoadRequests || []), request];
       saveClientLoadRequests();
       syncCommercialIntelligenceSection();
-      showAppMessage("Wysłano zapytanie", `${ownerDispatcher} otrzymał zapytanie dotyczące klienta ${client.name}.`, "success");
+      showAppMessage("Wysłano zapytanie", `${ownerDispatchers.join(", ")} otrzymali zapytanie dotyczące klienta ${client.name}.`, "success");
       return true;
     }
 
@@ -67917,7 +67931,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canAdminister = clientLoadRequestCanAdminister(request);
       const ownerAllowed = (isOwner || clientLoadRequestIsDeputy(request, login) || canAdminister) && ["contacting", "available", "unavailable", "closed"].includes(status);
       if (!ownerAllowed) {
-        showAppMessage("Brak uprawnień", "Status może zmienić opiekun klienta lub administrator.", "error");
+        showAppMessage("Brak uprawnień", "Status może zmienić jeden z opiekunów klienta lub administrator.", "error");
         return;
       }
       const now = new Date().toISOString();
@@ -67942,7 +67956,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const login = String(state.user?.login || "").toUpperCase();
       const canAdminister = clientLoadRequestCanAdminister(request);
       if (login !== request.ownerDispatcher && !clientLoadRequestIsDeputy(request, login) && !canAdminister) {
-        showAppMessage("Brak uprawnień", "Relację, komentarz i stawkę może wprowadzić opiekun klienta lub administrator.", "error");
+        showAppMessage("Brak uprawnień", "Relację, komentarz i stawkę może wprowadzić jeden z opiekunów klienta lub administrator.", "error");
         return;
       }
       const relationInput = document.getElementById(`client-load-response-relation-${requestId}`);
@@ -68161,17 +68175,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const role = String(state.user?.supabaseRole || "");
       if (["dispatcher", "admin"].includes(role)) return true;
       if (role !== "branch_manager") return false;
-      const owner = String(client?.dispatcher || "").toUpperCase();
-      if (!owner) return true;
-      const ownerUser = USERS.find(user => String(user?.login || "").toUpperCase() === owner);
-      return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
+      const owners = clientOwnerLogins(client);
+      if (!owners.length) return true;
+      return owners.every(owner => {
+        const ownerUser = USERS.find(user => String(user?.login || "").toUpperCase() === owner);
+        return Boolean(ownerUser?.branchId && String(ownerUser.branchId) === String(state.user?.branchId || ""));
+      });
     }
 
     function clientOwnerLogins(client) {
       return Array.from(new Set([
         client?.dispatcher,
-        ...(Array.isArray(client?.coDispatchers) ? client.coDispatchers : [])
-      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean)));
+        ...(Array.isArray(client?.coDispatchers) ? client.coDispatchers : []),
+        ...(Array.isArray(client?.dispatchers) ? client.dispatchers : [])
+      ].map(value => String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0, 3);
     }
 
     function clientOwnerBadges(client) {
@@ -68279,7 +68296,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Nazwa klienta</label><input id="client-name" class="input" required value="${attr(editClient?.name || "")}" placeholder="np. Klient ABC" /></div>
               <div><label class="field-label" style="margin-top:0;">NIP</label><input id="client-nip" class="input" inputmode="numeric" maxlength="10" value="${attr(editClient?.nip || "")}" placeholder="10 cyfr" /></div>
               <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label>${renderClientDispatcherPicker(editClient?.dispatcher || "")}</div>
-              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Zastępcy podczas urlopu</label><div class="small" style="margin-bottom:6px;">Kierownik oddziału przejmuje zapytania klientów nieobecnego opiekuna. Na czas własnej nieobecności wyznacza tutaj innego użytkownika oddziału do opieki nad klientami.</div><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
+              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie klienta</label><div class="small" style="margin-bottom:6px;">Klient może mieć maksymalnie 3 opiekunów łącznie: 1 głównego i do 2 dodatkowych.</div><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) && dispatcher !== String(editClient?.dispatcher || "").toUpperCase() ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} onchange="enforceClientOwnerLimit(this)" /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
               ${isAdminUser() ? `<div class="client-bases-admin" style="grid-column:1/-1">
                 <div class="client-bases-admin-head"><div><b>Bazy i magazyny klienta</b><div class="small">Tylko potwierdzone tutaj lokalizacje będą wyświetlane jako bazy klienta na mapie.</div></div><span class="badge">${Array.isArray(editClient?.bases) ? editClient.bases.length : 0}</span></div>
@@ -68407,8 +68424,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const client = (state.clients || []).find(item => item.id === clientId) || (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(history?.clientName || ""));
       if (!history) return;
       const text = `Dzień dobry, realizowaliśmy wcześniej dla Państwa transport na relacji ${history.load} → ${history.unload}. Czy mają Państwo obecnie podobny ładunek lub inną relację do wyceny?`;
-      try { await navigator.clipboard.writeText(text); showAppMessage("Skopiowano zapytanie", `${client?.name || history.clientName} · opiekun: ${client?.dispatcher || history.dispatcher || "-"}`); }
+      try {
+        await navigator.clipboard.writeText(text);
+        const owners = clientOwnerLogins(client);
+        showAppMessage("Skopiowano zapytanie", `${client?.name || history.clientName} · opiekunowie: ${owners.join(", ") || history.dispatcher || "-"}`);
+      }
       catch (error) { showAppMessage("Gotowe zapytanie", text); }
+    }
+
+    function enforceClientOwnerLimit(changedInput = null) {
+      const primary = String(document.getElementById("client-dispatcher")?.value || "").trim().toUpperCase();
+      const checked = Array.from(document.querySelectorAll('input[name="client-co-dispatcher"]:checked'));
+      const owners = Array.from(new Set([primary, ...checked.map(input => String(input.value || "").trim().toUpperCase())].filter(Boolean)));
+      if (owners.length <= 3) return true;
+      if (changedInput) changedInput.checked = false;
+      showAppMessage("Maksymalnie 3 opiekunów", "Klient może mieć jednego głównego i maksymalnie dwóch dodatkowych opiekunów.", "info");
+      return false;
     }
 
     async function saveClientFromForm(event) {
@@ -68423,13 +68454,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const cargoTypes = existing?.cargoTypes || "";
       const businessType = existing?.businessType || "";
       const selectedPrimaryDispatcher = String(document.getElementById("client-dispatcher")?.value || "").trim().toUpperCase();
-      const selectedCoDispatchers = Array.from(new Set([
-        selectedPrimaryDispatcher,
-        ...Array.from(document.querySelectorAll('input[name="client-co-dispatcher"]:checked')).map(input => String(input.value || "").trim())
-      ].map(value => value.toUpperCase()).filter(Boolean)));
+      const selectedCoDispatchers = Array.from(new Set(
+        Array.from(document.querySelectorAll('input[name="client-co-dispatcher"]:checked')).map(input => String(input.value || "").trim().toUpperCase()).filter(Boolean)
+      ));
+      const requestedOwners = Array.from(new Set([selectedPrimaryDispatcher, ...selectedCoDispatchers].filter(Boolean)));
+      if (requestedOwners.length > 3) {
+        showAppMessage("Maksymalnie 3 opiekunów", "Usuń nadmiarowych opiekunów. Klient może mieć maksymalnie trzy osoby prowadzące.", "error");
+        return;
+      }
       const forceUnassignedNewClient = !existing && !isAdminUser();
-      const dispatcher = forceUnassignedNewClient ? "" : (selectedPrimaryDispatcher || selectedCoDispatchers[0] || "");
-      const coDispatchers = forceUnassignedNewClient ? [] : Array.from(new Set([dispatcher, ...selectedCoDispatchers].filter(Boolean)));
+      const dispatcher = forceUnassignedNewClient ? "" : (selectedPrimaryDispatcher || requestedOwners[0] || "");
+      const coDispatchers = forceUnassignedNewClient ? [] : Array.from(new Set([dispatcher, ...requestedOwners].filter(Boolean))).slice(0,3);
       const databaseType = dispatcher ? "assigned" : "operations";
       const cooperationNotes = String(document.getElementById("client-cooperation-notes")?.value || "").trim();
       if (!name) { showAppMessage("Uzupełnij klienta", "Podaj nazwę klienta."); return; }
@@ -68450,7 +68485,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncClientDatabaseSection();
       if (!state.unloadPanelCollapsed) syncUnloadMapCard();
       if (state.nearestQuery) findNearestVehicles();
-      showAppMessage(existing ? "Zapisano klienta" : "Dodano klienta", dispatcher ? `${name} został przypisany do spedytora ${dispatcher}.` : `${name} został zapisany bez opiekuna.`);
+      const ownerSummary = clientOwnerLogins(saved).join(", ");
+      showAppMessage(existing ? "Zapisano klienta" : "Dodano klienta", ownerSummary ? `${name} · opiekunowie: ${ownerSummary}.` : `${name} został zapisany bez opiekuna.`);
     }
 
     async function addClientBaseFromForm(clientId) {
@@ -73544,7 +73580,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .join("|");
       const clientsVisible = state.showClientsOnMap || state.showUnassignedClientsOnMap;
       const clientsSignature = clientsVisible
-        ? clientMapPoints().map(point => [point.id, point.client.name, point.client.mapBaseName || "", point.client.address, point.coords[0], point.coords[1], point.client.dispatcher || "", point.client.orderCount || 0].join(":")).join("|")
+        ? clientMapPoints().map(point => [point.id, point.client.name, point.client.mapBaseName || "", point.client.address, point.coords[0], point.coords[1], clientOwnerLogins(point.client).join(","), point.client.orderCount || 0].join(":")).join("|")
         : "";
       const basesSignature = state.showDriverBasesOnMap
         ? driverBaseMapPoints().map(point => [point.id, point.base, point.coords[0], point.coords[1], point.drivers.map(driver => driver.id).join(",")].join(":")).join("|")
@@ -73644,13 +73680,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const bases=state.showDriverBasesOnMap?driverBaseMapPoints().map(item=>({...item,p:nativeMapProjection(item.coords)})).filter(item=>item.p):[];
       const country='M 168 225 L 215 126 L 355 72 L 512 88 L 680 60 L 832 143 L 906 260 L 847 382 L 704 454 L 532 476 L 372 447 L 242 377 Z';
       const clientSvg=clients.map(item=>{
-        const owner=item.client.dispatcher||"";
-        const assigned=Boolean(owner);
+        const owners=clientOwnerLogins(item.client);
+        const ownerLabel=owners.join(", ");
+        const assigned=owners.length>0;
         const markerColor=assigned?"#66cc66":"#6b7280";
-        const [ownerBg,ownerFg]=dispatcherSvgBadgeColors(owner);
+        const [ownerBg,ownerFg]=dispatcherSvgBadgeColors(owners[0] || "");
         const marker=`<circle cx="${item.p.x}" cy="${item.p.y}" r="${assigned ? 9 : 8}" fill="${markerColor}" stroke="#fff" stroke-width="3"/>`;
         const orderInfo=item.client.orderedInPeriod?` · ${item.client.orderCount||1} rel. / ${item.client.historyDays || currentClientMapHistoryDays()} dni`:"";
-        return `<g role="button" tabindex="0" style="cursor:pointer" onclick="openClientDetails('${attr(item.client.id || "")}','${attr(encodeURIComponent(item.client.name || ""))}')"><title>${esc(item.client.name)} · ${esc(item.client.address)}${owner?` · ${esc(owner)}`:" · bez opiekuna"}${orderInfo}</title>${marker}<text x="${item.p.x+14}" y="${item.p.y+4}" font-size="13" font-weight="800" fill="${markerColor}">${esc(item.client.name.slice(0,18))}</text>${owner?`<rect x="${item.p.x+14}" y="${item.p.y+9}" rx="5" width="${Math.max(32,owner.length*8+12)}" height="18" fill="${ownerBg}"/><text x="${item.p.x+20}" y="${item.p.y+22}" font-size="11" font-weight="900" fill="${ownerFg}">${esc(owner)}</text>`:""}</g>`;
+        return `<g role="button" tabindex="0" style="cursor:pointer" onclick="openClientDetails('${attr(item.client.id || "")}','${attr(encodeURIComponent(item.client.name || ""))}')"><title>${esc(item.client.name)} · ${esc(item.client.address)}${ownerLabel?` · opiekunowie: ${esc(ownerLabel)}`:" · bez opiekuna"}${orderInfo}</title>${marker}<text x="${item.p.x+14}" y="${item.p.y+4}" font-size="13" font-weight="800" fill="${markerColor}">${esc(item.client.name.slice(0,18))}</text>${ownerLabel?`<rect x="${item.p.x+14}" y="${item.p.y+9}" rx="5" width="${Math.max(32,ownerLabel.length*8+12)}" height="18" fill="${ownerBg}"/><text x="${item.p.x+20}" y="${item.p.y+22}" font-size="11" font-weight="900" fill="${ownerFg}">${esc(ownerLabel)}</text>`:""}</g>`;
       }).join('');
       const baseSvg=bases.map(item=>`<g style="cursor:pointer"><title>Baza ${esc(item.base)} · ${item.drivers.length} pojazdów</title><circle cx="${item.p.x}" cy="${item.p.y}" r="11" fill="#facc15" stroke="#fff" stroke-width="3"/><text x="${item.p.x}" y="${item.p.y+5}" text-anchor="middle" font-size="15" font-weight="950" fill="#713f12">⌂</text><text x="${item.p.x+14}" y="${item.p.y+4}" font-size="12" font-weight="850" fill="#713f12">${esc(item.base)}</text></g>`).join('');
       element.innerHTML=`<div class="native-map-fallback"><svg viewBox="0 0 1000 540" role="img" aria-label="Mapa Polski z pojazdami, klientami i bazami kierowców"><path d="${country}" fill="#f8fafc" stroke="#94a3b8" stroke-width="5"/><path d="M215 126 L355 72 M512 88 L532 476 M242 377 L847 382" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="8 10"/>${clientSvg}${baseSvg}${vehicles.map(item=>{const hasNext=mapVehicleHasNext(item.routeId);const markerColor=hasNext?'#22c55e':'#ef4444';const statusText=hasNext?'ma następny ładunek':'brak następnego ładunku';return `<g style="cursor:pointer" onclick="openRoute('${attr(item.routeId)}')"><circle cx="${item.p.x}" cy="${item.p.y}" r="10" fill="${markerColor}" stroke="#fff" stroke-width="3"><title>${esc(item.driver)} · ${esc(item.city||item.unload||'')} · ${statusText}</title></circle><text x="${item.p.x+13}" y="${item.p.y+4}" font-size="13" font-weight="850" fill="#0f172a">${esc(item.driver||item.city||'AUTO')}</text></g>`;}).join('')}</svg><div class="native-map-note">Mapa awaryjna działa bez zewnętrznych kafelków. <button type="button" class="btn-mini" style="margin-left:5px" onclick="retryRoadMap()">Ponów mapę drogową</button></div></div>`;
@@ -74387,7 +74424,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderClientMapPopup(client) {
       const validation = validateClientAddress(client);
-      const ownerText = client.dispatcher ? esc(validation.label) : "Bez przypisanego spedytora";
+      const owners = clientOwnerLogins(client);
+      const ownerText = owners.length ? `Opiekunowie: ${owners.join(", ")}` : "Bez przypisanego opiekuna";
       const orderText = client.orderedInPeriod
         ? `${esc(client.orderCount || 1)} ${Number(client.orderCount || 1) === 1 ? "relacja" : "relacji"} w ostatnich ${esc(client.historyDays || currentClientMapHistoryDays())} dniach${client.lastRouteDate ? `<br>Ostatnia: ${esc(formatDateForInput(client.lastRouteDate))}` : ""}`
         : "";
@@ -74498,7 +74536,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.showClientsOnMap && !state.showUnassignedClientsOnMap) return;
 
       clientMapPoints().forEach(point => {
-        const assigned = Boolean(point.client.dispatcher);
+        const owners = clientOwnerLogins(point.client);
+        const assigned = owners.length > 0;
         const icon = L.divIcon({
           className: "",
           html: `<div class="tms-client-marker ${assigned ? 'assigned' : 'unassigned'}"></div>`,
@@ -74509,7 +74548,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const orderInfo = point.client.orderedInPeriod
           ? ` · ${point.client.orderCount || 1}× / ${point.client.historyDays || currentClientMapHistoryDays()} dni`
           : "";
-        const tooltip = `${point.client.name}${point.client.mapBaseName ? ` · ${point.client.mapBaseName}` : ""} · ${assigned ? point.client.dispatcher : "bez opiekuna"}${orderInfo}`;
+        const tooltip = `${point.client.name}${point.client.mapBaseName ? ` · ${point.client.mapBaseName}` : ""} · ${assigned ? `opiekunowie: ${owners.join(", ")}` : "bez opiekuna"}${orderInfo}`;
         const marker = L.marker(point.coords, { icon, zIndexOffset: assigned ? 2200 : 1700 })
           .addTo(state.leafletClientLayer)
           .bindTooltip(tooltip, { direction: "top", offset: [0, assigned ? -10 : -8], opacity: 0.92 })
@@ -74675,7 +74714,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function quickRequestClientOwner(client) {
-      if (!client) return { client:null, ownerDispatcher:"", requestClientId:"" };
+      if (!client) return { client:null, ownerDispatcher:"", ownerDispatchers:[], requestClientId:"" };
       const sourceId = String(client.id || "");
       const sourceNip = normalizeClientNip(client.nip || "");
       const sourceName = removePolishChars(String(client.name || "").trim());
@@ -74696,15 +74735,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const assignedByNip = sourceNip ? (state.clients || []).find(candidate =>
         candidate?.databaseType === "assigned"
         && normalizeClientNip(candidate.nip || "") === sourceNip
-        && String(candidate.dispatcher || "").trim()
+        && clientOwnerLogins(candidate).length
       ) : null;
       const ownerRecord = [assignedById, assignedByNip, assignedByName, ...matches]
-        .find(candidate => String(candidate?.dispatcher || "").trim()) || null;
+        .find(candidate => clientOwnerLogins(candidate).length) || null;
       const requestClient = ownerRecord || matches.find(candidate => String(candidate.id || "") === sourceId) || client;
-      const ownerDispatcher = String(ownerRecord?.dispatcher || client.dispatcher || "").trim().toUpperCase();
+      const ownerDispatchers = clientOwnerLogins(ownerRecord || client);
+      const ownerDispatcher = ownerDispatchers[0] || "";
       return {
-        client: ownerDispatcher ? { ...client, dispatcher: ownerDispatcher } : client,
+        client: ownerDispatchers.length ? { ...client, dispatcher:ownerDispatcher, coDispatchers:ownerDispatchers, dispatchers:ownerDispatchers } : client,
         ownerDispatcher,
+        ownerDispatchers,
         requestClientId: String(requestClient?.id || client.id || "")
       };
     }
@@ -74852,20 +74893,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           : rows.length ? `
           <div class="route-context-client-list">
             ${rows.map(item => {
-              const owner = String(item.ownerDispatcher || item.client?.dispatcher || "").toUpperCase();
+              const owners = Array.from(new Set([...(Array.isArray(item.ownerDispatchers) ? item.ownerDispatchers : []), ...clientOwnerLogins(item.client), item.ownerDispatcher].map(value => String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0,3);
               const canAsk = canSendQuickClientLoadRequest();
-              const canSendQuickRequest = canAsk && owner && owner !== login;
+              const isMyClient = owners.includes(login);
+              const canSendQuickRequest = canAsk && owners.length && !isMyClient;
               const action = canSendQuickRequest
                 ? `<button type="button" class="route-context-quick-request" onclick="sendRouteQuickClientLoadRequest('${attr(route.id)}','${attr(item.requestClientId || item.client.id)}')">Szybkie zapytanie o ładunek</button>`
-                : canAsk && owner === login
+                : canAsk && isMyClient
                   ? `<span class="route-context-client-state">Twój klient</span>`
-                  : owner
-                    ? `<span class="route-context-client-state">${esc(owner)}</span>`
+                  : owners.length
+                    ? `<span class="route-context-client-state">${owners.map(owner => `<span class="dispatcher-map-badge ${dispatcherBadgeClass(owner)}">${esc(owner)}</span>`).join(" ")}</span>`
                     : `<span class="route-context-client-state">Brak opiekuna</span>`;
               return `
               <div class="route-context-client-item ${quickRequestDistanceClass(item.distanceKm)}">
                 <div class="route-context-client-head">
-                  <div class="route-context-client-name">${clientNameLink(item.client, item.client?.name || "Klient", owner)}</div>
+                  <div class="route-context-client-name">${clientNameLink(item.client, item.client?.name || "Klient", owners[0] || "")}</div>
                   <div class="route-context-client-actions">${action}</div>
                 </div>
                 <span class="route-context-client-distance">${Math.round(item.distanceKm)} km po drogach · kat. C</span><br>
@@ -75538,14 +75580,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="details-client-helper">${clientOwnerBadge(resolveClientForRoute(route))}</div>
               ${canEdit ? `<div id="details-client-add-${attr(route.id)}" class="client-quick-add" hidden><div><label class="field-label" style="margin-top:0;">Nowa firma</label><input id="details-client-name-${attr(route.id)}" class="input" value="${attr(route.client || "")}" placeholder="nazwa firmy" /></div><div><label class="field-label" style="margin-top:0;">NIP</label><input id="details-client-nip-${attr(route.id)}" class="input" inputmode="numeric" maxlength="10" placeholder="10 cyfr" /></div><button type="button" class="btn btn-dark" onclick="quickAddClientFromRoute('${attr(route.id)}')">Dodaj firmę</button></div>` : ""}
 
-              <div>
-                <label class="field-label">Uwagi do zlecenia</label>
+              <details class="optional-text-details" ${String(route.notes || "").trim() ? "open" : ""}>
+                <summary>Uwagi do zlecenia</summary>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
-              </div>
-              <div>
-                <label class="field-label">Informacje dla kierowcy - dodawane do SMS</label>
-                <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || ""))}</textarea>
-              </div>
+              </details>
+              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy - dodawane do SMS</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}
             </section>
 
 
@@ -75745,14 +75784,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <input id="new-route-second-load-coords" type="hidden" value="" />
               <input id="new-route-second-unload-coords" type="hidden" value="" />
 
-              <div class="compact-comment-field">
-                <label class="field-label">Uwagi do zlecenia</label>
+              <details class="optional-text-details" ${String(prefill.notes || "").trim() ? "open" : ""}>
+                <summary>Uwagi do zlecenia</summary>
                 <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
-              </div>
-              <div class="compact-comment-field">
-                <label class="field-label">Informacje dla kierowcy - dodawane do SMS</label>
+              </details>
+              <details class="optional-text-details" ${String(prefill.driverNotes || "").trim() ? "open" : ""}>
+                <summary>Informacje dla kierowcy - dodawane do SMS</summary>
                 <textarea id="new-driver-notes" class="textarea" placeholder="tylko informacje potrzebne kierowcy">${esc(prefill.driverNotes || "")}</textarea>
-              </div>
+              </details>
 
               <label class="field-label">Klient</label>
               <div class="single-suggestion-wrap">
@@ -75762,17 +75801,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
 
-              ${proposedMode || futureMode ? `
-                <div class="rate-only-card">
-                  <label class="field-label" style="margin-top:0;">Stawka i waluta</label>
-                  <div class="route-rate-currency-row"><input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" oninput="updateNewRouteFinance('rate')" /><select id="new-order-currency" class="select route-currency-select"><option value="PLN" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "PLN" ? "selected" : ""}>PLN</option><option value="EUR" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "EUR" ? "selected" : ""}>EUR</option></select></div>
-                  <input id="new-approach" type="hidden" value="${attr(prefill.approachKm ?? 0)}" />
-                  <input id="new-loaded" type="hidden" value="${attr(prefill.loadedKm ?? 0)}" />
-                  <input id="new-oversized-cost" type="hidden" value="${attr(prefill.oversizedCost ?? 0)}" />
-                  <input id="new-oversized" type="hidden" value="${Number(prefill.oversizedCost || 0) > 0 ? "1" : "0"}" />
-                  <input id="new-cost" type="hidden" value="${attr(prefill.cost ?? 0)}" />
-                </div>
-              ` : `
+              ${`
                 <div class="grid-4 route-finance-grid" style="background:#f8fafc;border-radius:14px;padding:12px;margin-top:12px;">
                   <div><label class="field-label" style="margin-top:0;">Dolot km</label><input id="new-approach" class="input" type="number" min="0" step="1" value="${attr(prefill.approachKm ?? 0)}" oninput="markKmInputManual('new-approach');updateNewRouteFinance('km')" /></div>
                   <div><label class="field-label" style="margin-top:0;">Kilometry</label><input id="new-loaded" class="input" type="number" min="0" step="1" value="${attr(prefill.loadedKm ?? 0)}" oninput="markKmInputManual('new-loaded');updateNewRouteFinance('km')" /></div>
@@ -76299,7 +76328,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const client = clientSearchSuggestion(raw);
         if (!client || removePolishChars(client.name) === removePolishChars(raw)) return;
         NEW_CLIENT_SUGGESTION = client;
-        const dispatcher = client.dispatcher ? ` · ${client.dispatcher}` : "";
         const nip = client.nip ? ` · NIP ${client.nip}` : "";
         button.innerHTML = `<span>${esc(client.name)}${esc(nip)}</span>${clientOwnerBadge(client)}`;
         button.classList.add("visible");
@@ -81130,6 +81158,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.openAdminDataTransfer?.();
       } else if (message.type === "top-dragon-relations-archive-export-data") {
         handleCentralArchiveExportResult(message);
+      } else if (message.type === "top-dragon-relations-backup-email-result") {
+        window.handleRelationsBackupEmailResult?.(message);
       } else if (message.type === "top-dragon-audit-data") {
         applyCentralAuditData(message);
       } else if (message.type === "top-dragon-fleet-operation-result") {
@@ -81380,8 +81410,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('relations')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('relations')">Import Excel</button>
-                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('relations')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('relations')">Import AI</button>
+                    <button type="button" class="btn" onclick="adminSendRelationsBackupEmail()">Wyślij kopię relacji e-mail</button>
                   </div>
+                  <div class="small">Kopia e-mail jest generowana z centralnej tabeli relacji w Supabase, niezależnie od aktualnego widoku tablicy. Adres odbiorcy ustawia administrator wdrożenia w zmiennej <code>RELATIONS_BACKUP_TO_EMAIL</code>.</div>
                 </div>
                 <div class="admin-transfer-group">
                   <strong>Klienci</strong>
@@ -81389,7 +81421,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('clients')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('clients')">Import Excel</button>
-                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('clients')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('clients')">Import AI</button>
                   </div>
                 </div>
                 <div class="admin-transfer-group">
@@ -81398,7 +81430,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="admin-transfer-actions">
                     <button type="button" class="btn btn-dark" onclick="adminExportExcel('vehicles')">Eksport Excel</button>
                     <button type="button" class="btn" onclick="adminChooseExcelImport('vehicles')">Import Excel</button>
-                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('vehicles')">✨ Import AI</button>
+                    <button type="button" class="btn btn-ai-action" onclick="adminOpenAiImport('vehicles')">Import AI</button>
                   </div>
                 </div>
               </div>
@@ -81818,7 +81850,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         (dataRows || []).forEach((row, rowIndex) => {
           const map = excelRowMap(row);
           const json = excelJsonObject(excelValue(map, ["Dane JSON", "payloadJson"])) || {};
-          const dispatcherCell = excelSafeString(excelValue(map, ["Spedytor", "dispatcher"], json.dispatcher || options.defaultDispatcher || ""));
+          const dispatcherCell = excelSafeString(excelValue(map, ["Spedytor", "Główny opiekun", "Opiekun 1", "dispatcher"], json.dispatcher || options.defaultDispatcher || ""));
+          const dispatcher2Cell = excelSafeString(excelValue(map, ["Opiekun 2", "Spedytor 2", "dispatcher2"], Array.isArray(json.coDispatchers) ? json.coDispatchers[1] || "" : ""));
+          const dispatcher3Cell = excelSafeString(excelValue(map, ["Opiekun 3", "Spedytor 3", "dispatcher3"], Array.isArray(json.coDispatchers) ? json.coDispatchers[2] || "" : ""));
           const raw = { ...json };
           const sourceId = excelSafeString(excelValue(map, ["Klient ID", "clientId", "id"]));
           raw.databaseType = excelSafeString(excelValue(map, ["Baza", "databaseType"], raw.databaseType || "operations"), "operations") || "operations";
@@ -81828,6 +81862,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           raw.cargoTypes = excelSafeString(excelValue(map, ["Typy ładunków", "cargoTypes"], raw.cargoTypes || ""));
           raw.businessType = excelSafeString(excelValue(map, ["Typ działalności", "businessType"], raw.businessType || ""));
           raw.dispatcher = excelDispatcherUser(dispatcherCell)?.login || dispatcherCell;
+          raw.coDispatchers = Array.from(new Set([dispatcherCell, dispatcher2Cell, dispatcher3Cell, ...(Array.isArray(json.coDispatchers) ? json.coDispatchers : []), ...(Array.isArray(json.dispatchers) ? json.dispatchers : [])]
+            .map(value => excelDispatcherUser(value)?.login || String(value || "").trim().toUpperCase()).filter(Boolean))).slice(0,3);
           raw.lat = excelNumber(excelValue(map, ["Szerokość geogr.", "Szerokość geograficzna", "lat"], raw.lat), Number(raw.lat));
           raw.lng = excelNumber(excelValue(map, ["Długość geogr.", "Długość geograficzna", "lng", "lon"], raw.lng), Number(raw.lng));
           raw.approximate = excelBoolean(excelValue(map, ["Przybliżona lokalizacja", "approximate"], raw.approximate), Boolean(raw.approximate));
@@ -82048,6 +82084,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }, window.location.origin);
       }
 
+      const RELATIONS_BACKUP_EMAIL_PENDING = new Map();
+      window.adminSendRelationsBackupEmail = function() {
+        if (!canUseAdminDataTransfer()) {
+          showAppMessage("Brak uprawnień", "Kopię relacji e-mail może wysłać administrator.", "error");
+          return;
+        }
+        const requestId = `relations-backup-email-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+        showAppMessage("Kopia relacji", "Przygotowuję raport z centralnej bazy Supabase…", "info");
+        window.parent?.postMessage({ type:"top-dragon-relations-backup-email-request", requestId }, window.location.origin);
+      };
+
+      window.handleRelationsBackupEmailResult = function(message) {
+        const ok = Boolean(message?.ok);
+        showAppMessage(ok ? "Kopia relacji wysłana" : "Nie udało się wysłać kopii", String(message?.message || (ok ? "Raport został wysłany e-mailem." : "Sprawdź konfigurację wysyłki e-mail.")), ok ? "success" : "error");
+      };
+
       window.adminExportExcel = function(kind) {
         if (!canUseAdminDataTransfer()) {
           showAppMessage("Brak uprawnień", "Eksport danych jest dostępny wyłącznie dla administratora.", "error");
@@ -82134,7 +82186,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         model: "",
         elapsedMs: 0,
         defaultBranchId: "",
-        defaultDispatcher: ""
+        defaultDispatcher: "",
+        clientDispatchers: []
       };
 
       function adminAiKindLabel(kind) {
@@ -82263,11 +82316,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="admin-ai-import-backdrop" onclick="adminCloseAiImport(event)">
             <section class="admin-ai-import-modal" onclick="event.stopPropagation()" aria-label="Import danych przez AI">
               <div class="admin-ai-import-head">
-                <div><h3>✨ Import AI · ${esc(adminAiKindLabel(kind))}</h3><div class="small">AI rozpoznaje dane, ale niczego nie zapisuje bez Twojego zatwierdzenia.</div></div>
+                <div><h3>Import AI · ${esc(adminAiKindLabel(kind))}</h3><div class="small">AI rozpoznaje dane, ale niczego nie zapisuje bez Twojego zatwierdzenia.</div></div>
                 <button type="button" class="icon-action-btn" title="Zamknij" aria-label="Zamknij" onclick="adminCloseAiImport()">✕</button>
               </div>
               <div class="admin-ai-import-body">
-                ${kind === "clients" ? "" : `<div class="admin-ai-import-grid"><div>
+                ${kind === "clients" ? `<div class="admin-ai-import-grid admin-ai-client-owners"><div style="grid-column:1/-1"><div class="small"><b>Opiekunowie importowanych klientów</b> · maksymalnie 3. Możesz pozostawić wszystkie pola puste.</div></div>${[0,1,2].map((slot) => `<div><label class="field-label" style="margin-top:0;">${slot === 0 ? "Główny opiekun" : `Opiekun ${slot + 1}`}</label><select class="select" onchange="adminAiSetClientDispatcher(${slot},this.value)"><option value="">- brak -</option>${adminAiDispatcherOptions("").map(user => `<option value="${attr(user.login)}" ${user.login === String(ADMIN_AI_IMPORT_STATE.clientDispatchers?.[slot] || "") ? "selected" : ""}>${esc(user.login)}${user.name && user.name !== user.login ? ` · ${esc(user.name)}` : ""}</option>`).join("")}</select></div>`).join("")}</div>` : `<div class="admin-ai-import-grid"><div>
                     <label class="field-label" style="margin-top:0;">Domyślny oddział</label>
                     <select class="select" onchange="adminAiSetBranch(this.value)">
                       ${branches.map(branch => `<option value="${attr(branch.id)}" ${branch.id === ADMIN_AI_IMPORT_STATE.defaultBranchId ? "selected" : ""}>${esc(branch.name)}</option>`).join("")}
@@ -82353,6 +82406,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const branches = adminAiBranchOptions();
         ADMIN_AI_IMPORT_STATE.defaultBranchId = ADMIN_AI_IMPORT_STATE.kind === "clients" ? "" : (branches[0]?.id || "");
         ADMIN_AI_IMPORT_STATE.defaultDispatcher = ADMIN_AI_IMPORT_STATE.kind === "clients" ? "" : (adminAiDispatcherOptions(ADMIN_AI_IMPORT_STATE.defaultBranchId)[0]?.login || "");
+        ADMIN_AI_IMPORT_STATE.clientDispatchers = [];
         syncAdminAiImportModal();
       };
 
@@ -82375,6 +82429,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.adminAiSetDispatcher = function(value) {
         ADMIN_AI_IMPORT_STATE.defaultDispatcher = String(value || "");
       };
+      window.adminAiSetClientDispatcher = function(slot, value) {
+        const index = Math.max(0, Math.min(2, Number(slot) || 0));
+        const next = Array.from({ length:3 }, (_, idx) => String(ADMIN_AI_IMPORT_STATE.clientDispatchers?.[idx] || ""));
+        const login = adminAiResolveDispatcher(value, "");
+        next[index] = login;
+        if (login) next.forEach((owner, idx) => { if (idx !== index && owner === login) next[idx] = ""; });
+        ADMIN_AI_IMPORT_STATE.clientDispatchers = next.slice(0,3);
+        syncAdminAiImportModal();
+      };
+
 
       // 3L.57: inline event handlers do not reliably resolve top-level lexical `const` bindings.
       // Keep the internal state private to this script and expose only a narrow setter to HTML.
@@ -82611,7 +82675,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function adminAiClientRows(items) {
         return items.map(item => {
-          const dispatcher = adminAiResolveDispatcher(item?.dispatcher, "");
+          const recognizedOwners = [item?.dispatcher, ...(Array.isArray(item?.dispatchers) ? item.dispatchers : []), ...(Array.isArray(item?.coDispatchers) ? item.coDispatchers : [])]
+            .map(value => adminAiResolveDispatcher(value, "")).filter(Boolean);
+          const selectedOwners = Array.isArray(ADMIN_AI_IMPORT_STATE.clientDispatchers) ? ADMIN_AI_IMPORT_STATE.clientDispatchers : [];
+          const owners = Array.from(new Set([...selectedOwners, ...recognizedOwners].filter(Boolean))).slice(0,3);
           return {
             "Baza": "operations",
             "Klient ID": String(item?.id || "").trim(),
@@ -82620,7 +82687,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             "NIP": String(item?.nip || "").trim(),
             "Typy ładunków": String(item?.cargoTypes || "").trim(),
             "Typ działalności": String(item?.businessType || "").trim(),
-            "Spedytor": dispatcher,
+            "Spedytor": owners[0] || "",
+            "Opiekun 2": owners[1] || "",
+            "Opiekun 3": owners[2] || "",
             "Szerokość geogr.": Number(item?.lat || 0),
             "Długość geogr.": Number(item?.lng || 0),
             "Przybliżona lokalizacja": Boolean(item?.approximate),
@@ -89810,6 +89879,569 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
     .stats-section-head:has(.stats-hourly-period) h3 + p { display:none !important; }
   </style>
-  <script src="/order-entry.js?build=v131-final"></script>
+
+  <style id="targeted-v135-queue-attention-alerts">
+    /* V135: dyskretne, trwałe alerty prawego paska dla nowych pozycji kolejki. */
+    @keyframes queue-tab-blue-pulse-v135 {
+      0%,100% { filter:drop-shadow(0 0 1px rgba(37,99,235,.30)); }
+      50% { filter:drop-shadow(0 0 9px rgba(37,99,235,.92)); }
+    }
+    @keyframes queue-tab-green-pulse-v135 {
+      0%,100% { filter:drop-shadow(0 0 1px rgba(22,163,74,.32)); }
+      50% { filter:drop-shadow(0 0 10px rgba(22,163,74,.96)); }
+    }
+    @keyframes queue-mail-blue-pulse-v135 {
+      0%,100% { filter:drop-shadow(0 0 1px rgba(37,99,235,.38)); }
+      50% { filter:drop-shadow(0 0 6px rgba(37,99,235,1)); }
+    }
+    .app .side-tool-tab.queue-alert-blue-v135 {
+      border-color:#3b82f6 !important;
+      animation:queue-tab-blue-pulse-v135 1.65s ease-in-out infinite !important;
+    }
+    .app .side-tool-tab.queue-alert-green-v135 {
+      border-color:#22c55e !important;
+      animation:queue-tab-green-pulse-v135 1.65s ease-in-out infinite !important;
+    }
+    .queue-message-indicator-v135 {
+      position:absolute;
+      left:2px;
+      top:2px;
+      width:16px;
+      height:16px;
+      display:grid;
+      place-items:center;
+      border:1px solid #60a5fa;
+      border-radius:999px;
+      background:#eff6ff;
+      color:#1d4ed8;
+      box-sizing:border-box;
+      z-index:4;
+      animation:queue-mail-blue-pulse-v135 1.55s ease-in-out infinite;
+      pointer-events:none;
+    }
+    .queue-message-indicator-v135 svg {
+      width:10px;
+      height:10px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:1.9;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .app.dark-mode .queue-message-indicator-v135 {
+      background:#172554;
+      color:#bfdbfe;
+      border-color:#3b82f6;
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .app .side-tool-tab.queue-alert-blue-v135,
+      .app .side-tool-tab.queue-alert-green-v135,
+      .queue-message-indicator-v135 { animation:none !important; }
+      .app .side-tool-tab.queue-alert-blue-v135 { filter:drop-shadow(0 0 6px rgba(37,99,235,.72)); }
+      .app .side-tool-tab.queue-alert-green-v135 { filter:drop-shadow(0 0 6px rgba(22,163,74,.72)); }
+      .queue-message-indicator-v135 { filter:drop-shadow(0 0 4px rgba(37,99,235,.75)); }
+    }
+  </style>
+
+  <style id="targeted-v136-form-and-tile-alerts">
+    .optional-text-details { margin-top:10px; border:1px solid var(--border); border-radius:10px; background:var(--soft); overflow:hidden; }
+    .optional-text-details > summary { cursor:pointer; list-style:none; padding:9px 10px; font-size:11px; font-weight:850; color:var(--muted); }
+    .optional-text-details > summary::-webkit-details-marker { display:none; }
+    .optional-text-details > summary::before { content:"+"; display:inline-block; width:18px; font-weight:950; color:#2563eb; }
+    .optional-text-details[open] > summary::before { content:"−"; }
+    .optional-text-details > .textarea { margin:0 9px 9px; width:calc(100% - 18px); box-sizing:border-box; }
+    @keyframes route-match-green-pulse-v136 {
+      0%,100% { box-shadow:0 0 0 1px rgba(34,197,94,.38),0 0 4px rgba(34,197,94,.28); }
+      50% { box-shadow:0 0 0 4px rgba(34,197,94,.42),0 0 22px rgba(22,163,74,.92); }
+    }
+    .time-route.queue-match-pulse-v136 {
+      border-color:#22c55e !important;
+      animation:route-match-green-pulse-v136 1.45s ease-in-out infinite !important;
+      z-index:44 !important;
+    }
+    @media(prefers-reduced-motion:reduce) {
+      .time-route.queue-match-pulse-v136 { animation:none !important; box-shadow:0 0 0 3px rgba(34,197,94,.45),0 0 14px rgba(22,163,74,.65) !important; }
+    }
+  </style>
+
+  <script id="targeted-v135-queue-attention-alerts-script">
+    (() => {
+      const ALERT_NONE_V135 = '';
+      const ALERT_BLUE_V135 = 'blue';
+      const ALERT_GREEN_V135 = 'green';
+      const QUEUE_TYPES_V135 = ['future','proposed'];
+
+      function queueAttentionUserKeyV135() {
+        const user = state.user || {};
+        const actor = String(user.supabaseId || user.login || '').trim();
+        const branch = String(user.branchId || user.branch || '').trim();
+        return actor ? `${actor}::${branch}` : '';
+      }
+
+      function queueAttentionStorageKeyV135() {
+        const key = queueAttentionUserKeyV135();
+        return key ? `tms-queue-attention-v135:${key}` : '';
+      }
+
+      function defaultQueueAttentionStoreV135(userKey = '') {
+        return {
+          userKey,
+          initialized:false,
+          alerts:{ future:ALERT_NONE_V135, proposed:ALERT_NONE_V135 },
+          candidates:{ future:[], proposed:[] },
+          knownVersions:{}
+        };
+      }
+
+      function ensureQueueAttentionStoreV135() {
+        const userKey = queueAttentionUserKeyV135();
+        if (!userKey) {
+          state.queueAttentionV135 = defaultQueueAttentionStoreV135('');
+          return state.queueAttentionV135;
+        }
+        if (state.queueAttentionV135?.userKey === userKey) return state.queueAttentionV135;
+        const storageKey = queueAttentionStorageKeyV135();
+        let loaded = null;
+        try { loaded = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (error) {}
+        const next = defaultQueueAttentionStoreV135(userKey);
+        if (loaded && typeof loaded === 'object') {
+          next.initialized = Boolean(loaded.initialized);
+          QUEUE_TYPES_V135.forEach(type => {
+            const alert = String(loaded?.alerts?.[type] || '');
+            next.alerts[type] = [ALERT_BLUE_V135, ALERT_GREEN_V135].includes(alert) ? alert : ALERT_NONE_V135;
+            next.candidates[type] = Array.isArray(loaded?.candidates?.[type])
+              ? [...new Set(loaded.candidates[type].map(value => String(value || '')).filter(Boolean))]
+              : [];
+          });
+          next.knownVersions = loaded.knownVersions && typeof loaded.knownVersions === 'object'
+            ? { ...loaded.knownVersions }
+            : {};
+        }
+        state.queueAttentionV135 = next;
+        return next;
+      }
+
+      function persistQueueAttentionStoreV135() {
+        const store = ensureQueueAttentionStoreV135();
+        const storageKey = queueAttentionStorageKeyV135();
+        if (!storageKey) return;
+        try {
+          localStorage.setItem(storageKey, JSON.stringify({
+            initialized:Boolean(store.initialized),
+            alerts:{ ...store.alerts },
+            candidates:{ future:[...(store.candidates.future || [])], proposed:[...(store.candidates.proposed || [])] },
+            knownVersions:{ ...store.knownVersions }
+          }));
+        } catch (error) {}
+      }
+
+      function queuePanelOpenV135(queueType) {
+        return queueType === 'proposed' ? Boolean(state.proposedPanelOpen) : Boolean(state.futurePanelOpen);
+      }
+
+      function queueSetAlertV135(queueType, color) {
+        if (!QUEUE_TYPES_V135.includes(queueType)) return false;
+        const store = ensureQueueAttentionStoreV135();
+        const current = String(store.alerts[queueType] || '');
+        const next = color === ALERT_GREEN_V135 || current === ALERT_GREEN_V135 ? ALERT_GREEN_V135 : ALERT_BLUE_V135;
+        if (next === current) return false;
+        store.alerts[queueType] = next;
+        persistQueueAttentionStoreV135();
+        return true;
+      }
+
+      function queueMarkPanelOpenedV135(queueType) {
+        if (!QUEUE_TYPES_V135.includes(queueType)) return;
+        const store = ensureQueueAttentionStoreV135();
+        store.alerts[queueType] = ALERT_NONE_V135;
+        store.candidates[queueType] = [];
+        persistQueueAttentionStoreV135();
+      }
+
+      function queueAlertClassV135(queueType) {
+        const alert = String(ensureQueueAttentionStoreV135().alerts?.[queueType] || '');
+        if (alert === ALERT_GREEN_V135) return 'queue-alert-green-v135';
+        if (alert === ALERT_BLUE_V135) return 'queue-alert-blue-v135';
+        return '';
+      }
+
+      function queueRouteKeyV135(queueType, route, branchId = '') {
+        const branch = String(branchId || centralLoadQueueBranchId(route) || '').trim();
+        const id = String(route?.id || '').trim();
+        return branch && id ? `${branch}::${queueType}::${id}` : '';
+      }
+
+      function routeForQueueKeyV135(queueType, key) {
+        const parts = String(key || '').split('::');
+        const loadId = parts.slice(2).join('::');
+        const routes = queueType === 'proposed' ? (state.proposedLoads || []) : (state.futureRoutes || []);
+        return routes.find(route => String(route?.id || '') === loadId) || null;
+      }
+
+      function queueRouteMatchesCurrentDispatcherV135(route) {
+        if (!route || !['spedytor','kierownik'].includes(state.user?.role)) return false;
+        const date = route.date || state.reportDate || START_DATE;
+        try {
+          return preferredQueueMatchRows(proposedDistancesForRoute(route, date, {
+            currentDispatcherOnly:true
+          })).length > 0;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function refreshQueueMatchCandidatesV135() {
+        const store = ensureQueueAttentionStoreV135();
+        let changed = false;
+        QUEUE_TYPES_V135.forEach(queueType => {
+          if (queuePanelOpenV135(queueType)) {
+            if (store.alerts[queueType] || (store.candidates[queueType] || []).length) {
+              store.alerts[queueType] = ALERT_NONE_V135;
+              store.candidates[queueType] = [];
+              changed = true;
+            }
+            return;
+          }
+          const previousCandidates = store.candidates[queueType] || [];
+          const remaining = [];
+          for (const key of previousCandidates) {
+            const route = routeForQueueKeyV135(queueType, key);
+            if (!route) { changed = true; continue; }
+            remaining.push(key);
+          }
+          if (remaining.length !== previousCandidates.length) store.candidates[queueType] = remaining;
+          if (!remaining.length) {
+            if (store.alerts[queueType]) {
+              store.alerts[queueType] = ALERT_NONE_V135;
+              changed = true;
+            }
+            return;
+          }
+          if (store.alerts[queueType] !== ALERT_GREEN_V135) {
+            for (const key of remaining) {
+              const route = routeForQueueKeyV135(queueType, key);
+              if (route && queueRouteMatchesCurrentDispatcherV135(route)) {
+                store.alerts[queueType] = ALERT_GREEN_V135;
+                changed = true;
+                break;
+              }
+            }
+          }
+        });
+        if (changed) persistQueueAttentionStoreV135();
+        return changed;
+      }
+
+      function queueUnreadCountForRouteV135(route) {
+        if (!route?.id || !state.loadQueueChat3L52) return 0;
+        const branchId = String(centralLoadQueueBranchId(route) || '').trim();
+        const loadRef = String(route.id || '').trim();
+        if (!branchId || !loadRef) return 0;
+        const key = `${branchId}::${loadRef}`;
+        const readAt = String((state.loadQueueChat3L52.reads || []).find(item =>
+          `${String(item?.branchId || '').trim()}::${String(item?.loadRef || '').trim()}` === key
+        )?.lastReadAt || '');
+        const me = String(state.user?.supabaseId || '').trim();
+        return (state.loadQueueChat3L52.messages || []).filter(item => {
+          if (`${String(item?.branchId || '').trim()}::${String(item?.loadRef || '').trim()}` !== key) return false;
+          if (String(item?.authorId || '').trim() === me) return false;
+          return !readAt || String(item?.createdAt || '') > readAt;
+        }).length;
+      }
+
+      function queueOwnUnreadCountV135(queueType) {
+        if (!['spedytor','kierownik'].includes(state.user?.role)) return 0;
+        const login = String(state.user?.login || '').trim().toUpperCase();
+        const routes = queueType === 'proposed' ? (state.proposedLoads || []) : (state.futureRoutes || []);
+        return routes.reduce((sum, route) => {
+          if (String(route?.createdBy || '').trim().toUpperCase() !== login) return sum;
+          return sum + queueUnreadCountForRouteV135(route);
+        }, 0);
+      }
+
+      function queueMessageIndicatorV135(queueType) {
+        const unread = queueOwnUnreadCountV135(queueType);
+        if (!unread) return '';
+        const label = unread === 1 ? '1 nowa wiadomość' : `${unread} nowych wiadomości`;
+        return `<span class="queue-message-indicator-v135" title="${attr(label)}" aria-label="${attr(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></span>`;
+      }
+
+      function decorateQueueTabHtmlV135(html, queueType) {
+        let output = String(html || '');
+        const baseClass = queueType === 'proposed'
+          ? 'proposed-tab side-tool-tab side-tool-proposed'
+          : 'future-tab side-tool-tab side-tool-future';
+        const alertClass = queueAlertClassV135(queueType);
+        if (alertClass) output = output.replace(`class="${baseClass}`, `class="${baseClass} ${alertClass}`);
+        const indicator = queueMessageIndicatorV135(queueType);
+        if (indicator) {
+          const label = queueType === 'proposed' ? 'Wolne ładunki' : 'Planowane relacje';
+          output = output.replace(`</svg></span><span class="side-tool-label">${label}</span>`, `</svg></span>${indicator}<span class="side-tool-label">${label}</span>`);
+        }
+        return output;
+      }
+
+      const renderProposedLoadsUiBeforeV135 = renderProposedLoadsUi;
+      renderProposedLoadsUi = function() {
+        refreshQueueMatchCandidatesV135();
+        return decorateQueueTabHtmlV135(renderProposedLoadsUiBeforeV135.apply(this, arguments), 'proposed');
+      };
+
+      const renderFutureTabBeforeV135 = renderFutureTab;
+      renderFutureTab = function() {
+        refreshQueueMatchCandidatesV135();
+        return decorateQueueTabHtmlV135(renderFutureTabBeforeV135.apply(this, arguments), 'future');
+      };
+
+      const toggleProposedPanelBeforeV135 = toggleProposedPanel;
+      toggleProposedPanel = function(force = null) {
+        const willOpen = force === null ? !state.proposedPanelOpen : Boolean(force);
+        if (willOpen) queueMarkPanelOpenedV135('proposed');
+        return toggleProposedPanelBeforeV135.apply(this, arguments);
+      };
+
+      const toggleFuturePanelBeforeV135 = toggleFuturePanel;
+      toggleFuturePanel = function(force = null) {
+        const willOpen = force === null ? !state.futurePanelOpen : Boolean(force);
+        if (willOpen) queueMarkPanelOpenedV135('future');
+        return toggleFuturePanelBeforeV135.apply(this, arguments);
+      };
+
+      function handleLoadQueueSnapshotV135(message) {
+        if (!state.user || !['spedytor','kierownik'].includes(state.user.role)) return;
+        const rows = Array.isArray(message?.rows) ? message.rows : [];
+        const store = ensureQueueAttentionStoreV135();
+        const currentVersions = {};
+        const newRows = [];
+
+        rows.forEach(row => {
+          const queueType = String(row?.queueType || '').trim();
+          const branchId = String(row?.branchId || '').trim();
+          const loadId = String(row?.payload?.id || row?.id || '').trim();
+          if (!QUEUE_TYPES_V135.includes(queueType) || !branchId || !loadId) return;
+          const key = `${branchId}::${queueType}::${loadId}`;
+          currentVersions[key] = String(row?.updatedAt || '');
+          if (store.initialized && !Object.prototype.hasOwnProperty.call(store.knownVersions || {}, key)) {
+            newRows.push({ row, key, queueType, branchId, loadId });
+          }
+        });
+
+        if (!store.initialized) {
+          store.initialized = true;
+          store.knownVersions = currentVersions;
+          persistQueueAttentionStoreV135();
+          return;
+        }
+
+        store.knownVersions = currentVersions;
+        newRows.forEach(item => {
+          if (queuePanelOpenV135(item.queueType)) return;
+          if (!(store.candidates[item.queueType] || []).includes(item.key)) {
+            store.candidates[item.queueType].push(item.key);
+          }
+          const creator = String(item?.row?.payload?.createdBy || item?.row?.payload?.ownerDispatcher || "").trim().toUpperCase();
+          const isOwnAddition = ["spedytor","kierownik"].includes(state.user?.role) && creator && creator === String(state.user?.login || "").trim().toUpperCase();
+          if (!isOwnAddition && store.alerts[item.queueType] !== ALERT_GREEN_V135) store.alerts[item.queueType] = ALERT_BLUE_V135;
+        });
+        persistQueueAttentionStoreV135();
+        refreshQueueMatchCandidatesV135();
+        if (newRows.some(item => item.queueType === 'proposed')) syncProposedPanel();
+        if (newRows.some(item => item.queueType === 'future')) syncFuturePanel();
+      }
+
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin || event.source !== window.parent) return;
+        const message = event.data || {};
+        if (message.type === 'top-dragon-load-queue-data') {
+          // Listener V131/V134 jest zarejestrowany wcześniej, więc state zawiera już scalone dane.
+          handleLoadQueueSnapshotV135(message);
+          return;
+        }
+        if (message.type === 'top-dragon-load-queue-chat-data') {
+          // Czat 3L.52 aktualizuje state wcześniej; odświeżamy także zamknięte zakładki,
+          // aby koperta była widoczna bez otwierania panelu.
+          requestAnimationFrame(() => {
+            syncProposedPanel();
+            syncFuturePanel();
+          });
+        }
+      });
+
+      const openQueueRelationChatBeforeV135 = window.openQueueRelationChat3L52;
+      if (typeof openQueueRelationChatBeforeV135 === 'function') {
+        window.openQueueRelationChat3L52 = function(event, queueType) {
+          const result = openQueueRelationChatBeforeV135.apply(this, arguments);
+          requestAnimationFrame(() => {
+            if (queueType === 'proposed') syncProposedPanel();
+            else if (queueType === 'future') syncFuturePanel();
+          });
+          return result;
+        };
+      }
+
+      const applyAuthenticatedUserBeforeV135 = applyAuthenticatedUser;
+      applyAuthenticatedUser = function(user) {
+        const result = applyAuthenticatedUserBeforeV135.apply(this, arguments);
+        state.queueAttentionV135 = null;
+        ensureQueueAttentionStoreV135();
+        requestAnimationFrame(() => {
+          syncProposedPanel();
+          syncFuturePanel();
+        });
+        return result;
+      };
+
+      ensureQueueAttentionStoreV135();
+      requestAnimationFrame(() => {
+        if (!state.user) return;
+        refreshQueueMatchCandidatesV135();
+        syncProposedPanel();
+        syncFuturePanel();
+      });
+    })();
+  </script>
+
+  <script id="targeted-v136-route-match-hover-alerts">
+    (() => {
+      const QUEUE_TYPES = ["future", "proposed"];
+      const userKey = () => {
+        const user = state.user || {};
+        const actor = String(user.supabaseId || user.login || "").trim();
+        const branch = String(user.branchId || user.branch || "").trim();
+        return actor ? `${actor}::${branch}` : "";
+      };
+      const storageKey = () => userKey() ? `tms-route-match-hover-v136:${userKey()}` : "";
+      let currentUserKey = "";
+      let store = null;
+
+      function defaultStore(key) { return { userKey:key, initialized:false, known:{}, pending:{} }; }
+      function ensureStore() {
+        const key = userKey();
+        if (!key) { currentUserKey = ""; store = defaultStore(""); return store; }
+        if (store && currentUserKey === key) return store;
+        currentUserKey = key;
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(storageKey()) || "null"); } catch {}
+        store = defaultStore(key);
+        if (saved && typeof saved === "object") {
+          store.initialized = Boolean(saved.initialized);
+          store.known = saved.known && typeof saved.known === "object" ? { ...saved.known } : {};
+          store.pending = saved.pending && typeof saved.pending === "object" ? { ...saved.pending } : {};
+        }
+        return store;
+      }
+      function persist() {
+        const current = ensureStore();
+        const key = storageKey();
+        if (!key) return;
+        try { localStorage.setItem(key, JSON.stringify({ initialized:current.initialized, known:current.known, pending:current.pending })); } catch {}
+      }
+      function queueRoute(queueType, loadId) {
+        const rows = queueType === "proposed" ? (state.proposedLoads || []) : (state.futureRoutes || []);
+        return rows.find(route => String(route?.id || "") === String(loadId || "")) || null;
+      }
+      function matchedBoardRouteIds(queueType, route) {
+        if (!route || !["spedytor","kierownik"].includes(state.user?.role)) return [];
+        const login = String(state.user?.login || "").trim().toUpperCase();
+        try {
+          const rows = preferredQueueMatchRows(proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {
+            maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:true
+          }));
+          return Array.from(new Set(rows
+            .filter(row => String(row?.driver?.dispatcher || "").trim().toUpperCase() === login)
+            .map(row => String(row?.previousRoute?.id || "").trim())
+            .filter(Boolean)));
+        } catch { return []; }
+      }
+      function refreshMatches() {
+        const current = ensureStore();
+        if (!state.user || !["spedytor","kierownik"].includes(state.user.role)) return false;
+        let changed = false;
+        Object.entries({ ...current.pending }).forEach(([key, value]) => {
+          const queueType = String(value?.queueType || "");
+          const loadId = String(value?.loadId || "");
+          if (!QUEUE_TYPES.includes(queueType) || !loadId) { delete current.pending[key]; changed = true; return; }
+          const route = queueRoute(queueType, loadId);
+          if (!route) { delete current.pending[key]; changed = true; return; }
+          const seen = Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : [];
+          const matched = matchedBoardRouteIds(queueType, route);
+          const next = matched.filter(id => !seen.includes(id));
+          const old = Array.isArray(value?.routeIds) ? value.routeIds.map(String) : [];
+          if (JSON.stringify(old) !== JSON.stringify(next)) { current.pending[key] = { ...value, routeIds:next, seenRouteIds:seen }; changed = true; }
+        });
+        if (changed) persist();
+        applyToBoard();
+        return changed;
+      }
+      function activeRouteIds() {
+        const current = ensureStore();
+        return new Set(Object.values(current.pending || {}).flatMap(value => Array.isArray(value?.routeIds) ? value.routeIds : []).map(String));
+      }
+      function applyToBoard() {
+        const ids = activeRouteIds();
+        document.querySelectorAll('.time-route[data-route-id]').forEach(tile => {
+          tile.classList.toggle('queue-match-pulse-v136', ids.has(String(tile.dataset.routeId || "")));
+        });
+      }
+      function markRouteSeen(routeId) {
+        const id = String(routeId || "");
+        if (!id) return;
+        const current = ensureStore();
+        let changed = false;
+        Object.entries(current.pending || {}).forEach(([key, value]) => {
+          const routeIds = Array.isArray(value?.routeIds) ? value.routeIds.map(String) : [];
+          if (!routeIds.includes(id)) return;
+          const seen = Array.from(new Set([...(Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : []), id]));
+          current.pending[key] = { ...value, seenRouteIds:seen, routeIds:routeIds.filter(item => item !== id) };
+          changed = true;
+        });
+        if (changed) { persist(); applyToBoard(); }
+      }
+      document.addEventListener('pointerover', event => {
+        const tile = event.target?.closest?.('.time-route.queue-match-pulse-v136[data-route-id]');
+        if (!tile) return;
+        markRouteSeen(tile.dataset.routeId);
+      }, true);
+
+      function handleSnapshot(message) {
+        if (!state.user || !["spedytor","kierownik"].includes(state.user.role)) return;
+        const current = ensureStore();
+        const rows = Array.isArray(message?.rows) ? message.rows : [];
+        const versions = {};
+        const fresh = [];
+        rows.forEach(row => {
+          const queueType = String(row?.queueType || "").trim();
+          const branchId = String(row?.branchId || "").trim();
+          const loadId = String(row?.payload?.id || row?.id || "").trim();
+          if (!QUEUE_TYPES.includes(queueType) || !branchId || !loadId) return;
+          const key = `${branchId}::${queueType}::${loadId}`;
+          versions[key] = String(row?.updatedAt || "");
+          if (current.initialized && !Object.prototype.hasOwnProperty.call(current.known || {}, key)) fresh.push({ key, queueType, loadId });
+        });
+        if (!current.initialized) { current.initialized = true; current.known = versions; persist(); return; }
+        current.known = versions;
+        Object.keys(current.pending || {}).forEach(key => { if (!Object.prototype.hasOwnProperty.call(versions, key)) delete current.pending[key]; });
+        fresh.forEach(item => {
+          if (!current.pending[item.key]) current.pending[item.key] = { queueType:item.queueType, loadId:item.loadId, routeIds:[], seenRouteIds:[], createdAt:new Date().toISOString() };
+        });
+        persist();
+        requestAnimationFrame(refreshMatches);
+      }
+
+      window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin || event.source !== window.parent) return;
+        if (event.data?.type === 'top-dragon-load-queue-data') handleSnapshot(event.data);
+      });
+
+      setInterval(() => {
+        const current = ensureStore();
+        if (Object.keys(current.pending || {}).length) refreshMatches();
+        else applyToBoard();
+      }, 1200);
+      requestAnimationFrame(() => { ensureStore(); refreshMatches(); });
+    })();
+  </script>
+
+  <script src="/order-entry.js?build=v136-unified-queue-form"></script>
 </body>
 </html>

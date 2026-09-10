@@ -2,7 +2,7 @@
 (() => {
   const originalRender = renderAddModal;
   let fileUrl = '', previewFile = null, generation = 0, busy = false;
-  const isPlan = () => state.addOpen && state.prefill && !state.prefill.futureQueue && !state.prefill.proposedLoad;
+  const isPlan = () => state.addOpen && state.prefill;
   const style = document.createElement('style');
   style.textContent = `
     html,body,.app,.main,.board-scroll { overflow-anchor:none; }
@@ -125,6 +125,7 @@
         const el = document.getElementById(id);
         if (!el || value == null || value === '' || el.value !== before.get(id)) continue;
         el.value = String(value); el.setAttribute('data-ai-filled','');
+        if (String(value).trim()) el.closest('details.optional-text-details')?.setAttribute('open','');
         if (id === 'new-loaded') markKmInputManual(id);
       }
       for (const [id,value,key] of [['new-date',data.loadDate,'date'],['order-entry-end-date',data.unloadDate,'endDate'],['order-entry-start',data.loadTime,'startHour'],['order-entry-end',data.unloadTime,'endHour']]) {
