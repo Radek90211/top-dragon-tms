@@ -1837,6 +1837,17 @@ async function existingClientBranchMap(clientIds = []) {
   return result
 }
 
+function normalizeCentralClientOwners(client = {}) {
+  const primary = String(client?.dispatcher || '').trim().toUpperCase()
+  const owners = Array.from(new Set([
+    primary,
+    ...(Array.isArray(client?.coDispatchers) ? client.coDispatchers : []),
+    ...(Array.isArray(client?.dispatchers) ? client.dispatchers : []),
+  ].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean))).slice(0, 3)
+  const dispatcher = primary && owners.includes(primary) ? primary : (owners[0] || '')
+  return { ...client, dispatcher, coDispatchers: owners, dispatchers: owners }
+}
+
 async function upsertCentralClientFromTms(message) {
   const requestId = String(message?.requestId || '')
   const client = message?.client
@@ -1864,14 +1875,19 @@ async function upsertCentralClientFromTms(message) {
     // Nowa karta tworzona przez spedytora zawsze zaczyna bez opiekuna.
     // Przypisanie jest osobnym procesem akceptowanym przez kierownika oddziału.
     let clientPayload = !existing && hasRole('dispatcher', 'branch_manager')
-      ? { ...client, databaseType: 'operations', dispatcher: '', coDispatchers: [] }
-      : client
+      ? { ...client, databaseType: 'operations', dispatcher: '', coDispatchers: [], dispatchers: [] }
+      : normalizeCentralClientOwners(client)
     if (existing && hasRole('dispatcher')) {
-      clientPayload = { ...clientPayload, coDispatchers: Array.isArray(existing?.payload?.coDispatchers) ? existing.payload.coDispatchers : [] }
+      const existingOwners = normalizeCentralClientOwners(existing?.payload || {})
+      clientPayload = normalizeCentralClientOwners({ ...clientPayload, dispatcher:existingOwners.dispatcher, coDispatchers:existingOwners.coDispatchers, dispatchers:existingOwners.dispatchers })
+    } else {
+      clientPayload = normalizeCentralClientOwners(clientPayload)
     }
     if (hasRole('dispatcher', 'branch_manager')) {
-      const oldOwner = String(existing?.payload?.dispatcher || '').trim()
-      const newOwner = String(clientPayload?.dispatcher || '').trim()
+      const oldOwners = normalizeCentralClientOwners(existing?.payload || {}).coDispatchers
+      const newOwners = normalizeCentralClientOwners(clientPayload || {}).coDispatchers
+      const oldOwner = String(oldOwners[0] || '').trim()
+      const newOwner = String(newOwners[0] || '').trim()
       if (hasRole('dispatcher') && oldOwner !== newOwner) {
         sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Zmiana opiekuna klienta wymaga wniosku i akceptacji kierownika oddziału.')
         return
@@ -1883,8 +1899,8 @@ async function upsertCentralClientFromTms(message) {
           && String(profile?.branchId || '') === currentBranchId()
           && sameName(profile?.login, owner)
         ))
-        if (!ownerInBranch(oldOwner) || !ownerInBranch(newOwner)) {
-          sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Kierownik może zmieniać kartę klienta tylko wtedy, gdy opiekun należy do jego oddziału lub klient nie ma opiekuna.')
+        if (![...oldOwners, ...newOwners].every(ownerInBranch)) {
+          sendClientOperationResult(requestId, false, 'upsert', clientId, '', 'Kierownik może zmieniać kartę klienta tylko wtedy, gdy wszyscy przypisani opiekunowie należą do jego oddziału lub klient nie ma opiekuna.')
           return
         }
       }
@@ -1968,7 +1984,8 @@ async function bulkUpsertCentralClientsFromTms(message) {
     try {
       const storageBranchId = existingBranches.get(clientId) || fallbackBranchId || await fallbackClientStorageBranchId(client)
       if (!storageBranchId) throw new Error('Brak aktywnego oddziału technicznego do zapisania klienta.')
-      const { error } = await supabase.rpc('upsert_tms_client', { p_branch_id: storageBranchId, p_client: client })
+      const normalizedClient = normalizeCentralClientOwners(client)
+      const { error } = await supabase.rpc('upsert_tms_client', { p_branch_id: storageBranchId, p_client: normalizedClient })
       if (error) throw error
       return { ok: true, clientId }
     } catch (error) {
@@ -3921,6 +3938,36 @@ async function handleTruckRoutingRequestFromTms(message) {
   }
 }
 
+async function handleRelationsBackupEmailRequestFromTms(message) {
+  const requestId = String(message?.requestId || '')
+  const sendResult = (ok, result = {}, errorMessage = '') => {
+    activeTmsFrame?.contentWindow?.postMessage({
+      type: 'top-dragon-relations-backup-email-result',
+      requestId,
+      ok: Boolean(ok),
+      message: String(errorMessage || result?.message || ''),
+      count: Number(result?.count || 0),
+    }, window.location.origin)
+  }
+  try {
+    if (!isActualAdmin()) throw new Error('Kopię relacji e-mail może wysłać wyłącznie administrator.')
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError) throw sessionError
+    const token = sessionData?.session?.access_token
+    if (!token) throw new Error('Sesja użytkownika wygasła. Zaloguj się ponownie.')
+    const response = await fetch('/api/relations-backup-email', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+      body: JSON.stringify({}),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.ok === false) throw new Error(data?.message || `Wysyłka kopii zwróciła HTTP ${response.status}.`)
+    sendResult(true, data)
+  } catch (error) {
+    sendResult(false, {}, error?.message || 'Nie udało się wysłać kopii relacji e-mailem.')
+  }
+}
+
 async function handleAiAnalyzerRequestFromTms(message) {
   const requestId = String(message?.requestId || '')
   const kind = String(message?.kind || '').trim().toLowerCase()
@@ -4209,7 +4256,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v134-restore-order-form"
+          src="/tms.html?embedded=1&build=request-workflow-v136-unified-queue-client-backup"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4358,6 +4405,11 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-ai-analyzer-request') {
       await handleAiAnalyzerRequestFromTms(event.data)
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-relations-backup-email-request') {
+      await handleRelationsBackupEmailRequestFromTms(event.data)
       return
     }
 
