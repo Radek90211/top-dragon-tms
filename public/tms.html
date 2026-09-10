@@ -75801,7 +75801,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
 
-              ${`
+              ${proposedMode || futureMode ? `
+                <div class="route-finance-grid" style="background:#f8fafc;border-radius:14px;padding:12px;margin-top:12px;">
+                  <div class="route-rate-currency-field"><label class="field-label" style="margin-top:0;">Stawka i waluta</label><div class="route-rate-currency-row"><input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" /><select id="new-order-currency" class="select route-currency-select"><option value="PLN" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "PLN" ? "selected" : ""}>PLN</option><option value="EUR" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "EUR" ? "selected" : ""}>EUR</option></select></div></div>
+                  <input id="new-approach" type="hidden" value="${attr(prefill.approachKm ?? 0)}" />
+                  <input id="new-loaded" type="hidden" value="${attr(prefill.loadedKm ?? 0)}" />
+                  <input id="new-oversized-cost" type="hidden" value="${attr(prefill.oversizedCost ?? 0)}" />
+                  <input id="new-oversized" type="hidden" value="${Number(prefill.oversizedCost || 0) > 0 ? "1" : "0"}" />
+                  <input id="new-cost" type="hidden" value="${attr(prefill.cost ?? 0)}" />
+                </div>
+              ` : `
                 <div class="grid-4 route-finance-grid" style="background:#f8fafc;border-radius:14px;padding:12px;margin-top:12px;">
                   <div><label class="field-label" style="margin-top:0;">Dolot km</label><input id="new-approach" class="input" type="number" min="0" step="1" value="${attr(prefill.approachKm ?? 0)}" oninput="markKmInputManual('new-approach');updateNewRouteFinance('km')" /></div>
                   <div><label class="field-label" style="margin-top:0;">Kilometry</label><input id="new-loaded" class="input" type="number" min="0" step="1" value="${attr(prefill.loadedKm ?? 0)}" oninput="markKmInputManual('new-loaded');updateNewRouteFinance('km')" /></div>
@@ -82239,7 +82248,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ];
         return [
           ["name","Nazwa"],["address","Adres"],["nip","NIP"],["cargoTypes","Ładunki"],
-          ["dispatcher","Spedytor"],["confidence","Pewność"]
+          ["dispatcher","Opiekun"],["dispatchers","Dodatkowi opiekunowie"],["confidence","Pewność"]
         ];
       }
 
@@ -82288,7 +82297,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const item = adminAiEnrichClientItem({
           id:"", name, address, postalCode, city, nip:String(source.nip || "").trim(),
           cargoTypes:String(source.cargoTypes || "").trim(), businessType:String(source.businessType || source.cargoTypes || "").trim(),
-          dispatcher:"", lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30,
+          dispatcher:String(source.dispatcher || "").trim(), dispatchers:Array.isArray(source.dispatchers) ? source.dispatchers.slice(0,3) : [], coDispatchers:Array.isArray(source.dispatchers) ? source.dispatchers.slice(1,3) : [], lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30,
           cooperationNotes:"", lastContactAt:"", confidence:1
         });
         ADMIN_AI_IMPORT_STATE.items.push(item);
@@ -82320,7 +82329,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" class="icon-action-btn" title="Zamknij" aria-label="Zamknij" onclick="adminCloseAiImport()">✕</button>
               </div>
               <div class="admin-ai-import-body">
-                ${kind === "clients" ? `<div class="admin-ai-import-grid admin-ai-client-owners"><div style="grid-column:1/-1"><div class="small"><b>Opiekunowie importowanych klientów</b> · maksymalnie 3. Możesz pozostawić wszystkie pola puste.</div></div>${[0,1,2].map((slot) => `<div><label class="field-label" style="margin-top:0;">${slot === 0 ? "Główny opiekun" : `Opiekun ${slot + 1}`}</label><select class="select" onchange="adminAiSetClientDispatcher(${slot},this.value)"><option value="">- brak -</option>${adminAiDispatcherOptions("").map(user => `<option value="${attr(user.login)}" ${user.login === String(ADMIN_AI_IMPORT_STATE.clientDispatchers?.[slot] || "") ? "selected" : ""}>${esc(user.login)}${user.name && user.name !== user.login ? ` · ${esc(user.name)}` : ""}</option>`).join("")}</select></div>`).join("")}</div>` : `<div class="admin-ai-import-grid"><div>
+                ${kind === "clients" ? "" : `<div class="admin-ai-import-grid"><div>
                     <label class="field-label" style="margin-top:0;">Domyślny oddział</label>
                     <select class="select" onchange="adminAiSetBranch(this.value)">
                       ${branches.map(branch => `<option value="${attr(branch.id)}" ${branch.id === ADMIN_AI_IMPORT_STATE.defaultBranchId ? "selected" : ""}>${esc(branch.name)}</option>`).join("")}
@@ -82361,7 +82370,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div><b>Podgląd przed importem</b><div class="small">${selectedCount} z ${items.length} rekordów zaznaczonych do zapisania.</div></div>
                   <div class="admin-ai-import-preview">
                     <table class="admin-ai-import-table"><thead><tr><th></th><th>#</th>${columns.map(([,label]) => `<th>${esc(label)}</th>`).join("")}</tr></thead><tbody>
-                      ${items.map((item,index) => `<tr class="${Number(item?.confidence || 0) < .6 ? "admin-ai-confidence-low" : ""}"><td><input type="checkbox" ${ADMIN_AI_IMPORT_STATE.selected.has(index) ? "checked" : ""} onchange="adminAiToggleItem(${index},this.checked)" /></td><td>${index + 1}</td>${columns.map(([key]) => `<td>${esc(key === "confidence" ? `${Math.round(Number(item?.[key] || 0) * 100)}%` : item?.[key] ?? "")}</td>`).join("")}</tr>`).join("")}
+                      ${items.map((item,index) => `<tr class="${Number(item?.confidence || 0) < .6 ? "admin-ai-confidence-low" : ""}"><td><input type="checkbox" ${ADMIN_AI_IMPORT_STATE.selected.has(index) ? "checked" : ""} onchange="adminAiToggleItem(${index},this.checked)" /></td><td>${index + 1}</td>${columns.map(([key]) => `<td>${esc(key === "confidence" ? `${Math.round(Number(item?.[key] || 0) * 100)}%` : Array.isArray(item?.[key]) ? item[key].join(", ") : item?.[key] ?? "")}</td>`).join("")}</tr>`).join("")}
                     </tbody></table>
                   </div>` : ""}
               </div>
@@ -82547,7 +82556,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           address:new Set(["adres","address"]),
           postalCode:new Set(["kodpocztowy","kod","postalcode","postcode"]),
           kind:new Set(["rodzaj","typ","branza","ladunki","typyladunkow","cargotypes","businesstype"]),
-          nip:new Set(["nip","taxid"])
+          nip:new Set(["nip","taxid"]),
+          owner1:new Set(["opiekun","nazwaopiekuna","glownyopiekun","opiekun1","spedytor","dispatcher","accountmanager","handlowiec"]),
+          owner2:new Set(["opiekun2","drugipopiekun","spedytor2","dispatcher2","accountmanager2"]),
+          owner3:new Set(["opiekun3","trzeciopiekun","spedytor3","dispatcher3","accountmanager3"])
         };
         let headerIndex = -1;
         let delimiter = "";
@@ -82557,7 +82569,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!candidateDelimiter) continue;
           const headers = adminAiSplitTableLine(lines[index], candidateDelimiter).map(excelKey);
           const find = key => headers.findIndex(header => aliases[key].has(header));
-          const candidate = { name:find("name"), city:find("city"), address:find("address"), postalCode:find("postalCode"), kind:find("kind"), nip:find("nip") };
+          const candidate = { name:find("name"), city:find("city"), address:find("address"), postalCode:find("postalCode"), kind:find("kind"), nip:find("nip"), owner1:find("owner1"), owner2:find("owner2"), owner3:find("owner3") };
           if (candidate.name >= 0 && [candidate.city,candidate.address,candidate.postalCode].some(value => value >= 0)) {
             headerIndex = index;
             delimiter = candidateDelimiter;
@@ -82589,11 +82601,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               nip:get(indexes.nip),
               cargoTypes:kind,
               businessType:kind,
+              dispatcher:get(indexes.owner1),
+              dispatchers:[get(indexes.owner1),get(indexes.owner2),get(indexes.owner3)].filter(Boolean),
               reason:!name && !address ? "Brak nazwy klienta oraz miejscowości/adresu." : !name ? "Brak nazwy klienta." : "Brak miejscowości lub adresu."
             });
             return;
           }
-          items.push({ id:"", name, address, postalCode, city, nip:get(indexes.nip), cargoTypes:kind, businessType:kind, dispatcher:"", lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30, cooperationNotes:"", lastContactAt:"", confidence:1 });
+          const sourceOwners = [get(indexes.owner1), get(indexes.owner2), get(indexes.owner3)].filter(Boolean);
+          const resolvedOwners = Array.from(new Set(sourceOwners.map(value => adminAiResolveDispatcher(value, "") || String(value || "").trim()).filter(Boolean))).slice(0,3);
+          items.push({ id:"", name, address, postalCode, city, nip:get(indexes.nip), cargoTypes:kind, businessType:kind, dispatcher:resolvedOwners[0] || "", dispatchers:resolvedOwners, coDispatchers:resolvedOwners.slice(1), lat:0, lng:0, approximate:true, qualityRating:3, paymentDays:30, cooperationNotes:"", lastContactAt:"", confidence:1 });
         });
         if (!items.length && !rejectedItems.length) return null;
         return { items, rejectedItems, warnings:rejectedItems.length ? [adminAiCorrectionWarning(rejectedItems.length)] : [], model:"parser-tabeli-klientow", structured:true, elapsedMs:0 };
@@ -82677,8 +82693,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return items.map(item => {
           const recognizedOwners = [item?.dispatcher, ...(Array.isArray(item?.dispatchers) ? item.dispatchers : []), ...(Array.isArray(item?.coDispatchers) ? item.coDispatchers : [])]
             .map(value => adminAiResolveDispatcher(value, "")).filter(Boolean);
-          const selectedOwners = Array.isArray(ADMIN_AI_IMPORT_STATE.clientDispatchers) ? ADMIN_AI_IMPORT_STATE.clientDispatchers : [];
-          const owners = Array.from(new Set([...selectedOwners, ...recognizedOwners].filter(Boolean))).slice(0,3);
+          const owners = Array.from(new Set(recognizedOwners.filter(Boolean))).slice(0,3);
           return {
             "Baza": "operations",
             "Klient ID": String(item?.id || "").trim(),
@@ -90442,6 +90457,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-  <script src="/order-entry.js?build=v136-unified-queue-form"></script>
+  <script src="/order-entry.js?build=v138-ai-client-owner-column"></script>
 </body>
 </html>

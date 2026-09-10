@@ -15,6 +15,8 @@
     .modal-backdrop:has(.plan-order-entry) { z-index:20000!important; }
     .modal.plan-order-entry { width:calc(100vw - 24px)!important; max-width:1500px!important; height:calc(100vh - 24px)!important; max-height:calc(100vh - 24px)!important; transform:none!important; display:flex!important; flex-direction:column; overflow:hidden!important; }
     .plan-order-entry .order-entry-workspace { display:grid; grid-template-columns:minmax(340px,440px) minmax(0,1fr); flex:1; min-height:0; overflow:hidden; }
+    .plan-order-entry .order-entry-workspace.no-document-preview { grid-template-columns:minmax(0,1fr); }
+    .plan-order-entry .order-entry-workspace.no-document-preview .order-entry-preview { display:none; }
     .plan-order-entry .modal-body { overflow:auto!important; min-height:0; max-height:none!important; padding:12px; }
     .plan-order-entry .modal-head,.plan-order-entry .modal-foot { flex-shrink:0; }
     .plan-order-entry .order-entry-preview { min-width:0; overflow:auto; border-left:1px solid var(--border); padding:12px; background:var(--card); }
@@ -38,10 +40,10 @@
     const body = form.querySelector('.modal-body');
     form.classList.add('plan-order-entry');
     form.querySelector('h2').textContent = 'Szczegóły zlecenia';
-    const workspace = document.createElement('div'); workspace.className = 'order-entry-workspace';
+    const workspace = document.createElement('div'); workspace.className = 'order-entry-workspace' + (state.prefill.orderSourceFile ? '' : ' no-document-preview');
     body.before(workspace); workspace.append(body);
-    const upload = document.createElement('section'); upload.className = 'order-entry-upload';
-    upload.innerHTML = `<b>Zlecenie transportowe</b><p class="small">Wybierz lub upuść PDF albo Word. Sprawdź dane rozpoznane przez AI przed zapisem.</p><input id="order-entry-file" type="file" accept=".pdf,.doc,.docx" onchange="selectPlanOrderFile(this.files[0])"><p><button class="btn btn-ai-action" type="button" onclick="analyzePlanOrder()" ${busy ? 'disabled' : ''}>${busy ? 'Analizowanie…' : 'Analizuj zlecenie AI'}</button></p><div id="order-entry-status" role="status"></div>`;
+    const upload = document.createElement('details'); upload.className = 'order-entry-upload';
+    upload.innerHTML = `<summary><b>Zlecenie transportowe</b></summary><div style="margin-top:10px"><p class="small">Wybierz lub upuść PDF albo Word. Sprawdź dane rozpoznane przez AI przed zapisem.</p><input id="order-entry-file" type="file" accept=".pdf,.doc,.docx" onchange="selectPlanOrderFile(this.files[0])"><p><button class="btn btn-ai-action" type="button" onclick="analyzePlanOrder()" ${busy ? 'disabled' : ''}>${busy ? 'Analizowanie…' : 'Analizuj zlecenie AI'}</button></p><div id="order-entry-status" role="status"></div></div>`;
     body.prepend(upload);
     const dateInput = body.querySelector('#new-date');
     dateInput.previousElementSibling?.remove();
@@ -72,7 +74,7 @@
       body.insertBefore(sections, dateInput.previousElementSibling);
     }
     const preview = document.createElement('section'); preview.className = 'order-entry-preview';
-    preview.innerHTML = '<b>Oryginalne zlecenie</b><div id="order-entry-document"><p class="small">Podgląd pojawi się po wybraniu dokumentu.</p></div>';
+    preview.innerHTML = '<b>Oryginalne zlecenie</b><div id="order-entry-document"></div>';
     workspace.append(preview);
     form.setAttribute('ondragover', "if(event.dataTransfer.types.includes('Files'))event.preventDefault()");
     form.setAttribute('ondrop', 'event.preventDefault();event.stopPropagation();selectPlanOrderFile(event.dataTransfer.files[0])');
@@ -84,7 +86,9 @@
     if (!isPlan()) return;
     const file = state.prefill.orderSourceFile;
     const host = document.getElementById('order-entry-document');
-    if (!host || !file) return;
+    const workspace = host?.closest('.order-entry-workspace');
+    if (!host || !file) { workspace?.classList.add('no-document-preview'); return; }
+    workspace?.classList.remove('no-document-preview');
     if (previewFile !== file) {
       if (fileUrl) URL.revokeObjectURL(fileUrl);
       fileUrl = URL.createObjectURL(file); previewFile = file;
