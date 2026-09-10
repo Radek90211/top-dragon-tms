@@ -2315,8 +2315,13 @@ async function loadCentralLoadQueueChat() {
   }
 }
 
+let loadQueueChatReadGeneration = 0
 async function syncCentralLoadQueueChatToTms() {
+  const generation = ++loadQueueChatReadGeneration
+  const actorId = currentActorId()
+  const profile = currentProfile
   const data = await loadCentralLoadQueueChat()
+  if (generation !== loadQueueChatReadGeneration || actorId !== currentActorId() || profile !== currentProfile) return
   activeLoadQueueChatMessage = {
     type: 'top-dragon-load-queue-chat-data',
     schemaAvailable: Boolean(data.schemaAvailable),
@@ -4310,7 +4315,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v145-remove-branch-message"
+          src="/tms.html?embedded=1&build=request-workflow-v148-hover-minute"
         title="Top Dragon TMS"
       ></iframe>
     </main>
