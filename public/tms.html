@@ -1679,8 +1679,7 @@
       z-index: 9;
     }
 
-    /* 3L.28: małe znaczniki źródła dopasowania na kafelku poprzedniej relacji.
-       Pomarańczowy = Wolne ładunki, niebieski = Planowane relacje. */
+    /* 3L.28: zielone, pulsujące znaczniki znalezionego dopasowania. */
     .time-route-match-markers {
       position: absolute;
       top: 2px;
@@ -1699,10 +1698,17 @@
       border: 1px solid rgba(255,255,255,.92);
       box-shadow: 0 1px 4px rgba(15,23,42,.28);
       flex: 0 0 auto;
+      background: #22c55e;
+      animation: time-route-match-dot-green-v149 1.25s ease-in-out infinite;
     }
 
-    .time-route-match-dot.proposed { background: #f59e0b; }
-    .time-route-match-dot.future { background: #3b82f6; }
+    .time-route-match-dot.proposed,
+    .time-route-match-dot.future { background: #22c55e; }
+
+    @keyframes time-route-match-dot-green-v149 {
+      0%, 100% { transform: scale(.94); box-shadow: 0 0 1px rgba(22,163,74,.32); }
+      50% { transform: scale(1.08); box-shadow: 0 0 5px rgba(34,197,94,.7); }
+    }
 
     .day-cell.drop-hover {
       outline: 2px solid #0f172a;
@@ -88461,6 +88467,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .queue-chat-message-meta-3l52 { display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:3px; font-size:9px; color:var(--muted,#64748b); }
     .queue-chat-message-meta-3l52 b { color:var(--text,#0f172a); font-size:10px; }
     .queue-chat-message-text-3l52 { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.45; }
+    .queue-chat-message-3l52 { border-left:4px solid var(--queue-chat-user-color,#64748b); }
+    .queue-chat-message-3l52.mine { border-left-width:1px; border-right:4px solid var(--queue-chat-user-color,#2563eb); }
+    .queue-chat-message-meta-3l52 b { color:var(--queue-chat-user-color,#334155); }
+    .queue-chat-user-dot-3l150 {
+      width:9px; height:9px; flex:0 0 9px; border-radius:999px;
+      background:var(--queue-chat-user-color,#64748b);
+      box-shadow:0 0 0 2px color-mix(in srgb,var(--queue-chat-user-color,#64748b) 22%,transparent);
+    }
+    .queue-chat-user-color-0 { --queue-chat-user-color:#2563eb; }
+    .queue-chat-user-color-1 { --queue-chat-user-color:#16a34a; }
+    .queue-chat-user-color-2 { --queue-chat-user-color:#9333ea; }
+    .queue-chat-user-color-3 { --queue-chat-user-color:#ea580c; }
+    .queue-chat-user-color-4 { --queue-chat-user-color:#0891b2; }
+    .queue-chat-user-color-5 { --queue-chat-user-color:#db2777; }
+    .queue-chat-user-color-6 { --queue-chat-user-color:#4f46e5; }
+    .queue-chat-user-color-7 { --queue-chat-user-color:#65a30d; }
     .queue-chat-compose-3l52 {
       padding:10px 12px 12px; border-top:1px solid var(--border,#cbd5e1);
       display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end;
@@ -88712,9 +88734,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const rows = chatRouteMessages3L52(route);
         const me = String(state.user?.supabaseId || '');
         const title = `${displayLocationWithPostal(route.load) || route.load || '-'} → ${displayLocationWithPostal(route.unload) || route.unload || '-'}`;
+        const chatUserColorClass3L150 = item => {
+          const key = String(item?.authorId || item?.authorName || 'Użytkownik');
+          let hash = 0;
+          for (let index = 0; index < key.length; index++) hash = ((hash * 31) + key.charCodeAt(index)) >>> 0;
+          return `queue-chat-user-color-${hash % 8}`;
+        };
         const messagesHtml = rows.length
-          ? rows.map(item => `<div class="queue-chat-message-3l52 ${String(item.authorId||'')===me?'mine':''}">
-              <div class="queue-chat-message-meta-3l52"><b>${esc(item.authorName || 'Użytkownik')}</b><span>${esc(queueChatDate3L52(item.createdAt))}</span></div>
+          ? rows.map(item => `<div class="queue-chat-message-3l52 ${String(item.authorId||'')===me?'mine':''} ${chatUserColorClass3L150(item)}">
+              <div class="queue-chat-message-meta-3l52"><span class="queue-chat-user-dot-3l150" aria-hidden="true"></span><b>${esc(item.authorName || 'Użytkownik')}</b><span>${esc(queueChatDate3L52(item.createdAt))}</span></div>
               <div class="queue-chat-message-text-3l52">${esc(item.message || '')}</div>
             </div>`).join('')
           : `<div class="queue-chat-empty-3l52">Brak wiadomości. Napisz pierwsze pytanie dotyczące tej relacji.</div>`;
@@ -90197,24 +90225,49 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }).length;
       }
 
-      function queueOwnUnreadCountV135(queueType) {
-        if (!['spedytor','kierownik'].includes(state.user?.role)) return 0;
+      function queueOwnUnreadRoutesV149(queueType) {
+        if (!['spedytor','kierownik'].includes(state.user?.role)) return [];
         const login = String(state.user?.login || '').trim().toUpperCase();
         const routes = queueType === 'proposed' ? (state.proposedLoads || []) : (state.futureRoutes || []);
-        return routes.reduce((sum, route) => {
+        return routes.filter(route => {
           const ownerId = String(route?.createdById || route?.created_by || '').trim();
           const owns = ownerId ? ownerId === String(state.user?.supabaseId || '') : String(route?.createdBy || route?.ownerDispatcher || '').trim().toUpperCase() === login;
-          if (!owns) return sum;
-          return sum + queueUnreadCountForRouteV135(route);
-        }, 0);
+          return owns && queueUnreadCountForRouteV135(route) > 0;
+        }).sort((left, right) => {
+          const latestUnreadAt = route => {
+            const branchId = String(centralLoadQueueBranchId(route) || '').trim();
+            return Math.max(0, ...(state.loadQueueChat3L52?.messages || []).filter(item =>
+              String(item?.branchId || '').trim() === branchId &&
+              String(item?.loadRef || '').trim() === String(route?.id || '').trim() &&
+              String(item?.authorId || '').trim() !== String(state.user?.supabaseId || '').trim()
+            ).map(item => Date.parse(item?.createdAt || '') || 0));
+          };
+          return latestUnreadAt(right) - latestUnreadAt(left);
+        });
+      }
+
+      function queueOwnUnreadCountV135(queueType) {
+        const routes = queueOwnUnreadRoutesV149(queueType);
+        if (!Array.isArray(routes)) return 0;
+        return routes.reduce((sum, route) => sum + queueUnreadCountForRouteV135(route), 0);
       }
 
       function queueMessageIndicatorV135(queueType) {
         const unread = queueOwnUnreadCountV135(queueType);
         if (!unread) return '';
         const label = unread === 1 ? '1 nowa wiadomość' : `${unread} nowych wiadomości`;
-        return `<span class="queue-message-indicator-v135" title="${attr(label)}" aria-label="${attr(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></span>`;
+        return `<span class="queue-message-indicator-v135" role="button" tabindex="0" title="${attr(label)} — otwórz czat" aria-label="${attr(label)} — otwórz czat" onclick="openFirstUnreadQueueChatV149(event,'${attr(queueType)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFirstUnreadQueueChatV149(event,'${attr(queueType)}')}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></span>`;
       }
+
+      window.openFirstUnreadQueueChatV149 = function(event, queueType) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const route = queueOwnUnreadRoutesV149(queueType)?.[0];
+        if (!route) return;
+        if (queueType === 'proposed') toggleProposedPanel(true);
+        else if (queueType === 'future') toggleFuturePanel(true);
+        requestAnimationFrame(() => window.openQueueRelationChat3L52?.(null, queueType, route.id));
+      };
 
       function decorateQueueTabHtmlV135(html, queueType) {
         let output = String(html || '');
@@ -90476,11 +90529,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!QUEUE_TYPES.includes(queueType) || !loadId) { delete current.pending[key]; changed = true; return; }
           const route = queueRoute(queueType, loadId);
           if (!route) { delete current.pending[key]; changed = true; return; }
-          const seen = Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : [];
-          const matched = matchedBoardRouteIds(queueType, route);
-          const next = matched.filter(id => !seen.includes(id));
+          let seen = Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : [];
+          const deadlines = { ...(value.hoverDeadlines || {}) };
           const old = Array.isArray(value?.routeIds) ? value.routeIds.map(String) : [];
-          if (JSON.stringify(old) !== JSON.stringify(next)) { current.pending[key] = { ...value, routeIds:next, seenRouteIds:seen }; changed = true; }
+          const matched = matchedBoardRouteIds(queueType, route);
+          const matchedSet = new Set(matched);
+          const remembered = new Set([...old, ...seen, ...Object.keys(deadlines)]);
+          remembered.forEach(id => {
+            if (matchedSet.has(id)) return;
+            seen = seen.filter(item => item !== id);
+            if (Object.prototype.hasOwnProperty.call(deadlines, id)) delete deadlines[id];
+          });
+          Object.entries(deadlines).forEach(([id, deadline]) => {
+            if (Number(deadline) <= Date.now() && !seen.includes(id)) { seen.push(id); changed = true; }
+          });
+          const next = matched.filter(id => !seen.includes(id));
+          const nextValue = { ...value, routeIds:next, seenRouteIds:seen, hoverDeadlines:deadlines };
+          if (JSON.stringify(old) !== JSON.stringify(next) ||
+              JSON.stringify(value.seenRouteIds || []) !== JSON.stringify(seen) ||
+              JSON.stringify(value.hoverDeadlines || {}) !== JSON.stringify(deadlines)) {
+            current.pending[key] = nextValue;
+            changed = true;
+          }
         });
         if (changed) persist();
         applyToBoard();
@@ -90488,7 +90558,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function activeRouteIds() {
         const current = ensureStore();
-        return new Set(Object.values(current.pending || {}).flatMap(value => Array.isArray(value?.routeIds) ? value.routeIds : []).map(String));
+        return new Set(Object.values(current.pending || {}).flatMap(value =>
+          (Array.isArray(value?.routeIds) ? value.routeIds : []).filter(id =>
+            !value.hoverDeadlines?.[id] || Number(value.hoverDeadlines[id]) > Date.now()
+          )).map(String));
       }
       function applyToBoard() {
         const ids = activeRouteIds();
@@ -90504,11 +90577,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         Object.entries(current.pending || {}).forEach(([key, value]) => {
           const routeIds = Array.isArray(value?.routeIds) ? value.routeIds.map(String) : [];
           if (!routeIds.includes(id)) return;
-          const seen = Array.from(new Set([...(Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : []), id]));
-          current.pending[key] = { ...value, seenRouteIds:seen, routeIds:routeIds.filter(item => item !== id) };
+          if (value.hoverDeadlines?.[id]) return;
+          current.pending[key] = { ...value, hoverDeadlines:{ ...value.hoverDeadlines, [id]:Date.now() + 60000 } };
           changed = true;
         });
-        if (changed) { persist(); applyToBoard(); }
+        if (changed) {
+          persist();
+          applyToBoard();
+          const actor = userKey();
+          setTimeout(() => { if (userKey() === actor) refreshMatches(); }, 60000);
+        }
       }
       document.addEventListener('pointerover', event => {
         const tile = event.target?.closest?.('.time-route.queue-match-pulse-v136[data-route-id]');
@@ -90557,7 +90635,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-  <style id="queue-alerts-v147">
+  <style id="queue-alerts-v150">
     @keyframes queue-mail-green-v147 {
       0%,100% { filter:drop-shadow(0 0 2px #22c55e); }
       50% { filter:drop-shadow(0 0 8px #16a34a); }
@@ -90565,20 +90643,55 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app .queue-message-indicator-v135 {
       border-color:#22c55e; background:#dcfce7; color:#15803d;
       animation:queue-mail-green-v147 1.5s ease-in-out infinite;
-      width:20px; height:20px; left:1px; top:1px;
+      position:static;
+      width:22px; height:22px;
+      flex:0 0 22px;
+      order:2;
+      pointer-events:auto;
+      cursor:pointer;
     }
-    .app .queue-message-indicator-v135 svg { width:14px; height:14px; }
+    .app .queue-message-indicator-v135 svg { width:21px; height:21px; }
+    .app .side-tool-tab:has(.queue-message-indicator-v135) {
+      width:78px !important;
+      min-width:78px !important;
+      gap:8px !important;
+      padding-left:9px !important;
+      padding-right:9px !important;
+    }
+    .app .side-tool-tab:has(.queue-message-indicator-v135):hover,
+    .app .side-tool-tab:has(.queue-message-indicator-v135):focus-visible { width:228px !important; }
+    .app .side-tool-tab:has(.queue-message-indicator-v135) > .side-tool-icon { order:1; }
+    .app .side-tool-tab:has(.queue-message-indicator-v135) > .side-tool-label { order:3; }
     .app.dark-mode .queue-message-indicator-v135 { background:#14532d; color:#bbf7d0; border-color:#4ade80; }
     .app .timeline-row .time-route.queue-match-pulse-v136 {
-      border-color:#22c55e !important;
-      box-shadow:inset 0 0 0 2px #22c55e,0 0 12px #16a34a !important;
-      animation:queue-mail-green-v147 1.5s ease-in-out infinite !important;
+      border-color:rgba(34,197,94,.78) !important;
+      box-shadow:inset 0 0 0 1px rgba(34,197,94,.34) !important;
+      animation:none !important;
+    }
+    @keyframes queue-tile-local-green-v150 {
+      0%,100% { opacity:.22; transform:scale(.94); }
+      50% { opacity:.58; transform:scale(1.04); }
+    }
+    .app .timeline-row .time-route.queue-match-pulse-v136::before {
+      content:"";
+      position:absolute;
+      right:0;
+      top:0;
+      width:30px;
+      height:22px;
+      border-radius:0 8px 0 18px;
+      background:radial-gradient(circle at 72% 32%,rgba(34,197,94,.72) 0,rgba(34,197,94,.22) 38%,transparent 72%);
+      pointer-events:none;
+      z-index:46;
+      animation:queue-tile-local-green-v150 1.8s ease-in-out infinite;
     }
     @media(prefers-reduced-motion:reduce) {
       .app .queue-message-indicator-v135,
-      .app .timeline-row .time-route.queue-match-pulse-v136 { animation:none !important; filter:drop-shadow(0 0 5px #16a34a); }
+      .app .timeline-row .time-route.queue-match-pulse-v136,
+      .time-route-match-dot,
+      .app .timeline-row .time-route.queue-match-pulse-v136::before { animation:none !important; filter:drop-shadow(0 0 3px #16a34a); }
     }
   </style>
-  <script src="/order-entry.js?build=v147-queue-alerts"></script>
+  <script src="/order-entry.js?build=v150-chat-colors-soft-rematch"></script>
 </body>
 </html>
