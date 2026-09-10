@@ -2113,14 +2113,40 @@ function proposedLoadHour(payload) {
   return 8
 }
 
+function proposedLoadEndMoment(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  const date = normalizeProposedLoadDate(
+    String(payload.secondUnloadDate || '').trim()
+      || String(payload.unloadDate || '').trim()
+      || String(payload.endDate || '').trim()
+      || String(payload.loadDate || '').trim()
+      || String(payload.date || '').trim()
+  )
+  if (!date) return null
+
+  const directHour = payload.secondUnloadHour ?? payload.unloadHour ?? payload.endHour
+  let hour = Number.NaN
+  if (directHour !== undefined && directHour !== null && String(directHour).trim() !== '' && /^\d+(?:\.\d+)?$/.test(String(directHour).trim())) {
+    hour = Math.max(0, Math.min(24, Number(directHour)))
+  } else {
+    const clock = String(payload.secondUnloadTime || payload.unloadTime || payload.endTime || '').trim()
+    const match = clock.match(/^(\d{1,2}):(\d{2})/)
+    if (match) hour = Math.max(0, Math.min(24, Number(match[1]) + Number(match[2]) / 60))
+  }
+
+  // Jeżeli znamy wyłącznie datę, relacja wygasa dopiero po zakończeniu tej daty.
+  return { date, hour: Number.isFinite(hour) ? hour : 24 }
+}
+
 function isExpiredProposedLoadPayload(payload) {
   if (!payload || typeof payload !== 'object') return false
   if (String(payload.status || 'available').trim().toLowerCase() === 'taken') return false
-  const loadDate = normalizeProposedLoadDate(String(payload.loadDate || '').trim() || String(payload.date || '').trim())
-  if (!loadDate) return false
-  // 3L.60: Wolne ładunki są aktywne przez cały dzień załadunku.
-  // Dopiero wpis z datą wcześniejszą niż dzisiejsza (Europe/Warsaw) jest wygasły.
-  return loadDate < warsawNowForLoadQueue().date
+  const end = proposedLoadEndMoment(payload)
+  if (!end) return false
+  const now = warsawNowForLoadQueue()
+  if (end.date < now.date) return true
+  if (end.date > now.date) return false
+  return now.hour > end.hour
 }
 
 async function loadCentralLoadQueue() {
@@ -2144,15 +2170,43 @@ async function loadCentralLoadQueue() {
   }
   const statsResult = hasRole('admin') ? await supabase.rpc('tms_expired_proposed_load_stats') : { data: [] }
 
-  const rows = (data || [])
-    .filter((row) => row?.payload && row?.load_ref && ['future', 'proposed'].includes(row?.queue_type))
-    .map((row) => ({
-      id: String(row.load_ref || ''),
-      branchId: String(row.branch_id || ''),
-      queueType: String(row.queue_type || ''),
-      payload: row.payload,
-      updatedAt: String(row.updated_at || ''),
-    }))
+  const activeRows = []
+  for (const row of (data || [])) {
+    if (!row?.payload || !row?.load_ref || !['future', 'proposed'].includes(row?.queue_type)) continue
+
+    // V141: wygasły Wolny ładunek nie może wracać do aktywnej listy.
+    // Archiwizujemy wyłącznie kolejkę `proposed`; Planowane relacje (`future`)
+    // pozostają aktywne niezależnie od terminu.
+    if (row.queue_type === 'proposed' && isExpiredProposedLoadPayload(row.payload)) {
+      const owner = String(row.payload?.createdBy || row.payload?.ownerDispatcher || '').trim()
+      const canArchive = hasRole('admin', 'branch_manager') || (hasRole('dispatcher') && sameName(owner, currentActorLogin()))
+      if (canArchive) {
+        try {
+          const { error: archiveError } = await supabase.rpc('archive_tms_load_queue', {
+            p_branch_id: String(row.branch_id || ''),
+            p_queue_type: 'proposed',
+            p_load_ref: String(row.load_ref || ''),
+          })
+          if (archiveError) throw archiveError
+        } catch (error) {
+          console.warn('Nie udało się zarchiwizować wygasłego wolnego ładunku:', error)
+        }
+      }
+      // Nawet gdy centralne archiwizowanie chwilowo się nie powiedzie, wpis po terminie
+      // nie jest publikowany jako aktywny. Kolejna synchronizacja ponowi housekeeping.
+      continue
+    }
+
+    activeRows.push(row)
+  }
+
+  const rows = activeRows.map((row) => ({
+    id: String(row.load_ref || ''),
+    branchId: String(row.branch_id || ''),
+    queueType: String(row.queue_type || ''),
+    payload: row.payload,
+    updatedAt: String(row.updated_at || ''),
+  }))
 
   const expiredProposedStats = statsResult?.error
     ? []
@@ -4256,7 +4310,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v138-ai-client-owner-column"
+          src="/tms.html?embedded=1&build=request-workflow-v142-board-match-scope"
         title="Top Dragon TMS"
       ></iframe>
     </main>
