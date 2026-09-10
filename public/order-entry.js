@@ -31,7 +31,7 @@
 
   renderAddModal = function() {
     let html = originalRender.apply(this, arguments);
-    if (state.addOpen && state.prefill) html = html.replace('<div class="modal-body">', '<div class="modal-body">' + renderQueueBranchChoice(state.prefill) + renderOrderStops(state.prefill));
+    if (state.addOpen && state.prefill) html = html.replace('<div class="modal-body">', '<div class="modal-body">' + renderQueueBranchChoice(state.prefill));
     if (!isPlan()) return html;
     const template = document.createElement('template'); template.innerHTML = html;
     const form = template.content.querySelector('form.modal');
@@ -139,8 +139,6 @@
         const el = id && document.getElementById(id);
         if (el && el.value === before.get(id)) { el.value = value; el.setAttribute('data-ai-filled',''); el.closest('.optional-stop-section')?.classList.remove('hidden-by-toggle'); }
       }
-      document.querySelector('.plan-order-entry .order-stops-editor')?.remove();
-      document.querySelector('.plan-order-entry .modal-body')?.insertAdjacentHTML('afterbegin',renderOrderStops(draft));
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
       updateNewRouteFinance('rate');
       status.textContent = 'Analiza zakończona. Sprawdź żółte pola, terminy i kilometry przed zapisaniem.';
