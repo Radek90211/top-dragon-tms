@@ -255,7 +255,7 @@ async function authenticateAdmin(req) {
 
 function schemaForKind(kind) {
   if (kind === 'clients') {
-    return `items zawierające wyłącznie klientów z polami: id, name, address, postalCode, city, nip, cargoTypes, businessType, dispatcher, lat, lng, approximate, qualityRating, paymentDays, cooperationNotes, lastContactAt, confidence.`
+    return `items zawierające wyłącznie klientów z polami: id, name, address, postalCode, city, nip, cargoTypes, businessType, dispatcher, dispatchers (tablica maksymalnie 3 opiekunów), lat, lng, approximate, qualityRating, paymentDays, cooperationNotes, lastContactAt, confidence.`
   }
   if (kind === 'vehicles') {
     return `items zawierające zestawy floty z polami: id, dispatcher, carrierName, driverName, phone, nationality, baseLocation, vehicleRegistrationNo, vehicleBrand, trailerRegistrationNo, trailerHeightM, hidden, confidence.`
@@ -286,6 +286,7 @@ function normalizeItems(kind, items) {
       if (typeof value === 'string') normalized[key] = value.slice(0, 2000)
       else if (typeof value === 'number' && Number.isFinite(value)) normalized[key] = value
       else if (typeof value === 'boolean') normalized[key] = value
+      else if (Array.isArray(value) && kind === 'clients' && ['dispatchers','coDispatchers'].includes(key)) normalized[key] = value.map(item => String(item || '').trim()).filter(Boolean).slice(0, 3)
       else if (value == null) normalized[key] = null
     })
     if (kind === 'clients' && (!String(normalized.name || '').trim() || (!String(normalized.address || '').trim() && !String(normalized.city || '').trim()))) return null
