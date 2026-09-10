@@ -68253,6 +68253,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
 
+    function clientDirectorySearchText(client) {
+      const bases = Array.isArray(client?.bases) ? client.bases : [];
+      return removePolishChars([
+        client?.name,
+        client?.nip,
+        client?.address,
+        ...bases.flatMap(base => [base?.name, base?.address]),
+        ...clientOwnerLogins(client)
+      ].filter(Boolean).join(" "));
+    }
+
     function renderClientDatabase() {
       const allClients = (state.clients || []).slice();
       const ownerFilter = ["all", "assigned", "unassigned"].includes(state.clientDirectoryFilter) ? state.clientDirectoryFilter : "all";
@@ -68267,7 +68278,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (dispatcherFilter === "unassigned" && assigned) return false;
         if (dispatcherFilter !== "all" && dispatcherFilter !== "unassigned" && !clientOwnerLogins(client).includes(dispatcherFilter)) return false;
         if (!queryKey) return true;
-        const haystack = removePolishChars([client.name, client.nip, client.address, ...clientOwnerLogins(client)].filter(Boolean).join(" "));
+        const haystack = clientDirectorySearchText(client);
         return haystack.includes(queryKey);
       };
       const matchingClientCount = visibleClients.filter(clientDirectoryMatches).length;
@@ -68296,7 +68307,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Nazwa klienta</label><input id="client-name" class="input" required value="${attr(editClient?.name || "")}" placeholder="np. Klient ABC" /></div>
               <div><label class="field-label" style="margin-top:0;">NIP</label><input id="client-nip" class="input" inputmode="numeric" maxlength="10" value="${attr(editClient?.nip || "")}" placeholder="10 cyfr" /></div>
               <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label>${renderClientDispatcherPicker(editClient?.dispatcher || "")}</div>
-              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie klienta</label><div class="small" style="margin-bottom:6px;">Klient może mieć maksymalnie 3 opiekunów łącznie: 1 głównego i do 2 dodatkowych.</div><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) && dispatcher !== String(editClient?.dispatcher || "").toUpperCase() ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} onchange="enforceClientOwnerLimit(this)" /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
+              <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie klienta</label><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) && dispatcher !== String(editClient?.dispatcher || "").toUpperCase() ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} onchange="enforceClientOwnerLimit(this)" /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
               ${isAdminUser() ? `<div class="client-bases-admin" style="grid-column:1/-1">
                 <div class="client-bases-admin-head"><div><b>Bazy i magazyny klienta</b><div class="small">Tylko potwierdzone tutaj lokalizacje będą wyświetlane jako bazy klienta na mapie.</div></div><span class="badge">${Array.isArray(editClient?.bases) ? editClient.bases.length : 0}</span></div>
@@ -68310,12 +68321,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="client-db-list" id="client-directory-list">
             <div id="client-directory-empty" class="hint" ${matchingClientCount ? "hidden" : ""}>Brak klientów spełniających wybrane kryteria.</div>
             ${visibleClients.map(client => {
-              const searchText = removePolishChars([client.name, client.nip, client.address, ...clientOwnerLogins(client)].filter(Boolean).join(" "));
+              const searchText = clientDirectorySearchText(client);
               const ownerType = client.dispatcher ? "assigned" : "unassigned";
               return `
               <div class="client-row" data-client-search="${attr(searchText)}" data-client-owner="${ownerType}" data-client-dispatcher="${attr(client.dispatcher || "")}" data-client-dispatchers="${attr(`|${clientOwnerLogins(client).join("|")}|`)}" ${clientDirectoryMatches(client) ? "" : "hidden"}>
                 <div class="client-row-head"><div class="client-owner-inline">${clientNameLink(client)}</div><div class="client-row-actions">${canEditClients && clientEditableByCurrentUser(client) ? `<button type="button" class="btn-mini" onclick="beginClientEdit('${attr(client.id)}')">Edytuj</button>` : ""}${canDeleteClients ? `<button type="button" class="btn-mini" onclick="deleteClient('${attr(client.id)}')">Usuń</button>` : ""}</div></div>
-                <div class="client-row-meta"><span><b>NIP:</b> ${esc(client.nip || "-")}</span><span><b>Bazy:</b> ${(client.bases || []).length ? esc((client.bases || []).map(base => base.name || base.address).join(", ")) : "brak"}</span><span><b>Opiekunowie:</b> ${clientOwnerBadges(client)}</span></div>
+                <div class="client-row-meta"><span><b>NIP:</b> ${esc(client.nip || "-")}</span><span><b>Adres:</b> ${esc(client.address || "-")}</span><span><b>Bazy:</b> ${(client.bases || []).length ? esc((client.bases || []).map(base => base.name || base.address).join(", ")) : "brak"}</span><span><b>Opiekunowie:</b> ${clientOwnerBadges(client)}</span></div>
               </div>`;
             }).join("")}
           </div>
@@ -79698,10 +79709,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       reconcileOrderStops(route);
-      if ((proposedMode || futureMode) && EMBEDDED_MODE && !centralLoadQueueBranchId(route)) {
-        showAppMessage("Wybierz oddział", "Wskaż oddział relacji przed zapisaniem.", "error");
-        return;
-      }
       if (state.prefill?.orderSourceFile instanceof Blob) {
         try {
           route.orderDocumentDataUrl = await routeOrderFileDataUrl(state.prefill.orderSourceFile);
@@ -90499,6 +90506,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-  <script src="/order-entry.js?build=v142-board-match-scope"></script>
+  <script src="/order-entry.js?build=v145-remove-branch-message"></script>
 </body>
 </html>
