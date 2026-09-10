@@ -64083,14 +64083,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function updateNewRouteDateFromInput(value) {
       if (!state.prefill) return;
+      const previousDate = state.prefill.date || START_DATE;
       const nextDate = parseDateInput(value, state.prefill.date || START_DATE);
+      const daySpan = Math.max(1, isoDayDifference(previousDate, state.prefill.endDate || addDaysToIso(previousDate, 1)));
       state.prefill.date = nextDate;
-
-      const duration = Math.max(0.25, Number(state.prefill.endHour ?? 20) - Number(state.prefill.startHour ?? 8)) || 12;
-      const startGlobal = Math.max(0, getDateIndex(nextDate)) * 24 + Number(state.prefill.startHour ?? 8);
-      const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), startGlobal + duration));
-      state.prefill.endDate = endParts.date;
-      state.prefill.endHour = endParts.hour;
+      state.prefill.endDate = addDaysToIso(nextDate, daySpan);
     }
 
     function shiftNewRouteDate(direction) {
@@ -66741,7 +66738,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="client-validation client-validation-${result.level}" title="${attr(result.label)}">${esc(result.ok ? "✓ adres" : result.label)}</span>`;
     }
 
+    function canAcceptClientAddresses() {
+      const role = String(state.user?.supabaseRole || "");
+      return role === "branch_manager" || role === "admin";
+    }
+
     function verifyClientDatabase() {
+      if (!canAcceptClientAddresses()) return;
       const results = (state.clients || []).flatMap(client => (client.bases || []).map(base => ({
         client,
         base,
@@ -68293,7 +68296,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <section class="card client-db-card" id="client-database-section">
           <div class="client-db-head">
             <div><h2>Baza klientów</h2><div class="small">Stała kartoteka firm wykorzystywana w zleceniach, historii i analizach. Na mapie pojawiają się wyłącznie bazy potwierdzone przez administratora.</div></div>
-            <div class="client-directory-summary"><span class="badge">Wszyscy: ${allClients.length}</span><span class="badge">Z opiekunem: ${assignedCount}</span><span class="badge">Bez opiekuna: ${unassignedCount}</span><button type="button" class="btn" onclick="verifyClientDatabase()">Sprawdź bazy</button></div>
+            <div class="client-directory-summary"><span class="badge">Wszyscy: ${allClients.length}</span><span class="badge">Z opiekunem: ${assignedCount}</span><span class="badge">Bez opiekuna: ${unassignedCount}</span>${canAcceptClientAddresses() ? `<button type="button" class="btn" onclick="verifyClientDatabase()">Sprawdź bazy</button>` : ""}</div>
           </div>
 
           <div class="client-directory-toolbar">
@@ -68309,7 +68312,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label>${renderClientDispatcherPicker(editClient?.dispatcher || "")}</div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie klienta</label><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) && dispatcher !== String(editClient?.dispatcher || "").toUpperCase() ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} onchange="enforceClientOwnerLimit(this)" /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
-              ${isAdminUser() ? `<div class="client-bases-admin" style="grid-column:1/-1">
+              ${canAcceptClientAddresses() ? `<div class="client-bases-admin" style="grid-column:1/-1">
                 <div class="client-bases-admin-head"><div><b>Bazy i magazyny klienta</b><div class="small">Tylko potwierdzone tutaj lokalizacje będą wyświetlane jako bazy klienta na mapie.</div></div><span class="badge">${Array.isArray(editClient?.bases) ? editClient.bases.length : 0}</span></div>
                 ${editClient ? `<div class="client-base-list">${(editClient.bases || []).map(base => `<div class="client-base-row"><div><b>${esc(base.name || "Baza klienta")}</b><span>${esc(base.address || "")}</span></div><button type="button" class="btn-mini map-client-delete" onclick="removeClientBase('${attr(editClient.id)}','${attr(base.id)}')">Usuń</button></div>`).join("") || `<div class="small">Brak potwierdzonych baz.</div>`}</div>
                 <div class="client-base-form"><div><label class="field-label" style="margin-top:0;">Nazwa bazy</label><input id="client-base-name" class="input" placeholder="np. Magazyn Poznań" /></div><div><label class="field-label" style="margin-top:0;">Dokładny adres bazy</label><input id="client-base-address" class="input" list="locations-list" placeholder="ulica, numer, kod, miejscowość" /></div><button type="button" class="btn btn-dark" onclick="addClientBaseFromForm('${attr(editClient.id)}')">Dodaj bazę</button></div>` : `<div class="small">Najpierw zapisz klienta, a następnie otwórz jego edycję, aby dodać bazę.</div>`}
@@ -68501,7 +68504,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     async function addClientBaseFromForm(clientId) {
-      if (!isAdminUser()) return;
+      if (!canAcceptClientAddresses()) return;
       const client = (state.clients || []).find(item => String(item.id) === String(clientId));
       if (!client) return;
       const name = String(document.getElementById("client-base-name")?.value || "Baza klienta").trim() || "Baza klienta";
@@ -68545,7 +68548,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function removeClientBase(clientId, baseId) {
-      if (!isAdminUser()) return;
+      if (!canAcceptClientAddresses()) return;
       const client = (state.clients || []).find(item => String(item.id) === String(clientId));
       if (!client) return;
       const base = (client.bases || []).find(item => String(item.id) === String(baseId));
@@ -70252,7 +70255,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         proposedLoad: true,
         date: routeDate,
         startHour,
-        endDate: routeDate,
+        endDate: addDaysToIso(routeDate, 1),
         endHour: Math.min(24, startHour + 10),
         driverId: (DRIVERS.find(driver => driver.dispatcher === state.user.login) || DRIVERS[0])?.id || ""
       };
@@ -72519,7 +72522,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         driverId: driver.id,
         date: startParts.date,
         startHour: startParts.hour,
-        endDate: endParts.date,
+        endDate: addDaysToIso(startParts.date, 1),
         endHour: endParts.hour
       };
       state.addOpen = true;
@@ -74451,7 +74454,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <span class="client-owner-inline">${clientNameLink(client)}</span><br>
           ${client.mapBaseName ? `<b>${esc(client.mapBaseName)}</b><br>` : ""}${esc(client.address || "Brak adresu bazy")}<br>
           <span class="small">${ownerText}${orderText ? `<br>${orderText}` : ""}</span>
-          ${isAdminUser() ? `<div class="map-client-popup-actions"><button type="button" class="btn-mini" onclick="editClientBasesFromMap('${attr(client.id || "")}')">Edytuj bazy</button><button type="button" class="btn-mini map-client-delete" onclick="deleteClientFromMap('${attr(client.id || "")}')">Usuń klienta</button></div>` : ""}
+          ${canAcceptClientAddresses() ? `<div class="map-client-popup-actions"><button type="button" class="btn-mini" onclick="editClientBasesFromMap('${attr(client.id || "")}')">Edytuj bazy</button>${isAdminUser() ? `<button type="button" class="btn-mini map-client-delete" onclick="deleteClientFromMap('${attr(client.id || "")}')">Usuń klienta</button>` : ""}</div>` : ""}
         </div>
       `;
     }
@@ -76687,7 +76690,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         driverId: finalDriverId,
         date: startParts.date,
         startHour: startParts.hour,
-        endDate: endParts.date,
+        endDate: addDaysToIso(startParts.date, 1),
         endHour: endParts.hour
       };
 
@@ -76708,7 +76711,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         driverId,
         date: startParts.date,
         startHour: startParts.hour,
-        endDate: endParts.date,
+        endDate: addDaysToIso(startParts.date, 1),
         endHour: endParts.hour
       };
 
@@ -79622,7 +79625,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const startHourValue = Number(state.prefill?.startHour ?? (freeDayValue ? 8 : 8));
       const categoryCEstimate = await categoryCEstimateForNewRoute({ freeDayValue, proposedMode, futureMode, loadedValue });
-      const endDateValue = freeDayValue ? routeDate : (state.prefill?.endDate || routeDate);
+      const endDateValue = freeDayValue ? routeDate : (state.prefill?.endDate || addDaysToIso(routeDate, 1));
       const endHourValue = freeDayValue ? 24 : Number(state.prefill?.endHour ?? Math.min(24, startHourValue + 12));
 
       const loadPointForSave = freeDayValue ? null : fastStoredCoordsForNewRoutePoint("load");
@@ -79739,6 +79742,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (categoryCEstimate.fallback && categoryCEstimate.warning) {
           showAppMessage("Trasa zapisana z awaryjnym szacunkiem czasu", categoryCEstimate.warning, "info");
         }
+      }
+      if (!freeDayValue && isoDayDifference(route.date, route.endDate) < 1) {
+        route.endDate = addDaysToIso(route.date, 1);
       }
 
       if (proposedMode) {
@@ -88618,7 +88624,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const me = String(state.user?.supabaseId || '');
         return chatRouteMessages3L52(route).filter(item =>
           String(item.authorId || '') !== me
-          && (!readAt || String(item.createdAt || '') > readAt)
+          && (!readAt || Date.parse(item.createdAt || '') > Date.parse(readAt))
         ).length;
       };
       const chatSvg3L52 = () => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14z"></path><path d="M8 10h8M8 13h5"></path></svg>`;
@@ -88794,6 +88800,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function applyQueueChatData3L52(message) {
+        if (String(message?.currentUserId || '') !== String(state.user?.supabaseId || '')) return;
         const previousIds = new Set((state.loadQueueChat3L52.messages || []).map(item => String(item.id || '')));
         const wasInitialized = Boolean(state.loadQueueChat3L52.initialized);
         state.loadQueueChat3L52.schemaAvailable = message?.schemaAvailable !== false;
@@ -88867,6 +88874,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const applyAuthenticatedUserBefore3L52 = applyAuthenticatedUser;
       applyAuthenticatedUser = function(user) {
         const result = applyAuthenticatedUserBefore3L52.apply(this, arguments);
+        state.loadQueueChat3L52 = { schemaAvailable:true, initialized:false, messages:[], reads:[], open:null, sendingRequestId:'' };
+        document.querySelector('.queue-chat-backdrop-3l52')?.remove();
         setTimeout(requestQueueChat3L52, 90);
         return result;
       };
@@ -89371,8 +89380,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .week-settlement-cell-3l50 .week-settlement-status-dot-3l50 { pointer-events:auto; z-index:42 !important; }
     /* V142: pusty znacznik $ pozostaje pod kafelkiem relacji, aby nie zasłaniał treści.
        Gdy tydzień ma wartość/transfer, znacznik zachowuje dotychczasowy priorytet. */
-    .week-settlement-cell-3l50.empty-finance-value-3l142 { z-index:20 !important; }
-    .week-settlement-cell-3l50.empty-finance-value-3l142 .week-settlement-dollar-3l48.empty { z-index:21 !important; }
+    .week-settlement-cell-3l50.empty-finance-value-3l142 { z-index:4 !important; }
+    .week-settlement-cell-3l50.empty-finance-value-3l142 .week-settlement-dollar-3l48.empty { z-index:5 !important; }
     .week-settlement-cell-3l50.has-finance-value-3l142 { z-index:40 !important; }
     .board .sticky-a { z-index:74 !important; }
     .board .sticky-b { z-index:73 !important; }
@@ -90095,7 +90104,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function queueAlertClassV135(queueType) {
         const alert = String(ensureQueueAttentionStoreV135().alerts?.[queueType] || '');
-        if (alert === ALERT_GREEN_V135) return 'queue-alert-green-v135';
+        if (alert === ALERT_GREEN_V135) return 'queue-alert-blue-v135';
         if (alert === ALERT_BLUE_V135) return 'queue-alert-blue-v135';
         return '';
       }
@@ -90156,11 +90165,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             }
             return;
           }
-          if (store.alerts[queueType] !== ALERT_GREEN_V135) {
+          if (store.alerts[queueType] !== ALERT_BLUE_V135) {
             for (const key of remaining) {
               const route = routeForQueueKeyV135(queueType, key);
-              if (route && queueRouteMatchesCurrentDispatcherV135(route)) {
-                store.alerts[queueType] = ALERT_GREEN_V135;
+              if (route) {
+                store.alerts[queueType] = ALERT_BLUE_V135;
                 changed = true;
                 break;
               }
@@ -90184,7 +90193,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return (state.loadQueueChat3L52.messages || []).filter(item => {
           if (`${String(item?.branchId || '').trim()}::${String(item?.loadRef || '').trim()}` !== key) return false;
           if (String(item?.authorId || '').trim() === me) return false;
-          return !readAt || String(item?.createdAt || '') > readAt;
+          return !readAt || Date.parse(item?.createdAt || '') > Date.parse(readAt);
         }).length;
       }
 
@@ -90193,7 +90202,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const login = String(state.user?.login || '').trim().toUpperCase();
         const routes = queueType === 'proposed' ? (state.proposedLoads || []) : (state.futureRoutes || []);
         return routes.reduce((sum, route) => {
-          if (String(route?.createdBy || '').trim().toUpperCase() !== login) return sum;
+          const ownerId = String(route?.createdById || route?.created_by || '').trim();
+          const owns = ownerId ? ownerId === String(state.user?.supabaseId || '') : String(route?.createdBy || route?.ownerDispatcher || '').trim().toUpperCase() === login;
+          if (!owns) return sum;
           return sum + queueUnreadCountForRouteV135(route);
         }, 0);
       }
@@ -90215,7 +90226,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const indicator = queueMessageIndicatorV135(queueType);
         if (indicator) {
           const label = queueType === 'proposed' ? 'Wolne ładunki' : 'Planowane relacje';
-          output = output.replace(`</svg></span><span class="side-tool-label">${label}</span>`, `</svg></span>${indicator}<span class="side-tool-label">${label}</span>`);
+          output = output.replace(`<span class="side-tool-label">${label}</span>`, `${indicator}<span class="side-tool-label">${label}</span>`);
         }
         return output;
       }
@@ -90280,7 +90291,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
           const creator = String(item?.row?.payload?.createdBy || item?.row?.payload?.ownerDispatcher || "").trim().toUpperCase();
           const isOwnAddition = ["spedytor","kierownik"].includes(state.user?.role) && creator && creator === String(state.user?.login || "").trim().toUpperCase();
-          if (!isOwnAddition && store.alerts[item.queueType] !== ALERT_GREEN_V135) store.alerts[item.queueType] = ALERT_BLUE_V135;
+          store.alerts[item.queueType] = ALERT_BLUE_V135;
         });
         persistQueueAttentionStoreV135();
         refreshQueueMatchCandidatesV135();
@@ -90330,6 +90341,32 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return result;
       };
 
+      function syncQueueAttentionDomV147() {
+        if (!state.user) return;
+        refreshQueueMatchCandidatesV135();
+        QUEUE_TYPES_V135.forEach(queueType => {
+          const selector = queueType === 'proposed' ? '.side-tool-proposed' : '.side-tool-future';
+          document.querySelectorAll(selector).forEach(tab => {
+            tab.classList.toggle('queue-alert-blue-v135', Boolean(queueAlertClassV135(queueType)));
+            tab.classList.remove('queue-alert-green-v135');
+            const indicator = queueMessageIndicatorV135(queueType);
+            const old = tab.querySelector('.queue-message-indicator-v135');
+            if (indicator && !old) tab.insertAdjacentHTML('beforeend', indicator);
+            else if (!indicator && old) old.remove();
+          });
+        });
+      }
+      window.syncQueueAttentionDomV147 = syncQueueAttentionDomV147;
+      window.registerQueueAdditionV147 = function(queueType, route) {
+        if (!QUEUE_TYPES_V135.includes(queueType) || !state.user) return;
+        const key = queueRouteKeyV135(queueType, route);
+        const store = ensureQueueAttentionStoreV135();
+        if (key && !(store.candidates[queueType] || []).includes(key)) store.candidates[queueType].push(key);
+        store.alerts[queueType] = ALERT_BLUE_V135;
+        persistQueueAttentionStoreV135();
+        syncQueueAttentionDomV147();
+      };
+      setInterval(syncQueueAttentionDomV147, 1000);
       ensureQueueAttentionStoreV135();
       requestAnimationFrame(() => {
         if (!state.user) return;
@@ -90388,6 +90425,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!route || !state.user || !["spedytor","kierownik"].includes(state.user?.role)) return false;
         const key = candidateKeyV142(queueType, route, branchId);
         if (!key) return false;
+        window.registerQueueAdditionV147?.(queueType, route);
         const current = ensureStore();
         if (!current.pending[key]) {
           current.pending[key] = { queueType, loadId:String(route.id), routeIds:[], seenRouteIds:[], createdAt:new Date().toISOString() };
@@ -90419,6 +90457,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const current = ensureStore();
         if (!state.user || !["spedytor","kierownik"].includes(state.user.role)) return false;
         let changed = false;
+        // Include existing entries on the first snapshot and after local saves.
+        // Keep acknowledgements per user and load even when a snapshot arrives late.
+        QUEUE_TYPES.forEach(queueType => {
+          const routes = queueType === 'proposed' ? state.proposedLoads : state.futureRoutes;
+          (routes || []).forEach(route => {
+            if (route.status === 'taken' || route.archived) return;
+            const key = candidateKeyV142(queueType, route);
+            if (key && !current.pending[key]) {
+              current.pending[key] = { queueType, loadId:String(route.id), routeIds:[], seenRouteIds:[] };
+              changed = true;
+            }
+          });
+        });
         Object.entries({ ...current.pending }).forEach(([key, value]) => {
           const queueType = String(value?.queueType || "");
           const loadId = String(value?.loadId || "");
@@ -90480,9 +90531,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           versions[key] = String(row?.updatedAt || "");
           if (current.initialized && !Object.prototype.hasOwnProperty.call(current.known || {}, key)) fresh.push({ key, queueType, loadId });
         });
-        if (!current.initialized) { current.initialized = true; current.known = versions; persist(); return; }
+        if (!current.initialized) { current.initialized = true; current.known = versions; persist(); requestAnimationFrame(refreshMatches); return; }
         current.known = versions;
-        Object.keys(current.pending || {}).forEach(key => { if (!Object.prototype.hasOwnProperty.call(versions, key)) delete current.pending[key]; });
+        // refreshMatches removes entries only after they disappear from merged local state.
         fresh.forEach(item => {
           const route = queueRoute(item.queueType, item.loadId);
           if (route) registerCandidateV142(item.queueType, route, item.key.split('::')[0]);
@@ -90506,6 +90557,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     })();
   </script>
 
-  <script src="/order-entry.js?build=v145-remove-branch-message"></script>
+  <style id="queue-alerts-v147">
+    @keyframes queue-mail-green-v147 {
+      0%,100% { filter:drop-shadow(0 0 2px #22c55e); }
+      50% { filter:drop-shadow(0 0 8px #16a34a); }
+    }
+    .app .queue-message-indicator-v135 {
+      border-color:#22c55e; background:#dcfce7; color:#15803d;
+      animation:queue-mail-green-v147 1.5s ease-in-out infinite;
+      width:20px; height:20px; left:1px; top:1px;
+    }
+    .app .queue-message-indicator-v135 svg { width:14px; height:14px; }
+    .app.dark-mode .queue-message-indicator-v135 { background:#14532d; color:#bbf7d0; border-color:#4ade80; }
+    .app .timeline-row .time-route.queue-match-pulse-v136 {
+      border-color:#22c55e !important;
+      box-shadow:inset 0 0 0 2px #22c55e,0 0 12px #16a34a !important;
+      animation:queue-mail-green-v147 1.5s ease-in-out infinite !important;
+    }
+    @media(prefers-reduced-motion:reduce) {
+      .app .queue-message-indicator-v135,
+      .app .timeline-row .time-route.queue-match-pulse-v136 { animation:none !important; filter:drop-shadow(0 0 5px #16a34a); }
+    }
+  </style>
+  <script src="/order-entry.js?build=v147-queue-alerts"></script>
 </body>
 </html>
