@@ -1,7 +1,9 @@
+import { createViewLifecycle } from './view-lifecycle.js'
 import './styles.css'
 import { supabase } from './lib/supabase.js'
 
 const app = document.querySelector('#app')
+const hostViews = createViewLifecycle()
 let activeTmsFrame = null
 let activeAuthMessage = null
 let openAdminDataTransferAfterAuth = false
@@ -193,6 +195,8 @@ function needsOnboarding(user) {
 }
 
 function renderFatalError(error) {
+  hostViews.begin('error')
+  suspendTmsRuntimeForAdminPanel()
   const message = error instanceof Error ? error.message : String(error || 'Nieznany błąd')
   if (!app) return
 
@@ -212,6 +216,8 @@ function renderFatalError(error) {
 }
 
 function renderLogin(message = '') {
+  const viewLease=hostViews.begin('login')
+  adminCache = null
   currentUser = null
   currentProfile = null
   adminPreview = null
@@ -332,14 +338,17 @@ function renderLogin(message = '') {
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (!hostViews.isCurrent(viewLease))return
       if (error) renderLogin('Nieprawidłowy e-mail lub hasło.')
     } catch (error) {
-      renderFatalError(error)
+      if(hostViews.isCurrent(viewLease))renderFatalError(error)
     }
   })
 }
 
 function renderSetPassword(user, message = '') {
+  const viewLease=hostViews.begin('password')
+  suspendTmsRuntimeForAdminPanel()
   currentUser = user
 
   app.innerHTML = `
@@ -376,7 +385,8 @@ function renderSetPassword(user, message = '') {
     const { data, error } = await supabase.auth.updateUser({
       password,
       data: metadata,
-    })
+    }).catch(error=>({error}))
+    if(!hostViews.isCurrent(viewLease))return
 
     if (error) {
       renderSetPassword(user, error.message)
@@ -407,9 +417,17 @@ async function adminApi(path, options = {}) {
     },
   })
 
-  const data = await response.json().catch(() => ({}))
+  const raw=await response.text()
+  let data=null
+  try { data=JSON.parse(raw) } catch {}
+  if(!data || typeof data!=='object' || Array.isArray(data)) {
+    const platformCode=String(response.headers.get('x-vercel-error')||'').slice(0,100)
+    const requestId=String(response.headers.get('x-vercel-id')||'').slice(0,150)
+    const suffix=[platformCode,requestId?'ID: '+requestId:''].filter(Boolean).join(' · ')
+    throw new Error('Endpoint '+path+' nie zwrócił danych JSON (HTTP '+response.status+'). Sprawdź kompletność wdrożenia funkcji Administracji.'+(suffix?' '+suffix:''))
+  }
   if (!response.ok || data.ok === false) {
-    throw new Error(data.message || `Błąd API (${response.status})`)
+    throw new Error((data.message || `Błąd endpointu ${path} (HTTP ${response.status})`) + (data.phase ? ` [${data.phase}]` : ''))
   }
   return data
 }
@@ -747,7 +765,7 @@ function exportAdminAuditCsv(rows = []) {
 }
 
 function renderAdminPanelFromCache(message = '', messageType = 'success') {
-  if (!adminCache) return
+  if (!adminCache || hostViews.current?.kind !== 'admin') return
 
   const branches = adminCache.branches || []
   const users = adminCache.users || []
@@ -1147,6 +1165,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 }
 
 async function renderAdminPanel(message = '', messageType = 'success', forceReload = false) {
+  if(!currentUser){renderLogin();return;}
   if (!currentUser || currentProfile?.role !== 'admin') {
     await renderDashboard(currentUser)
     return
@@ -1155,11 +1174,15 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   // Panel administracyjny usuwa iframe TMS z DOM. Wstrzymujemy więc kanały i timery
   // operacyjne zamiast odświeżać dane do nieistniejącego widoku. renderDashboard()
   // przy powrocie utworzy je ponownie i pobierze świeży snapshot.
+  const viewLease=hostViews.begin('admin')
   suspendTmsRuntimeForAdminPanel()
 
   if (adminCache && !forceReload) {
     if (!Array.isArray(adminCache.audit)) {
-      try { adminCache.audit = await loadCentralAudit() } catch (error) { adminCache.audit = [] }
+      let audit=[]
+      try { audit = await loadCentralAudit() } catch {}
+      if(!hostViews.isCurrent(viewLease))return
+      adminCache.audit=audit
     }
     renderAdminPanelFromCache(message, messageType)
     return
@@ -1182,9 +1205,11 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
 
   try {
     const [adminData, audit] = await Promise.all([loadAdminData(), loadCentralAudit().catch(() => [])])
+    if(!hostViews.isCurrent(viewLease))return
     adminCache = { ...adminData, audit }
     renderAdminPanelFromCache(message, messageType)
   } catch (error) {
+    if(!hostViews.isCurrent(viewLease))return
     app.innerHTML = `
       <main class="admin-shell">
         <header class="admin-header">
@@ -2236,9 +2261,10 @@ async function loadCentralLoadQueue() {
 let loadQueueReadGeneration = 0
 async function syncCentralLoadQueueToTms() {
   const generation = ++loadQueueReadGeneration
+  const frame = activeTmsFrame
   const profile = currentProfile
   const { rows, expiredProposedStats } = await loadCentralLoadQueue()
-  if (generation !== loadQueueReadGeneration || profile !== currentProfile) return
+  if (generation !== loadQueueReadGeneration || profile !== currentProfile || frame !== activeTmsFrame) return
   activeLoadQueueMessage = {
     type: 'top-dragon-load-queue-data',
     rows,
@@ -2332,9 +2358,10 @@ let loadQueueChatReadGeneration = 0
 async function syncCentralLoadQueueChatToTms() {
   const generation = ++loadQueueChatReadGeneration
   const actorId = currentActorId()
+  const frame = activeTmsFrame
   const profile = currentProfile
   const data = await loadCentralLoadQueueChat()
-  if (generation !== loadQueueChatReadGeneration || actorId !== currentActorId() || profile !== currentProfile) return
+  if (generation !== loadQueueChatReadGeneration || actorId !== currentActorId() || profile !== currentProfile || frame !== activeTmsFrame) return
   activeLoadQueueChatMessage = {
     type: 'top-dragon-load-queue-chat-data',
     schemaAvailable: Boolean(data.schemaAvailable),
@@ -2631,7 +2658,9 @@ async function loadCentralLoadRequests() {
 }
 
 async function syncCentralLoadRequestsToTms() {
+  const readLease=hostViews.read('syncCentralLoadRequestsToTms'), actor=currentActorId(), profile=currentProfile;
   const rows = await loadCentralLoadRequests()
+  if(!hostViews.isReadCurrent(readLease) || actor!==currentActorId() || profile!==currentProfile)return;
   activeLoadRequestsMessage = {
     type: 'top-dragon-load-requests-data',
     rows,
@@ -2741,7 +2770,9 @@ async function loadCentralAudit() {
 }
 
 async function syncCentralAuditToTms() {
+  const readLease=hostViews.read('syncCentralAuditToTms'), actor=currentActorId(), profile=currentProfile;
   const rows = await loadCentralAudit()
+  if(!hostViews.isReadCurrent(readLease) || actor!==currentActorId() || profile!==currentProfile)return;
   activeAuditMessage = {
     type: 'top-dragon-audit-data',
     rows,
@@ -3843,7 +3874,9 @@ async function loadWorkflowData() {
   }
 }
 async function syncWorkflowToTms() {
+  const readLease=hostViews.read('syncWorkflowToTms'), actor=currentActorId(), profile=currentProfile;
   const data = await loadWorkflowData()
+  if(!hostViews.isReadCurrent(readLease) || actor!==currentActorId() || profile!==currentProfile)return;
   activeWorkflowMessage = { type: 'top-dragon-workflow-data', ...data }
   activeTmsFrame?.contentWindow?.postMessage(activeWorkflowMessage, window.location.origin)
 }
@@ -4302,11 +4335,16 @@ function showDashboardInlineMessage(message, type = 'info') {
 }
 
 async function renderDashboard(user) {
+  if(!user?.id){renderLogin();return;}
+  const viewLease=hostViews.begin('dashboard')
+  suspendTmsRuntimeForAdminPanel()
+  activeAuthMessage=activeUserDirectoryMessage=activeFleetMessage=activeRelationsMessage=activeClientsMessage=activeLoadQueueMessage=activeLoadQueueChatMessage=activeLoadRequestsMessage=activeAuditMessage=activeWeeklySettlementMessage=activeWorkflowMessage=null
   const { data: profile, error } = await supabase
     .from('profiles')
     .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
     .eq('id', user.id)
-    .maybeSingle()
+    .maybeSingle().catch(error=>({error}))
+  if(!hostViews.isCurrent(viewLease))return
 
   if (error) {
     throw new Error(`Nie udało się pobrać profilu użytkownika: ${error.message}`)
@@ -4334,7 +4372,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v155-deep-audit"
+          src="/tms.html?embedded=1&build=request-workflow-v156-integration"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4345,10 +4383,10 @@ async function renderDashboard(user) {
   activeAuthMessage = buildTmsAuthMessage(user, profile)
 
   const sendIdentityToTms = () => {
-    activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+    if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)frame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
   }
 
-  frame?.addEventListener('load', sendIdentityToTms)
+  frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
   sendIdentityToTms()
 
   syncUserDirectoryToTms().catch((error) => {
@@ -4394,7 +4432,7 @@ async function renderDashboard(user) {
   subscribeWeeklySettlement()
 
   syncWorkflowToTms()
-    .then(() => subscribeWorkflow())
+    .then(() => {if(hostViews.isCurrent(viewLease))subscribeWorkflow()})
     .catch((error) => {
       console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
     })
@@ -4787,7 +4825,9 @@ async function bootstrap() {
     Promise.resolve(routeSession(session)).catch(renderFatalError)
   })
 
+  const initialView=hostViews.current
   const { data, error } = await supabase.auth.getSession()
+  if(hostViews.current!==initialView)return
   if (error) throw error
   await routeSession(data.session)
 }
