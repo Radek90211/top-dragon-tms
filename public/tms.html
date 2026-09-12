@@ -3084,21 +3084,19 @@
 
     .section-soft { background: #f8fafc; }
 
+    .grid-2, .grid-3, .grid-4 { display:grid; min-width:0; }
     .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2,minmax(0,1fr));
       gap: 10px;
     }
 
     .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(3,minmax(0,1fr));
       gap: 8px;
     }
 
     .grid-4 {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(4,minmax(0,1fr));
       gap: 8px;
     }
 
@@ -3908,6 +3906,7 @@
     }
 
     .stats-table-wrap {
+      min-width:0; max-width:100%; overscroll-behavior-x:contain;
       overflow-x: auto;
     }
 
@@ -60088,116 +60087,10 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v155-deep-audit"></script>
+  <script src="/xlsx-lite.js?v=v156-integration"></script>
+  <script src="/planning-core.js?build=v156-integration"></script>
+  <script src="/order-stops.js?build=v156-integration"></script>
   <script>
-// Ordered operational stops are retained separately from the legacy two-stop fields.
-function orderStopLabel(point) {
-  return [point.city, point.postalCode].filter(Boolean).join(' ') || point.fullAddress || point.address || '';
-}
-function stableQueueJson(value) {
-  if (Array.isArray(value)) return '['+value.map(stableQueueJson).join(',')+']';
-  if (value && typeof value === 'object') return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableQueueJson(value[k])).join(',')+'}';
-  return JSON.stringify(value);
-}
-function orderStopsSummary(route) {
-  const pending = route?._centralLocalCreatedAt ? '<div class="small" role="status" style="color:#b45309">Oczekuje na potwierdzenie zapisu</div>' : '';
-  const expired = pending + (queueLoadDateIso(route) && queueLoadDateIso(route) < queueTodayIsoWarsaw() ? '<div class="small" style="color:#b45309;font-weight:700">Termin minął — sprawdź</div>' : '');
-  if (!route?.orderStops?.length) return expired;
-  return expired+`<div class="small" style="white-space:normal">${route.orderStops.map((p,i)=>`${i+1}. ${p.type==='pickup'?'Zał.':'Rozł.'} ${esc(orderStopLabel(p))}`).join(' → ')}</div>`;
-}
-function orderStopFields(value = {}) {
-  const source = value.orderStops || value.stops;
-  const orderStops = (Array.isArray(source) ? source : []).filter(p => p && ['pickup','delivery'].includes(p.type)).map(p => ({
-    type:p.type, ...Object.fromEntries(['city','postalCode','address','fullAddress','date','time'].map(k => [k,String(p[k] || '')]))
-  }));
-  const pickups = orderStops.filter(p => p.type === 'pickup'), deliveries = orderStops.filter(p => p.type === 'delivery');
-  const result = {orderStops};
-  for (const [field,point] of [['secondLoad',pickups[1]],['secondUnload',deliveries[1]]]) {
-    result[field] = point ? orderStopLabel(point) : (value[field] || '');
-    result[field+'Address'] = point ? point.fullAddress || point.address : (value[field+'Address'] || '');
-  }
-  return result;
-}
-function reconcileOrderStops(route) {
-  if (!route.orderStops?.length) return;
-  for (const [type,fields] of [['pickup',['load','secondLoad']],['delivery',['unload','secondUnload']]]) {
-    const points = route.orderStops.filter(p => p.type === type);
-    fields.forEach((field,i) => {
-      const point = points[i]; if (!point) return;
-      if (String(route[field] || '') !== orderStopLabel(point) && String(route[field] || '') !== normalizeLocation(orderStopLabel(point))) { point.city=String(route[field] || ''); point.postalCode=''; }
-      const address=String(route[field+'Address'] || '');
-      if (address !== (point.fullAddress || point.address)) { point.address=address; point.fullAddress=address; }
-    });
-  }
-}
-function renderOrderStops(route, routeId = '') {
-  if (!route?.orderStops?.length) return '';
-  const editable = !routeId || canEditBoardRoute(route);
-  return `<details class="section order-stops-editor" open><summary><b>Punkty zlecenia (${route.orderStops.length})</b></summary><div class="small">Kolejność wykonania według zlecenia. Sprawdź każdy adres i termin.</div>${route.orderStops.map((p,i) => `<div style="padding:8px;margin-top:8px;border:1px solid #eab308;border-radius:10px;background:#fffbea;color:#422006"><b>${i+1}. ${p.type==='pickup'?'Załadunek':'Rozładunek'}</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${[['city','Miejscowość','text'],['postalCode','Kod pocztowy','text'],['fullAddress','Dokładny adres','text'],['date','Data','date'],['time','Godzina','time']].map(([key,label,type]) => `<label>${label}<input class="input" type="${type}" value="${attr(p[key] || (key==='fullAddress'?p.address:''))}" ${editable?'':'disabled'} onchange="changeOrderStop('${attr(routeId)}',${i},'${key}',this.value)"></label>`).join('')}</div></div>`).join('')}</details>`;
-}
-function changeOrderStop(routeId,index,key,value) {
-  const route = routeId ? state.routes.find(r => r.id === routeId) : state.prefill;
-  if (!route || (routeId && !canEditBoardRoute(route)) || !route.orderStops?.[index]) return;
-  route.orderStops[index][key]=value;
-  const point=route.orderStops[index], siblings=route.orderStops.filter(p=>p.type===point.type), position=siblings.indexOf(point);
-  if (key==='fullAddress') point.address=value;
-  const firstPickup=route.orderStops.find(p=>p.type==='pickup');
-  const lastDelivery=route.orderStops.filter(p=>p.type==='delivery').at(-1);
-  if ((key==='date' || key==='time') && (point===firstPickup || point===lastDelivery)) {
-    const pickup=point===firstPickup;
-    const field=key==='date'?(pickup?'date':'endDate'):(pickup?'startHour':'endHour');
-    if (key==='date') { route[field]=value;if(pickup)route.loadDate=value; }
-    else if (/^\d{2}:\d{2}$/.test(value)) route[field]=Number(value.slice(0,2))+Number(value.slice(3))/60;
-    if (!routeId) {
-      const id=key==='date'?(pickup?'new-date':'order-entry-end-date'):(pickup?'order-entry-start':'order-entry-end');
-      const el=document.getElementById(id);if(el)el.value=value;
-    }
-  }
-  if (position < 2) {
-    const field=(position===1?'second':'')+(point.type==='pickup'?(position===1?'Load':'load'):(position===1?'Unload':'unload'));
-    route[field]=orderStopLabel(point); route[field+'Address']=point.fullAddress || point.address;
-    if (!routeId) {
-      const id='new-'+field.replace(/[A-Z]/g,c=>'-'+c.toLowerCase());
-      const el=document.getElementById(id), address=document.getElementById(id+'-address');
-      if(el) el.value=route[field]; if(address) address.value=route[field+'Address'];
-    }
-  }
-  if (routeId) { updateRouteField(routeId,'orderStops',route.orderStops,false); syncDetailsPanel(); }
-}
-function renderQueueBranchChoice(route) {
-  if (!route.futureQueue && !route.proposedLoad) return '';
-  if (state.user?.supabaseRole !== 'admin') return '';
-  const branches=new Map();
-  [...USERS,...DRIVERS].forEach(u=>{if(u.branchId) branches.set(u.branchId,u.branch || u.branchName || u.branchId);});
-  const current=route.queueBranchId || route._centralBranchId || state.user?.branchId || '';
-  return `<input id="new-queue-branch" type="hidden" value="${attr(current)}" />`;
-}
-function queueOutboxKey() { return 'tms-queue-outbox-v131:'+String(state.user?.supabaseId || state.user?.login || '')+':'+String(state.user?.branchId || ''); }
-const restoredQueueOutboxScopes = new Set();
-function persistQueueOutbox() {
-  if (!state.user) return;
-  // Read pending entries before the first render/ticker can replace their backup.
-  restoreQueueOutbox();
-  const items=[...(state.futureRoutes || []),...(state.proposedLoads || [])].filter(r=>r._centralLocalCreatedAt)
-    .map(r=>({...r,queueBranchId:centralLoadQueueBranchId(r)}));
-  try { if(items.length) localStorage.setItem(queueOutboxKey(),JSON.stringify(items)); else localStorage.removeItem(queueOutboxKey()); }
-  catch(error) { console.warn('Nie udało się zapisać kopii oczekujących ładunków',error); }
-}
-function restoreQueueOutbox() {
-  if (!state.user) return;
-  const scope=queueOutboxKey();
-  if (restoredQueueOutboxScopes.has(scope)) return;
-  restoredQueueOutboxScopes.add(scope);
-  try {
-    const items=JSON.parse(localStorage.getItem(scope) || '[]');
-    if(!Array.isArray(items)) return;
-    for(const item of items) {
-      if(!item?.id || !item._centralLocalCreatedAt) continue;
-      const list=item.proposedLoad?(state.proposedLoads ||= []):item.futureQueue?(state.futureRoutes ||= []):null;
-      if(list && !list.some(r=>r.id===item.id)) list.push(item);
-    }
-  } catch(error) { console.warn('Nie udało się odczytać oczekujących ładunków',error); }
-}
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
 
@@ -62987,17 +62880,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function firstAvailableRouteStart(driverId, requestedStartGlobal, durationHours, excludeRouteId = "") {
-      const duration=Math.max(0.25,Number(durationHours)||0.25), max=timelineMaxHour();
-      const ceil=value=>Math.ceil((value-1e-9)*4)/4;
-      let candidate=ceil(Math.max(0,Number(requestedStartGlobal)||0));
-      const source=typeof state!=='undefined' && Array.isArray(state.routes) ? state.routes.filter(route=>!route.futureQueue && !route.proposedLoad) : activeRoutes();
-      const occupied=source.filter(route=>route.driverId===driverId && route.id!==excludeRouteId && route.approvalStatus!=="rejected").sort((a,b)=>routeGlobalStart(a)-routeGlobalStart(b));
-      for(const route of occupied){
-        if(routeGlobalEnd(route)<=candidate+ROUTE_OVERLAP_EPSILON_HOURS)continue;
-        if(routeGlobalStart(route)>=candidate+duration-ROUTE_OVERLAP_EPSILON_HOURS)break;
-        candidate=ceil(Math.max(candidate,routeGlobalEnd(route)));
-      }
-      return candidate+duration<=max+1e-9 ? candidate : null;
+      const routes=(state.routes||[]).filter(route=>!route.futureQueue && !route.proposedLoad && route.driverId===driverId && route.id!==excludeRouteId && route.approvalStatus!=="rejected");
+      return TopDragonPlanning.findAvailableStart({intervals:routes.map(route=>({start:routeGlobalStart(route),end:routeGlobalEnd(route)})),requestedStart:requestedStartGlobal,duration:durationHours,maxHour:timelineMaxHour(),epsilon:ROUTE_OVERLAP_EPSILON_HOURS});
     }
 
     function fitFreeRouteIntoAvailableGap(route) {
@@ -84727,7 +84611,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .stats-company-table-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border); background:var(--soft); }
     .stats-company-table-head h3 { margin:0; font-size:15px; }
     .stats-company-table-head p { margin:3px 0 0; color:var(--muted); font-size:10px; font-weight:750; }
-    .stats-company-table-wrap { overflow:auto; max-height:52vh; }
+    .stats-company-table-wrap { overflow:auto; max-height:52vh; min-width:0; max-width:100%; overscroll-behavior-x:contain; }
     .stats-company-table { width:100%; min-width:1480px; border-collapse:separate; border-spacing:0; font-size:10px; }
     .stats-company-table th,
     .stats-company-table td { padding:8px 9px; border-bottom:1px solid var(--border); border-right:1px solid color-mix(in srgb, var(--border) 62%, transparent); text-align:right; white-space:nowrap; }
@@ -90830,6 +90714,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .proposed-load-card.queue-card-planned-layout-v152 .proposed-load-title { line-height:1.2; }
     .board-scroll { scroll-behavior:auto !important; }
   </style>
-  <script src="/order-entry.js?build=v155-deep-audit"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v156-integration" />
+  <script src="/order-entry.js?build=v156-integration"></script>
 </body>
 </html>

@@ -1,3 +1,6 @@
+// One canonical stop/outbox module. Legacy aliases remain until inline handlers migrate.
+(() => {
+  if(globalThis.TopDragonOrderStops)return;
 // Ordered operational stops are retained separately from the legacy two-stop fields.
 function orderStopLabel(point) {
   return [point.city, point.postalCode].filter(Boolean).join(' ') || point.fullAddress || point.address || '';
@@ -106,3 +109,8 @@ function restoreQueueOutbox() {
     }
   } catch(error) { console.warn('Nie udało się odczytać oczekujących ładunków',error); }
 }
+
+  const api=Object.freeze({orderStopLabel,stableQueueJson,orderStopsSummary,orderStopFields,reconcileOrderStops,renderOrderStops,changeOrderStop,renderQueueBranchChoice,queueOutboxKey,persistQueueOutbox,restoreQueueOutbox});
+  globalThis.TopDragonOrderStops=api;
+  Object.assign(globalThis,api);
+})();

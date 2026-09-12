@@ -1,40 +1,25 @@
 // Shared details styling with the existing creation/save fields. Drafts stay out of the plan until save.
 (() => {
+  const initNode=document.currentScript;
+  if(document.querySelector('script[data-top-dragon-order-entry-initialized]'))return;
+  initNode?.setAttribute('data-top-dragon-order-entry-initialized','true');
   const originalRender = renderAddModal;
-  let fileUrl = '', previewFile = null, generation = 0, busy = false;
+  let fileUrl = '', previewFile = null, previewHost = null, generation = 0, busy = false;
+  let activeDraft=null, previewFrame=null;
+  function releaseDraft() {
+    generation++; busy=false;
+    if(fileUrl)URL.revokeObjectURL(fileUrl);
+    fileUrl='';previewFile=null;previewHost=null;
+  }
+  function syncDraftLifecycle() {
+    const next=state.addOpen?state.prefill:null;
+    if(next!==activeDraft){releaseDraft();activeDraft=next;}
+  }
+  function schedulePreview() {
+    if(previewFrame!==null)return;
+    previewFrame=requestAnimationFrame(()=>{previewFrame=null;syncDraftLifecycle();refreshPreview();});
+  }
   const isPlan = () => state.addOpen && state.prefill;
-  const style = document.createElement('style');
-  style.textContent = `
-    html,body,.app,.main,.board-scroll { overflow-anchor:none; }
-    .tutorial-highlighted { position:revert!important; }
-    .time-plus.tutorial-highlighted { position:absolute!important; }
-    .side-tool-tab.tutorial-highlighted { position:fixed!important; }
-    .tutorial-dim-panel { z-index:30000!important; }
-    .tutorial-modal.tutorial-modal-portal { z-index:30002!important; }
-    .tutorial-foot button:disabled { opacity:.4; cursor:not-allowed; }
-    .modal-backdrop:has(.plan-order-entry) { z-index:20000!important; }
-    .modal.plan-order-entry { width:min(1180px,calc(100vw - 40px))!important; max-width:1180px!important; height:min(88vh,820px)!important; max-height:88vh!important; transform:none!important; display:flex!important; flex-direction:column; overflow:hidden!important; }
-    .plan-order-entry .order-entry-workspace { display:grid; grid-template-columns:minmax(320px,410px) minmax(0,1fr); flex:1; min-height:0; overflow:hidden; }
-    .plan-order-entry .order-entry-workspace.no-document-preview { grid-template-columns:minmax(0,1fr); }
-    .plan-order-entry .order-entry-workspace.no-document-preview .order-entry-preview { display:none; }
-    .plan-order-entry .modal-body { overflow:auto!important; min-height:0; max-height:none!important; padding:10px; }
-    .plan-order-entry .modal-head,.plan-order-entry .modal-foot { flex-shrink:0; padding:10px 14px!important; }
-    .plan-order-entry .field-label { margin-top:8px!important; margin-bottom:3px!important; font-size:10px!important; }
-    .plan-order-entry .input,.plan-order-entry .select { min-height:34px!important; padding-top:6px!important; padding-bottom:6px!important; }
-    .plan-order-entry .grid-2,.plan-order-entry .grid-3,.plan-order-entry .grid-4 { gap:7px!important; }
-    .plan-order-entry .section { margin-top:8px!important; }
-    .plan-order-entry .order-entry-preview { min-width:0; overflow:auto; border-left:1px solid var(--border); padding:12px; background:var(--card); }
-    .plan-order-entry .order-entry-preview iframe { width:100%; height:65vh; border:0; }
-    .plan-order-entry .order-entry-upload { padding:10px; border:1px solid var(--border); border-radius:12px; margin-bottom:8px; }
-    .plan-order-entry .details-location-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .plan-order-entry .details-stop-card { margin-bottom:8px; padding:9px; border:1px solid var(--border); border-radius:11px; }
-    .plan-order-entry .details-stop-card:last-child { background:var(--soft); }
-    .plan-order-entry .details-location-grid > .optional-stop-section,.plan-order-entry .optional-stop-action-row { grid-column:1/-1; }
-    form.modal.plan-order-entry .modal-body [data-ai-filled] { background:#fff3b0!important; color:#422006!important; border-color:#eab308!important; }
-    @media(max-width:760px) { .plan-order-entry .order-entry-workspace { grid-template-columns:1fr; overflow:auto; } .plan-order-entry .modal-body { overflow:visible!important; } .plan-order-entry .order-entry-preview { border-left:0; } }
-  `;
-  document.head.appendChild(style);
-
   renderAddModal = function() {
     let html = originalRender.apply(this, arguments);
     if (state.addOpen && state.prefill) html = html.replace('<div class="modal-body">', '<div class="modal-body">' + renderQueueBranchChoice(state.prefill));
@@ -82,16 +67,19 @@
     workspace.append(preview);
     form.setAttribute('ondragover', "if(event.dataTransfer.types.includes('Files'))event.preventDefault()");
     form.setAttribute('ondrop', 'event.preventDefault();event.stopPropagation();selectPlanOrderFile(event.dataTransfer.files[0])');
-    setTimeout(refreshPreview, 0);
+    schedulePreview();
     return template.innerHTML;
   };
 
   function refreshPreview() {
+    syncDraftLifecycle();
     if (!isPlan()) return;
     const file = state.prefill.orderSourceFile;
     const host = document.getElementById('order-entry-document');
     const workspace = host?.closest('.order-entry-workspace');
-    if (!host || !file) { workspace?.classList.add('no-document-preview'); return; }
+    if (!host || !file) { if(!file && fileUrl)releaseDraft();workspace?.classList.add('no-document-preview'); return; }
+    if(previewHost===host && previewFile===file && fileUrl)return;
+    previewHost=host;
     workspace?.classList.remove('no-document-preview');
     if (previewFile !== file) {
       if (fileUrl) URL.revokeObjectURL(fileUrl);
@@ -113,14 +101,16 @@
   };
   window.analyzePlanOrder = async () => {
     if (!isPlan() || busy || !canUseOperationalAi()) return;
+    syncDraftLifecycle();
     const draft = state.prefill, file = draft.orderSourceFile;
     const status = document.getElementById('order-entry-status');
+    if(!status)return;
     if (!file) { status.textContent = 'Najpierw wybierz dokument.'; return; }
     const stopsBefore = JSON.stringify(draft.orderStops || []);
     const token = ++generation;
     const before = new Map(Array.from(document.querySelectorAll('.plan-order-entry input,.plan-order-entry textarea,.plan-order-entry select')).map(el => [el.id,el.value]));
     busy = true; status.textContent = 'Analizuję zlecenie…';
-    const button = document.querySelector('[onclick="analyzePlanOrder()"]'); button.disabled = true;
+    const button = document.querySelector('[onclick="analyzePlanOrder()"]'); if(button)button.disabled = true;
     try {
       const payload = await requestAiAnalyzer('document', {file,fileName:file.name,referenceDate:draft.date || currentAppDate()},130000);
       if (generation !== token || !isPlan() || state.prefill !== draft) return;
@@ -153,12 +143,28 @@
       }
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
       updateNewRouteFinance('rate');
-      status.textContent = 'Analiza zakończona. Sprawdź żółte pola, terminy i kilometry przed zapisaniem.';
-    } catch (error) { if (state.prefill === draft) status.textContent = `Nie udało się przeanalizować: ${error?.message || error}`; }
-    finally { if (generation === token) { busy = false; if (button.isConnected) button.disabled = false; } }
+      const liveStatus=document.getElementById('order-entry-status');if(liveStatus)liveStatus.textContent = 'Analiza zakończona. Sprawdź żółte pola, terminy i kilometry przed zapisaniem.';
+    } catch (error) { if (state.prefill === draft && document.getElementById('order-entry-status')) document.getElementById('order-entry-status').textContent = `Nie udało się przeanalizować: ${error?.message || error}`; }
+    finally { if (generation === token) { busy = false; const liveButton=document.querySelector('[onclick="analyzePlanOrder()"]');if(liveButton)liveButton.disabled=false; } }
   };
   const originalClose = closeAdd;
-  closeAdd = function() { generation++; busy = false; if (fileUrl) URL.revokeObjectURL(fileUrl); fileUrl = ''; previewFile = null; return originalClose.apply(this,arguments); };
+  closeAdd = function() { releaseDraft();activeDraft=null;return originalClose.apply(this,arguments); };
+
+  const lifecycleObserver=new MutationObserver(records=>{
+    if(records.some(record=>Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(node=>node.nodeType===1 && (node.matches?.('.plan-order-entry') || node.querySelector?.('.plan-order-entry')))))schedulePreview();
+  });
+  lifecycleObserver.observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('pagehide',()=>{
+    releaseDraft();lifecycleObserver.disconnect();
+    if(previewFrame!==null)cancelAnimationFrame(previewFrame);
+    previewFrame=null;
+  });
+  window.addEventListener('pageshow',event=>{
+    if(!event.persisted)return;
+    lifecycleObserver.observe(document.body,{childList:true,subtree:true});
+    const button=document.querySelector('[onclick="analyzePlanOrder()"]');if(button)button.disabled=false;
+    schedulePreview();
+  });
 
   const stepList = tutorialStepsForCurrentRole;
   tutorialStepsForCurrentRole = function() {
