@@ -4339,11 +4339,20 @@ async function renderDashboard(user) {
   const viewLease=hostViews.begin('dashboard')
   suspendTmsRuntimeForAdminPanel()
   activeAuthMessage=activeUserDirectoryMessage=activeFleetMessage=activeRelationsMessage=activeClientsMessage=activeLoadQueueMessage=activeLoadQueueChatMessage=activeLoadRequestsMessage=activeAuditMessage=activeWeeklySettlementMessage=activeWorkflowMessage=null
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
-    .eq('id', user.id)
-    .maybeSingle().catch(error=>({error}))
+  let profileResult
+  try {
+    // PostgrestBuilder jest obiektem thenable, ale w części wersji klienta
+    // Supabase nie udostępnia metody Promise.catch(). Obsługujemy błąd dopiero
+    // po await, dzięki czemu start działa z obiema wersjami biblioteki.
+    profileResult = await supabase
+      .from('profiles')
+      .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
+      .eq('id', user.id)
+      .maybeSingle()
+  } catch (error) {
+    profileResult = { data: null, error }
+  }
+  const { data: profile, error } = profileResult || {}
   if(!hostViews.isCurrent(viewLease))return
 
   if (error) {
@@ -4372,7 +4381,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v156-integration"
+          src="/tms.html?embedded=1&build=request-workflow-v157-supabase-thenable"
         title="Top Dragon TMS"
       ></iframe>
     </main>
