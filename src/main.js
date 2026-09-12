@@ -1232,8 +1232,11 @@ async function loadVisibleUserDirectory() {
   }))
 }
 
+let syncUserDirectoryToTmsGenerationV154=0;
 async function syncUserDirectoryToTms() {
+  const generation=++syncUserDirectoryToTmsGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
   const profiles = await loadVisibleUserDirectory()
+  if(generation!==syncUserDirectoryToTmsGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
 
   activeUserDirectoryMessage = {
     type: 'top-dragon-user-directory',
@@ -1388,8 +1391,11 @@ async function loadFleetData() {
   })
 }
 
+let syncFleetDataToTmsGenerationV154=0;
 async function syncFleetDataToTms() {
+  const generation=++syncFleetDataToTmsGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
   const rows = await loadFleetData()
+  if(generation!==syncFleetDataToTmsGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
   activeFleetMessage = {
     type: 'top-dragon-fleet-data',
     rows,
@@ -1435,16 +1441,25 @@ function subscribeFleetRealtime() {
   fleetChannel = channel.subscribe()
 }
 
+// Publish only complete snapshots; stable order avoids page-boundary duplicates.
+async function readAllPagesV154(makeQuery) {
+  const rows = [], size = 500;
+  for (let offset=0;;) {
+    const result=await makeQuery().range(offset,offset+size-1);
+    if(result.error)return {data:null,error:result.error};
+    if(!Array.isArray(result.data))return {data:null,error:{message:'Nieprawidłowa odpowiedź tabeli.'}};
+    if(!result.data.length)return {data:rows,error:null};
+    rows.push(...result.data); offset+=result.data.length;
+  }
+}
 async function loadCentralRelations() {
   if (!currentProfile) return []
 
-  let query = supabase
+  const { data, error } = await readAllPagesV154(() => supabase
     .from('tms_relations')
     .select('branch_id, relation_ref, payload, updated_at')
     .eq('active', true)
-    .order('updated_at', { ascending: true })
-
-  const { data, error } = await query
+    .order('branch_id').order('relation_ref'));
   if (error) {
     throw new Error(`Nie udało się pobrać relacji: ${error.message}`)
   }
@@ -1459,8 +1474,12 @@ async function loadCentralRelations() {
     }))
 }
 
+let relationReadGenerationV154 = 0;
 async function syncCentralRelationsToTms() {
-  const rows = await loadCentralRelations()
+  const generation = ++relationReadGenerationV154;
+  const actor = currentActorId(), profile = currentProfile, frame = activeTmsFrame;
+  const rows = await loadCentralRelations();
+  if (generation !== relationReadGenerationV154 || actor !== currentActorId() || profile !== currentProfile || frame !== activeTmsFrame) return;
   activeRelationsMessage = {
     type: 'top-dragon-relations-data',
     rows,
@@ -1710,11 +1729,11 @@ async function archiveCentralRelationFromTms(message) {
 async function loadCentralClients() {
   if (!currentProfile) return []
 
-  const { data, error } = await supabase
+  const { data, error } = await readAllPagesV154(() => supabase
     .from('tms_clients_central')
     .select('branch_id, client_ref, payload, updated_at')
     .eq('active', true)
-    .order('updated_at', { ascending: false })
+    .order('branch_id').order('client_ref'))
 
   if (error) {
     throw new Error(`Nie udało się pobrać klientów: ${error.message}`)
@@ -1724,7 +1743,7 @@ async function loadCentralClients() {
   // kilka rekordów tego samego client_ref w różnych oddziałach, do aplikacji
   // trafia tylko najnowsza wersja.
   const seen = new Set()
-  return (data || [])
+  return (data || []).sort((a,b) => String(b.updated_at||'').localeCompare(String(a.updated_at||'')))
     .filter((row) => row?.payload && row?.client_ref)
     .filter((row) => {
       const key = String(row.client_ref || '').trim()
@@ -1740,8 +1759,11 @@ async function loadCentralClients() {
     }))
 }
 
+let syncCentralClientsToTmsGenerationV154=0;
 async function syncCentralClientsToTms() {
+  const generation=++syncCentralClientsToTmsGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
   const rows = await loadCentralClients()
+  if(generation!==syncCentralClientsToTmsGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
   activeClientsMessage = {
     type: 'top-dragon-clients-data',
     rows,
@@ -2154,20 +2176,12 @@ async function loadCentralLoadQueue() {
 
   // Fetch every page. A truncated snapshot must never remove valid local entries.
   if (isBranchScopedRole() && !currentBranchId()) return { rows: [], expiredProposedStats: [] }
-  const data = []
-  const pageSize = 500
-  for (let offset = 0; ; offset += pageSize) {
-    let query = supabase.from('tms_load_queue')
-      .select('branch_id, queue_type, load_ref, payload, updated_at')
-      .eq('active', true)
-      .order('branch_id').order('queue_type').order('load_ref')
-      .range(offset, offset + pageSize - 1)
-    if (isBranchScopedRole()) query = query.eq('branch_id', currentBranchId())
-    const result = await query
-    if (result.error) throw new Error(`Nie udało się pobrać kolejki ładunków: ${result.error.message}`)
-    data.push(...(result.data || []))
-    if ((result.data || []).length < pageSize) break
-  }
+  const branch=currentBranchId(), scoped=isBranchScopedRole();
+  const {data,error}=await readAllPagesV154(()=>{
+    let query=supabase.from('tms_load_queue').select('branch_id, queue_type, load_ref, payload, updated_at').eq('active',true).order('branch_id').order('queue_type').order('load_ref');
+    return scoped?query.eq('branch_id',branch):query;
+  });
+  if(error)throw new Error('Nie udało się pobrać kolejki: '+error.message);
   const statsResult = hasRole('admin') ? await supabase.rpc('tms_expired_proposed_load_stats') : { data: [] }
 
   const activeRows = []
@@ -2270,23 +2284,22 @@ function isLoadQueueChatSchemaMissing(error) {
 async function loadCentralLoadQueueChat() {
   if (!currentProfile || !currentUser) return { messages: [], reads: [], schemaAvailable: false }
 
-  let messagesQuery = supabase
-    .from('tms_load_queue_chat_messages')
-    .select('id,branch_id,load_ref,author_id,author_name,message,created_at')
-    .order('created_at', { ascending: false })
-    .limit(2000)
-  let readsQuery = supabase
-    .from('tms_load_queue_chat_reads')
-    .select('branch_id,load_ref,last_read_at')
-    .eq('user_id', currentActorId())
-    .limit(2000)
-  if (isBranchScopedRole()) {
-    if (!currentBranchId()) return { messages: [], reads: [], schemaAvailable: true }
-    messagesQuery = messagesQuery.eq('branch_id', currentBranchId())
-    readsQuery = readsQuery.eq('branch_id', currentBranchId())
-  }
-
-  const [messagesResult, readsResult] = await Promise.all([messagesQuery, readsQuery])
+  const actor = currentActorId(), branch = currentBranchId(), scoped = isBranchScopedRole();
+  if (scoped && !branch) return {messages:[],reads:[],schemaAvailable:true};
+  const [messagesResult, readsResult] = await Promise.all([
+    readAllPagesV154(() => {
+      let q = supabase.from('tms_load_queue_chat_messages')
+        .select('id,branch_id,load_ref,author_id,author_name,message,created_at')
+        .order('created_at',{ascending:true}).order('id',{ascending:true});
+      return scoped ? q.eq('branch_id',branch) : q;
+    }),
+    readAllPagesV154(() => {
+      let q = supabase.from('tms_load_queue_chat_reads')
+        .select('branch_id,load_ref,last_read_at').eq('user_id',actor)
+        .order('branch_id').order('load_ref');
+      return scoped ? q.eq('branch_id',branch) : q;
+    })
+  ]);
 
   if (messagesResult.error || readsResult.error) {
     const error = messagesResult.error || readsResult.error
@@ -2298,7 +2311,7 @@ async function loadCentralLoadQueueChat() {
 
   return {
     schemaAvailable: true,
-    messages: (messagesResult.data || []).slice().reverse().map((row) => ({
+    messages: (messagesResult.data || []).map((row) => ({
       id: String(row.id || ''),
       branchId: String(row.branch_id || ''),
       loadRef: String(row.load_ref || ''),
@@ -2357,6 +2370,7 @@ function subscribeCentralLoadQueueChat() {
       { event: 'INSERT', schema: 'public', table: 'tms_load_queue_chat_messages' },
       () => scheduleCentralLoadQueueChatReload(60)
     )
+    .on('postgres_changes', { event:'*', schema:'public', table:'tms_load_queue_chat_reads', filter:'user_id=eq.' + currentActorId() }, () => scheduleCentralLoadQueueChatReload(60))
     .subscribe()
 }
 
@@ -3479,11 +3493,14 @@ async function loadWeeklySettlementData(weekStart) {
   }
 }
 
+let settlementGenerationV154=0;
 async function syncWeeklySettlementToTms(weekStart = weeklySettlementWeekStart) {
+  const generation=++settlementGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
   const normalizedWeek = normalizeWeekStart(weekStart)
   if (!normalizedWeek || !currentProfile) return
   weeklySettlementWeekStart = normalizedWeek
   const payload = await loadWeeklySettlementData(normalizedWeek)
+  if(generation!==settlementGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
   activeWeeklySettlementMessage = {
     type: 'top-dragon-weekly-settlement-data',
     ...payload,
@@ -3493,12 +3510,14 @@ async function syncWeeklySettlementToTms(weekStart = weeklySettlementWeekStart) 
 
 
 async function syncBoardWeeklySettlementsToTms(message = {}) {
+  const actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
   if (!currentProfile) return
   const requested = Array.isArray(message?.weekStarts) ? message.weekStarts : []
   const weekStarts = [...new Set(requested.map(normalizeWeekStart).filter(Boolean))].slice(0, 8)
   if (!weekStarts.length) return
   const weeks = []
   for (const weekStart of weekStarts) weeks.push(await loadWeeklySettlementData(weekStart))
+  if(actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame)return;
   activeTmsFrame?.contentWindow?.postMessage({
     type: 'top-dragon-board-weekly-settlement-data',
     requestId: String(message?.requestId || ''),
@@ -4315,7 +4334,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v152-dnd-distance-performance"
+          src="/tms.html?embedded=1&build=request-workflow-v155-deep-audit"
         title="Top Dragon TMS"
       ></iframe>
     </main>
