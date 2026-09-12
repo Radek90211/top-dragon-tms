@@ -1,4 +1,8 @@
-import { fetchWithDeadlineV155 } from '../../lib/top-dragon-http-v155.js'
+// Deployment boundary: this server entry point must also work in legacy partial uploads.
+// The signal remains active while readJson consumes the response body.
+function fetchAdminResponse(url, options = {}) {
+  return fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(30000) })
+}
 const PRIMARY_ADMIN_EMAIL = 'radek90211@gmail.com'
 const ROLES = new Set(['dispatcher', 'branch_manager', 'accounting', 'admin'])
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -57,16 +61,16 @@ async function authenticateAdmin(req) {
   const baseUrl = supabaseUrl()
   const key = secretKey()
   const token = String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1] || ''
-  if (!baseUrl || !key) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. Ustaw SUPABASE_URL jako adres https://…supabase.co, a SUPABASE_SECRET_KEY jako tajny klucz serwera.'), { statusCode: 500 })
+  if (!baseUrl || !key) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. Ustaw SUPABASE_URL jako adres https://…supabase.co, a SUPABASE_SECRET_KEY jako tajny klucz serwera.'), { statusCode: 503, code:'ADMIN_CONFIGURATION_MISSING' })
   if (!token) throw Object.assign(new Error('Brak tokenu sesji.'), { statusCode: 401 })
 
-  const userResponse = await fetchWithDeadlineV155(`${baseUrl}/auth/v1/user`, {
+  const userResponse = await fetchAdminResponse(`${baseUrl}/auth/v1/user`, {
     headers: { apikey: key, Authorization: `Bearer ${token}` },
   })
   const user = await readJson(userResponse)
   if (!userResponse.ok || !user?.id) throw Object.assign(new Error('Sesja wygasła lub jest nieprawidłowa.'), { statusCode: 401 })
 
-  const profileResponse = await fetchWithDeadlineV155(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
+  const profileResponse = await fetchAdminResponse(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
     headers: { apikey: key, Authorization: `Bearer ${token}` },
   })
   const profiles = await readJson(profileResponse)
@@ -78,7 +82,7 @@ async function authenticateAdmin(req) {
 }
 
 async function serviceRequest(path, options = {}) {
-  const response = await fetchWithDeadlineV155(`${supabaseUrl()}${path}`, {
+  const response = await fetchAdminResponse(`${supabaseUrl()}${path}`, {
     ...options,
     headers: serviceHeaders(options.headers || {}),
   })
@@ -154,7 +158,7 @@ async function inviteUser(body, actor) {
     })
     return { ...(Array.isArray(rows) ? rows[0] : rows), email }
   } catch (error) {
-    await fetchWithDeadlineV155(`${supabaseUrl()}/auth/v1/admin/users/${encodeURIComponent(invited.id)}`, { method: 'DELETE', headers: serviceHeaders() }).catch(() => {})
+    await fetchAdminResponse(`${supabaseUrl()}/auth/v1/admin/users/${encodeURIComponent(invited.id)}`, { method: 'DELETE', headers: serviceHeaders() }).catch(() => {})
     throw error
   }
 }
@@ -187,22 +191,29 @@ async function updateUser(body, actor) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control','no-store')
+  res.setHeader('X-Top-Dragon-Admin-Build','v156')
+  if(!['GET','POST','PATCH'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH');return json(res,405,{ok:false,message:'Niedozwolona metoda.'});}
+  let phase='authenticate'
   try {
     const actor = await authenticateAdmin(req)
-    if (req.method === 'GET') return json(res, 200, { ok: true, users: await listUsers() })
+    if (req.method === 'GET') { phase='list-users';return json(res, 200, { ok: true, users: await listUsers() }); }
     if (req.method === 'POST') {
+      phase='invite-user'
       const user = await inviteUser(req.body || {}, actor)
       return json(res, 201, { ok: true, user, message: roleMessage(user.role, 'zaproszony') })
     }
     if (req.method === 'PATCH') {
+      phase='update-user'
       const user = await updateUser(req.body || {}, actor)
       return json(res, 200, { ok: true, user, message: roleMessage(user.role, 'zapisany') })
     }
     res.setHeader('Allow', 'GET, POST, PATCH')
     return json(res, 405, { ok: false, message: 'Niedozwolona metoda.' })
   } catch (error) {
-    const status = Number(error?.statusCode || 500)
-    return json(res, status >= 400 && status < 600 ? status : 500, { ok: false, message: errorMessage(error, 'Nie udało się wykonać operacji na użytkowniku.') })
+    const timeout=['AbortError','TimeoutError'].includes(error?.name)
+    const status = timeout?504:Number(error?.statusCode || 500)
+    return json(res, status >= 400 && status < 600 ? status : 500, { ok:false, phase, code:timeout?'ADMIN_UPSTREAM_TIMEOUT':String(error?.code || 'ADMIN_API_ERROR'), message:timeout?'Supabase nie odpowiedziało w wymaganym czasie. Spróbuj ponownie.':errorMessage(error, 'Nie udało się wykonać operacji na użytkowniku.') })
   }
 }
 
