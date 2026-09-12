@@ -1699,12 +1699,13 @@
       box-shadow: 0 1px 4px rgba(15,23,42,.28);
       flex: 0 0 auto;
       background: #22c55e;
-      animation: time-route-match-dot-green-v149 1.25s ease-in-out infinite;
+      animation:none;
     }
 
     .time-route-match-dot.proposed,
     .time-route-match-dot.future { background: #22c55e; }
 
+    .queue-match-pulse-v136 .time-route-match-dot { animation:time-route-match-dot-green-v149 1.8s ease-in-out infinite; }
     @keyframes time-route-match-dot-green-v149 {
       0%, 100% { transform: scale(.94); box-shadow: 0 0 1px rgba(22,163,74,.32); }
       50% { transform: scale(1.08); box-shadow: 0 0 5px rgba(34,197,94,.7); }
@@ -60087,7 +60088,7 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=3-import-module"></script>
+  <script src="/xlsx-lite.js?v=v155-deep-audit"></script>
   <script>
 // Ordered operational stops are retained separately from the legacy two-stop fields.
 function orderStopLabel(point) {
@@ -62986,21 +62987,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function firstAvailableRouteStart(driverId, requestedStartGlobal, durationHours, excludeRouteId = "") {
-      const duration = Math.max(0.25, Number(durationHours || 0.25));
-      let candidate = Math.max(0, Math.min(timelineMaxHour() - 0.25, Number(requestedStartGlobal || 0)));
-      const occupied = activeRoutes()
-        .filter(route => route.driverId === driverId && route.id !== excludeRouteId && route.approvalStatus !== "rejected")
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
-
-      for (let guard = 0; guard < occupied.length + 4; guard += 1) {
-        const end = candidate + duration;
-        const collision = occupied.find(route => routeGlobalStart(route) < end - ROUTE_OVERLAP_EPSILON_HOURS
-          && routeGlobalEnd(route) > candidate + ROUTE_OVERLAP_EPSILON_HOURS);
-        if (!collision) break;
-        candidate = Math.max(candidate, routeGlobalEnd(collision));
-        if (candidate + duration > timelineMaxHour()) break;
+      const duration=Math.max(0.25,Number(durationHours)||0.25), max=timelineMaxHour();
+      const ceil=value=>Math.ceil((value-1e-9)*4)/4;
+      let candidate=ceil(Math.max(0,Number(requestedStartGlobal)||0));
+      const source=typeof state!=='undefined' && Array.isArray(state.routes) ? state.routes.filter(route=>!route.futureQueue && !route.proposedLoad) : activeRoutes();
+      const occupied=source.filter(route=>route.driverId===driverId && route.id!==excludeRouteId && route.approvalStatus!=="rejected").sort((a,b)=>routeGlobalStart(a)-routeGlobalStart(b));
+      for(const route of occupied){
+        if(routeGlobalEnd(route)<=candidate+ROUTE_OVERLAP_EPSILON_HOURS)continue;
+        if(routeGlobalStart(route)>=candidate+duration-ROUTE_OVERLAP_EPSILON_HOURS)break;
+        candidate=ceil(Math.max(candidate,routeGlobalEnd(route)));
       }
-      return Math.max(0, Math.min(timelineMaxHour() - 0.25, snapToQuarterHour(candidate)));
+      return candidate+duration<=max+1e-9 ? candidate : null;
     }
 
     function fitFreeRouteIntoAvailableGap(route) {
@@ -63010,6 +63007,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .filter(item => item.driverId === route.driverId && item.id !== route.id && item.approvalStatus !== "rejected")
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b));
       let start = firstAvailableRouteStart(route.driverId, requested, 0.25, route.id);
+      if(start===null)return null;
 
       for (let guard = 0; guard < occupied.length + 4; guard += 1) {
         const dayEnd = Math.min(timelineMaxHour(), (Math.floor(start / 24) + 1) * 24);
@@ -63022,6 +63020,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         if (!next) break;
         start = firstAvailableRouteStart(route.driverId, routeGlobalEnd(next), 0.25, route.id);
+        if(start===null)return null;
       }
       setRouteGlobalStart(route, start);
       setRouteGlobalEnd(route, Math.min(timelineMaxHour(), start + 0.25));
@@ -64094,6 +64093,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const daySpan = Math.max(1, isoDayDifference(previousDate, state.prefill.endDate || addDaysToIso(previousDate, 1)));
       state.prefill.date = nextDate;
       state.prefill.endDate = addDaysToIso(nextDate, daySpan);
+      const points=state.prefill.orderStops||[],first=points.find(p=>p.type==='pickup'),last=points.filter(p=>p.type==='delivery').at(-1);
+      const delta=isoDayDifference(previousDate,nextDate);
+      points.forEach(point=>{if(point===first)point.date=nextDate;else if(point===last)point.date=state.prefill.endDate;else if(/^\d{4}-\d{2}-\d{2}$/.test(point.date||''))point.date=addDaysToIso(point.date,delta);});
+      const endInput=document.getElementById('order-entry-end-date');if(endInput)endInput.value=state.prefill.endDate;
     }
 
     function shiftNewRouteDate(direction) {
@@ -69621,6 +69624,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (roadDistanceRefreshTimer) return;
       roadDistanceRefreshTimer = window.setTimeout(() => {
         roadDistanceRefreshTimer = null;
+        if (state.queueDragPayload || document.querySelector('.time-route.dragging')) {
+          scheduleRoadDistancePanelRefresh();
+          return;
+        }
         if (state.proposedPanelOpen) syncProposedPanel();
         if (state.futurePanelOpen) syncFuturePanel();
         if (document.getElementById("nearest-results-host")) updateNearestResultsBox();
@@ -69819,11 +69826,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .sort((a, b) => proposedUnloadMomentMs(b) - proposedUnloadMomentMs(a))[0] || null;
     }
 
+    let queueRouteIndexV154 = null;
+    function withQueueRouteIndexV154(callback) {
+      if (queueRouteIndexV154) return callback();
+      const index = new Map();
+      activeRoutes().forEach(route => { const rows=index.get(route.driverId)||[]; rows.push(route); index.set(route.driverId,rows); });
+      queueRouteIndexV154=index;
+      try { return callback(); } finally { queueRouteIndexV154=null; }
+    }
     function proposedDriverScheduleAssessment(driverId, route) {
       if (!driverId || !route) return { fit:false, pending:false, conflict:null, previous:null, eligibleLoadDate:"", reason:"missing" };
 
       const candidate = { ...route, id:`__queue-fit-${route.id || "new"}-${driverId}`, driverId, futureQueue:false, proposedLoad:false, approvalStatus:"accepted" };
-      const occupied = activeRoutes()
+      const occupied = (queueRouteIndexV154?.get(driverId) || activeRoutes())
         .filter(existing => existing && existing.driverId === driverId && existing.approvalStatus !== "rejected" && existing.id !== route.id && existing.sourceProposedId !== route.id && existing.sourceFutureId !== route.id && !isFreeDayRoute(existing))
         .sort((a,b) => routeGlobalStart(a) - routeGlobalStart(b));
 
@@ -69870,16 +69885,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function applyQueueAssessmentPlacement(route, assessment) {
-      if (!route || !assessment || !Number.isFinite(Number(assessment.effectiveStartMs))) return route;
-      const dayStartMs = proposedDateHourMomentMs(route.date, 0);
-      if (!Number.isFinite(dayStartMs)) return route;
-      route.startHour = Math.max(0, Math.min(24, (Number(assessment.effectiveStartMs) - dayStartMs) / 3600000));
-      route.loadDate = route.date;
-      const estimatedHours = Number(route.estimatedTruckElapsedMin || 0) > 0
-        ? Math.max(0.25, Number(route.estimatedTruckElapsedMin) / 60)
-        : Math.max(0.25, Number(routeGlobalDuration(route) || 1));
-      const startGlobal = Math.max(0, getDateIndex(route.date) * 24 + Number(route.startHour || 0));
-      setRouteGlobalEnd(route, Math.min(timelineMaxHour(), startGlobal + estimatedHours));
+      if(!route || !assessment?.fit || !Number.isFinite(assessment.effectiveStartMs))return null;
+      const dayStartMs=proposedDateHourMomentMs(route.date,0);if(!Number.isFinite(dayStartMs))return null;
+      const duration=Number(route.estimatedTruckElapsedMin)>0 ? Math.max(0.25,Number(route.estimatedTruckElapsedMin)/60) : Math.max(0.25,Number(routeGlobalDuration(route))||1);
+      const requested=getDateIndex(route.date)*24+(assessment.effectiveStartMs-dayStartMs)/3600000;
+      const available=firstAvailableRouteStart(route.driverId,requested,duration,route.id);
+      if(available===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return null;}
+      setRouteGlobalStart(route,available);setRouteGlobalEnd(route,available+duration);route.loadDate=route.date;
       return route;
     }
 
@@ -69892,6 +69904,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function proposedDistancesForRoute(route, date = state.reportDate, options = {}) {
+      return withQueueRouteIndexV154(() => proposedDistancesForRouteV154(route,date,options));
+    }
+    function proposedDistancesForRouteV154(route, date, options) {
       const targetPoint = routePointFromRoute(route, "load");
       const loadTextForGeocode = [route?.loadAddress, route?.load].filter(Boolean).join(", ");
       if (!routePointFromStoredCoords(route, "load") && searchTextNeedsPreciseGeocode(loadTextForGeocode)) {
@@ -70125,9 +70140,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.proposedPanelOpen) {
         return `<button class="proposed-tab side-tool-tab side-tool-proposed" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki" aria-label="Wolne ładunki">${sideToolIcon("proposed")}<span class="side-tool-label">Wolne ładunki</span>${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
       }
+      const matchRanks = new Map(loads.map(route => [route, Number(preferredQueueMatchRows(proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0)]));
       loads.sort((a,b) => {
-        const am = preferredQueueMatchRows(proposedDistancesForRoute(a, a.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0 ? 1 : 0;
-        const bm = preferredQueueMatchRows(proposedDistancesForRoute(b, b.date || state.reportDate || START_DATE, { maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:false })).length > 0 ? 1 : 0;
+        const am = matchRanks.get(a);
+        const bm = matchRanks.get(b);
         return bm - am || String(a.date || "").localeCompare(String(b.date || ""));
       });
       return `
@@ -70410,7 +70426,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           accountingStatus: "Nowe"
         };
 
-        applyQueueAssessmentPlacement(route, lockedSchedule);
+        if(!applyQueueAssessmentPlacement(route, lockedSchedule))return false;
         route.carrierRatePerKm = carrierRatePerKmForDriver(driverId, route.date);
         route.cost = isFreeDayRoute(route)
           ? 0
@@ -72381,9 +72397,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderFutureDrawer() {
-      const routes = visibleFutureRoutes().sort((a, b) => {
-        const am = eligibleFutureDrivers(a).length > 0 ? 1 : 0;
-        const bm = eligibleFutureDrivers(b).length > 0 ? 1 : 0;
+      const routes = visibleFutureRoutes();
+      const matchRanks = new Map(routes.map(route => [route, Number(eligibleFutureDrivers(route).length > 0)]));
+      routes.sort((a, b) => {
+        const am = matchRanks.get(a);
+        const bm = matchRanks.get(b);
         return bm - am || futureRouteGlobalStart(a) - futureRouteGlobalStart(b);
       });
       const groups = groupFutureRoutes(routes);
@@ -72574,11 +72592,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         showAppMessage("Wybierz swój pojazd", "Wolny ładunek możesz przeciągnąć tylko na pojazd przypisany do Twojego spedytora.");
         return true;
       }
-      const eligible = currentDispatcherProposedDriversForTake(proposed, proposed.date || state.reportDate || START_DATE);
-      if (!eligible.some(item => item.driver.id === driver.id)) {
-        showAppMessage("Pojazd niedostępny", "Wybrany pojazd musi spełniać wymagania ładunku oraz regułę planu. Odległość powyżej 150 km sama w sobie nie blokuje przypisania.");
-        return true;
-      }
       const compatibility = driverLoadCompatibility(driver, proposed);
       if (!compatibility.ok) {
         showAppMessage("Pojazd nie spełnia wymagań", compatibility.label);
@@ -72590,6 +72603,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const duration = Math.max(0.25, routeGlobalDuration(proposed));
         const availableStartGlobal = firstAvailableRouteStart(driverId, startGlobal, duration);
+      if(availableStartGlobal===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return false;}
         const startParts = globalHourToDateHour(availableStartGlobal);
         const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
         const route = {
@@ -72642,8 +72656,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!targetDriver) return true;
       if (!isCurrentDispatcherDriver(targetDriver) && !(await confirmFutureRouteDistribution(futureRoute, targetDriver))) return true;
 
+      const compatibility = driverLoadCompatibility(targetDriver, futureRoute);
+      if (!compatibility.ok) { showAppMessage("Niezgodny pojazd", compatibility.reason || "Pojazd nie spełnia wymagań relacji."); return true; }
       const duration = Math.max(0.25, routeGlobalDuration(futureRoute));
       const availableStartGlobal = firstAvailableRouteStart(driverId, startGlobal, duration);
+      if(availableStartGlobal===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return false;}
       const startParts = globalHourToDateHour(availableStartGlobal);
       const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
       const owner = targetDriver.dispatcher || futureRoute.ownerDispatcher || futureRoute.createdBy;
@@ -72727,7 +72744,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         approvalStatus: (["rozliczenia","kierownik","admin"].includes(state.user.role) || owner === state.user.login) ? "accepted" : "pending"
       };
 
-      applyQueueAssessmentPlacement(route, queueAssessment);
+      if(!applyQueueAssessmentPlacement(route, queueAssessment))return;
       route.carrierRatePerKm = carrierRatePerKmForDriver(driverId, route.date);
       route.cost = isFreeDayRoute(route)
         ? 0
@@ -72812,7 +72829,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ownerDispatcher: owner,
           approvalStatus: (["rozliczenia","kierownik","admin"].includes(state.user.role) || owner === state.user.login) ? "accepted" : "pending"
         };
-        applyQueueAssessmentPlacement(movedRoute, queueAssessment);
+        if(!applyQueueAssessmentPlacement(movedRoute, queueAssessment))return;
         movedRoute.carrierRatePerKm = carrierRatePerKmForDriver(driverId, movedRoute.date);
         movedRoute.cost = isFreeDayRoute(movedRoute)
           ? 0
@@ -73222,14 +73239,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           exactDistanceOnly: true,
           compatibleOnly: true,
           scheduleFitOnly: true,
-          currentDispatcherOnly: false
+          currentDispatcherOnly: true
         }));
         rows.forEach(item => add(item.previousRoute?.id, "proposed"));
       });
 
       // Planowane relacje: analogicznie niebieski znacznik na poprzednim kafelku.
       visibleFutureRoutes().forEach(load => {
-        eligibleFutureDrivers(load).forEach(item => add(item.previousRoute?.id, "future"));
+        preferredQueueMatchRows(proposedDistancesForRoute(load, load.date || state.reportDate || START_DATE, {currentDispatcherOnly:true})).forEach(item => add(item.previousRoute?.id, "future"));
       });
 
       ROUTE_QUEUE_MATCH_MARKER_CACHE = map;
@@ -77005,6 +77022,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       clearRouteDragState();
       applyRouteMoveDomPreview(route);
+      window.resetQueueRouteAlertV154?.(route.id);
       scheduleUiSync({ unload: true, details: state.detailsOpen });
       scheduleRouteMoveBoardReconcile();
     }
@@ -77047,6 +77065,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       clearRouteDragState();
       applyRouteMoveDomPreview(route);
+      window.resetQueueRouteAlertV154?.(route.id);
       scheduleUiSync({ unload: true, details: state.detailsOpen });
       scheduleRouteMoveBoardReconcile();
     }
@@ -77321,6 +77340,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       routeResize.active = false;
+      if (changed) window.resetQueueRouteAlertV154?.(routeResize.routeId);
       routeResize.routeId = null;
       routeResize.side = "right";
       routeResize.cell = null;
@@ -79863,10 +79883,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       if (isFreeDayRoute(route)) {
-        fitFreeRouteIntoAvailableGap(route);
+        if(!fitFreeRouteIntoAvailableGap(route)){showAppMessage("Brak wolnego miejsca", "Zmień termin w planie.");return;}
       } else {
         const duration = Math.max(0.25, routeGlobalDuration(route));
         const availableStart = firstAvailableRouteStart(route.driverId, routeGlobalStart(route), duration, route.id);
+        if(availableStart===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return;}
         setRouteGlobalStart(route, availableStart);
         setRouteGlobalEnd(route, Math.min(timelineMaxHour(), availableStart + duration));
       }
@@ -85250,9 +85271,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (h > maxH) el.style.zoom = String(Math.max(.58, Math.min(1, maxH / h)));
         }));
       };
-      const formFitObserver = new MutationObserver(() => requestAnimationFrame(fitTransientFormsToViewport));
+      let formFitFrameV153 = 0;
+      const scheduleFormFitV153 = () => {
+        if (formFitFrameV153) return;
+        formFitFrameV153 = requestAnimationFrame(() => {
+          formFitFrameV153 = 0;
+          fitTransientFormsToViewport();
+        });
+      };
+      const formSelectorV153 = '.modal-backdrop,.fleet-edit-backdrop,.pdf-import-backdrop,.driver-finance-backdrop';
+      const formFitObserver = new MutationObserver(mutations => {
+        if (mutations.some(mutation => mutation.target?.closest?.(formSelectorV153) ||
+          Array.from(mutation.addedNodes).some(node => node.nodeType === 1 &&
+            (node.matches?.(formSelectorV153) || node.querySelector?.(formSelectorV153))))) scheduleFormFitV153();
+      });
       formFitObserver.observe(document.body, { childList:true, subtree:true });
-      window.addEventListener('resize', () => requestAnimationFrame(fitTransientFormsToViewport));
+      window.addEventListener('resize', scheduleFormFitV153);
       const originalSyncAddModal3L31 = syncAddModal;
       syncAddModal = function() { const result = originalSyncAddModal3L31.apply(this, arguments); requestAnimationFrame(fitTransientFormsToViewport); return result; };
 
@@ -88660,22 +88694,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const chatKey3L52 = (branchId, loadRef) => `${String(branchId || '').trim()}::${String(loadRef || '').trim()}`;
       const chatRouteBranch3L52 = route => String(centralLoadQueueBranchId(route) || '').trim();
-      const chatRouteMessages3L52 = route => {
-        const key = chatKey3L52(chatRouteBranch3L52(route), route?.id);
-        return (state.loadQueueChat3L52.messages || []).filter(item => chatKey3L52(item.branchId, item.loadRef) === key);
+      let chatIndexCacheV155 = null;
+      window.queueChatEntryV155 = function(branchId, loadRef) {
+        const data=state.loadQueueChat3L52 || {}, me=String(state.user?.supabaseId||'');
+        if(!chatIndexCacheV155 || chatIndexCacheV155.messages!==data.messages || chatIndexCacheV155.reads!==data.reads || chatIndexCacheV155.me!==me) {
+          const index=new Map(), reads=new Map();
+          const entry=key=>{if(!index.has(key))index.set(key,{messages:[],unread:0,latest:0,readAt:''});return index.get(key);};
+          (data.reads||[]).forEach(row=>{const key=chatKey3L52(row.branchId,row.loadRef);reads.set(key,Date.parse(row.lastReadAt)||0);entry(key).readAt=row.lastReadAt;});
+          (data.messages||[]).forEach(row=>{
+            const key=chatKey3L52(row.branchId,row.loadRef), target=entry(key), time=Date.parse(row.createdAt)||0;
+            target.messages.push(row);
+            if(String(row.authorId||'')!==me){target.latest=Math.max(target.latest,time);if(!reads.has(key)||time>reads.get(key))target.unread++;}
+          });
+          chatIndexCacheV155={messages:data.messages,reads:data.reads,me,index};
+        }
+        return chatIndexCacheV155.index.get(chatKey3L52(branchId,loadRef)) || {messages:[],unread:0,latest:0,readAt:''};
       };
-      const chatReadAt3L52 = route => {
-        const key = chatKey3L52(chatRouteBranch3L52(route), route?.id);
-        return String((state.loadQueueChat3L52.reads || []).find(item => chatKey3L52(item.branchId, item.loadRef) === key)?.lastReadAt || '');
-      };
-      const chatUnreadCount3L52 = route => {
-        const readAt = chatReadAt3L52(route);
-        const me = String(state.user?.supabaseId || '');
-        return chatRouteMessages3L52(route).filter(item =>
-          String(item.authorId || '') !== me
-          && (!readAt || Date.parse(item.createdAt || '') > Date.parse(readAt))
-        ).length;
-      };
+      const chatRouteMessages3L52 = route => window.queueChatEntryV155(chatRouteBranch3L52(route),route?.id).messages;
+      const chatReadAt3L52 = route => window.queueChatEntryV155(chatRouteBranch3L52(route),route?.id).readAt;
+      const chatUnreadCount3L52 = route => window.queueChatEntryV155(chatRouteBranch3L52(route),route?.id).unread;
       const chatSvg3L52 = () => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14z"></path><path d="M8 10h8M8 13h5"></path></svg>`;
 
       function chatButton3L52(route, queueType) {
@@ -88743,7 +88780,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const branchId = chatRouteBranch3L52(route);
         const loadRef = String(route?.id || '');
         if (!branchId || !loadRef || !EMBEDDED_MODE) return;
-        optimisticMarkChatRead3L52(route);
+        if (document.hidden) return; // Envelope clears after confirmed server read.
         window.parent?.postMessage({
           type:'top-dragon-load-queue-chat-read',
           requestId:`queue-chat-read-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
@@ -88766,13 +88803,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (hadSetting) store[routeId] = previousSetting;
           else delete store[routeId];
         }
+        const template=document.createElement('template'); template.innerHTML=cardHtml;
+        template.content.querySelectorAll('*').forEach(element=>{
+          Array.from(element.attributes).forEach(attribute=>{if(/^on/i.test(attribute.name) || ['id','data-proposed-id','data-future-id','tabindex'].includes(attribute.name))element.removeAttribute(attribute.name);});
+          element.removeAttribute('draggable');
+          if(element.matches('button,input,select,textarea'))element.disabled=true;
+          if(element.matches('a'))element.removeAttribute('href');
+          element.removeAttribute('contenteditable');
+        });
+        cardHtml=template.innerHTML;
         return `<div class="queue-chat-route-preview-shell-v151">
           <div class="queue-chat-route-preview-label-v151">Relacja, której dotyczy czat</div>
-          <div class="queue-chat-route-preview-v151" inert aria-label="Podgląd relacji">${cardHtml.replace(/draggable="true"/g, 'draggable="false"')}</div>
+          <div class="queue-chat-route-preview-v151" role="region" aria-label="Podgląd relacji">${cardHtml.replace(/draggable="true"/g, 'draggable="false"').replace(/\s(?:id|data-proposed-id|data-future-id)="[^"]*"/g, '')}</div>
         </div>`;
       }
 
       function renderQueueChatModal3L52() {
+        const oldInput = document.getElementById('queue-chat-input-3l52');
+        const oldList = document.getElementById('queue-chat-list-3l52');
+        const openedKey = state.loadQueueChat3L52.open;
+        const chatKey = openedKey ? chatKey3L52(openedKey.branchId, openedKey.loadRef) : '';
+        const sameChat = document.querySelector('.queue-chat-backdrop-3l52')?.dataset.chatKey === chatKey;
+        const draft = sameChat ? String(oldInput?.value || '') : '';
+        const hadFocus = sameChat && document.activeElement === oldInput;
+        const selection = hadFocus ? [oldInput.selectionStart, oldInput.selectionEnd] : null;
+        const previousScroll = sameChat && oldList && oldList.scrollHeight - oldList.scrollTop - oldList.clientHeight > 40 ? oldList.scrollTop : null;
         document.querySelector('.queue-chat-backdrop-3l52')?.remove();
         const opened = state.loadQueueChat3L52.open;
         if (!opened) return;
@@ -88788,8 +88843,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           for (let index = 0; index < key.length; index++) hash = ((hash * 31) + key.charCodeAt(index)) >>> 0;
           return `queue-chat-user-color-${hash % 8}`;
         };
+        const chatUserColorStyleV154 = item => {
+          const user = typeof USERS !== 'undefined' ? USERS.find(user => String(user.supabaseId||'')===String(item.authorId||'')) : null;
+          return /^#[0-9a-f]{6}$/i.test(user?.uiColor||'') ? '--queue-chat-user-color:'+user.uiColor : '';
+        };
         const messagesHtml = rows.length
-          ? rows.map(item => `<div class="queue-chat-message-3l52 ${String(item.authorId||'')===me?'mine':''} ${chatUserColorClass3L150(item)}">
+          ? rows.map(item => `<div style="${attr(chatUserColorStyleV154(item))}" class="queue-chat-message-3l52 ${String(item.authorId||'')===me?'mine':''} ${chatUserColorClass3L150(item)}">
               <div class="queue-chat-message-meta-3l52"><span class="queue-chat-user-dot-3l150" aria-hidden="true"></span><b>${esc(item.authorName || 'Użytkownik')}</b><span>${esc(queueChatDate3L52(item.createdAt))}</span></div>
               <div class="queue-chat-message-text-3l52">${esc(item.message || '')}</div>
             </div>`).join('')
@@ -88797,7 +88856,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const schemaWarning = state.loadQueueChat3L52.schemaAvailable === false
           ? `<div class="queue-chat-schema-warning-3l52">Czat wymaga uruchomienia migracji 030_load_queue_chat.sql w Supabase.</div>`
           : '';
-        document.body.insertAdjacentHTML('beforeend', `<div class="queue-chat-backdrop-3l52" onclick="if(event.target===this)closeQueueRelationChat3L52()">
+        document.body.insertAdjacentHTML('beforeend', `<div class="queue-chat-backdrop-3l52" data-chat-key="${attr(chatKey)}" onclick="if(event.target===this)closeQueueRelationChat3L52()">
           <div class="queue-chat-modal-3l52" onclick="event.stopPropagation()">
             <div class="queue-chat-head-3l52">
               <div><h3>Czat relacji</h3><small>${esc(title)} · ${esc(formatDateForInput(route.date || state.reportDate || START_DATE))}</small></div>
@@ -88817,8 +88876,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         </div>`);
         requestAnimationFrame(() => {
           const list = document.getElementById('queue-chat-list-3l52');
-          if (list) list.scrollTop = list.scrollHeight;
-          document.getElementById('queue-chat-input-3l52')?.focus();
+          if (list) list.scrollTop = previousScroll === null ? list.scrollHeight : previousScroll;
+          const input = document.getElementById('queue-chat-input-3l52');
+          if (input) {
+            input.value = draft;
+            if (!sameChat || hadFocus) input.focus();
+            if (selection) input.setSelectionRange(...selection);
+          }
         });
       }
 
@@ -88931,6 +88995,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         if (message.type === 'top-dragon-load-queue-chat-operation-result') {
           const requestId = String(message.requestId || '');
+          if (message.action === 'read' && !message.ok) {
+            showAppMessage('Nie zapisano odczytu', String(message.message || 'Spróbuj ponownie otworzyć czat.'), 'error');
+            requestQueueChat3L52();
+          }
           if (message.action === 'send' && requestId === String(state.loadQueueChat3L52.sendingRequestId || '')) {
             state.loadQueueChat3L52.sendingRequestId = '';
             const button = document.getElementById('queue-chat-send-3l52');
@@ -88961,6 +89029,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (event.key === 'Escape' && state.loadQueueChat3L52.open) closeQueueRelationChat3L52();
       }, true);
 
+      document.addEventListener('visibilitychange', () => { if(!document.hidden) requestQueueChat3L52(); });
       setTimeout(requestQueueChat3L52, 650);
       requestAnimationFrame(() => { if (state.appView === 'plan') syncBoardOnly(); });
     })();
@@ -90258,20 +90327,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function queueUnreadCountForRouteV135(route) {
-        if (!route?.id || !state.loadQueueChat3L52) return 0;
-        const branchId = String(centralLoadQueueBranchId(route) || '').trim();
-        const loadRef = String(route.id || '').trim();
-        if (!branchId || !loadRef) return 0;
-        const key = `${branchId}::${loadRef}`;
-        const readAt = String((state.loadQueueChat3L52.reads || []).find(item =>
-          `${String(item?.branchId || '').trim()}::${String(item?.loadRef || '').trim()}` === key
-        )?.lastReadAt || '');
-        const me = String(state.user?.supabaseId || '').trim();
-        return (state.loadQueueChat3L52.messages || []).filter(item => {
-          if (`${String(item?.branchId || '').trim()}::${String(item?.loadRef || '').trim()}` !== key) return false;
-          if (String(item?.authorId || '').trim() === me) return false;
-          return !readAt || Date.parse(item?.createdAt || '') > Date.parse(readAt);
-        }).length;
+        if(!route?.id || !state.loadQueueChat3L52)return 0;
+        return window.queueChatEntryV155?.(centralLoadQueueBranchId(route),route.id)?.unread || 0;
       }
 
       function queueOwnUnreadRoutesV149(queueType) {
@@ -90283,14 +90340,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const owns = ownerId ? ownerId === String(state.user?.supabaseId || '') : String(route?.createdBy || route?.ownerDispatcher || '').trim().toUpperCase() === login;
           return owns && queueUnreadCountForRouteV135(route) > 0;
         }).sort((left, right) => {
-          const latestUnreadAt = route => {
-            const branchId = String(centralLoadQueueBranchId(route) || '').trim();
-            return Math.max(0, ...(state.loadQueueChat3L52?.messages || []).filter(item =>
-              String(item?.branchId || '').trim() === branchId &&
-              String(item?.loadRef || '').trim() === String(route?.id || '').trim() &&
-              String(item?.authorId || '').trim() !== String(state.user?.supabaseId || '').trim()
-            ).map(item => Date.parse(item?.createdAt || '') || 0));
-          };
+          const latestUnreadAt = route => window.queueChatEntryV155?.(centralLoadQueueBranchId(route),route.id)?.latest || 0;
           return latestUnreadAt(right) - latestUnreadAt(left);
         });
       }
@@ -90444,7 +90494,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       function syncQueueAttentionDomV147() {
-        if (!state.user) return;
+        if (!state.user || document.hidden) return;
+        if(typeof routeResize!=='undefined' && routeResize.active)return;
+        if(typeof routeDragState!=='undefined' && routeDragState.routeId)return;
         refreshQueueMatchCandidatesV135();
         QUEUE_TYPES_V135.forEach(queueType => {
           const selector = queueType === 'proposed' ? '.side-tool-proposed' : '.side-tool-future';
@@ -90546,16 +90598,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const login = String(state.user?.login || "").trim().toUpperCase();
         if (!login) return [];
         try {
-          const rows = preferredQueueMatchRows(proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {
-            maxDistanceOnly:true, exactDistanceOnly:true, compatibleOnly:true, scheduleFitOnly:true, currentDispatcherOnly:true
-          }));
+          if (typeof routePointFromRoute === 'function' && !routePointFromRoute(route,'load')) return null;
+          const candidates = proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {currentDispatcherOnly:true});
+          if(candidates.some(row => row.schedulePending || row.distancePending)) return null;
+          const rows = preferredQueueMatchRows(candidates);
           return Array.from(new Set(rows
             .filter(row => String(row?.driver?.dispatcher || "").trim().toUpperCase() === login)
             .map(row => String(row?.previousRoute?.id || "").trim())
             .filter(Boolean)));
-        } catch { return []; }
+        } catch { return null; }
       }
       function refreshMatches() {
+        return typeof withQueueRouteIndexV154 === 'function' ? withQueueRouteIndexV154(refreshMatchesV154) : refreshMatchesV154();
+      }
+      function refreshMatchesV154() {
         const current = ensureStore();
         if (!state.user || !["spedytor","kierownik"].includes(state.user.role)) return false;
         let changed = false;
@@ -90572,16 +90628,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             }
           });
         });
+        const queueIndex = new Map();
+        QUEUE_TYPES.forEach(type => (type === 'proposed' ? state.proposedLoads || [] : state.futureRoutes || []).forEach(route => queueIndex.set(type+':'+String(route.id),route)));
         Object.entries({ ...current.pending }).forEach(([key, value]) => {
           const queueType = String(value?.queueType || "");
           const loadId = String(value?.loadId || "");
           if (!QUEUE_TYPES.includes(queueType) || !loadId) { delete current.pending[key]; changed = true; return; }
-          const route = queueRoute(queueType, loadId);
+          const route = queueIndex.get(queueType+':'+loadId);
           if (!route) { delete current.pending[key]; changed = true; return; }
           let seen = Array.isArray(value?.seenRouteIds) ? value.seenRouteIds.map(String) : [];
           const deadlines = { ...(value.hoverDeadlines || {}) };
           const old = Array.isArray(value?.routeIds) ? value.routeIds.map(String) : [];
           const matched = matchedBoardRouteIds(queueType, route);
+          if (matched === null) return; // Unknown routing state is not a confirmed loss of a match.
           const matchedSet = new Set(matched);
           const remembered = new Set([...old, ...seen, ...Object.keys(deadlines)]);
           remembered.forEach(id => {
@@ -90637,6 +90696,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           setTimeout(() => { if (userKey() === actor) refreshMatches(); }, 60000);
         }
       }
+      window.resetQueueRouteAlertV154 = function(routeId) {
+        const id=String(routeId || ''); if(!id) return;
+        const current=ensureStore();
+        Object.values(current.pending || {}).forEach(value => {
+          value.seenRouteIds=(value.seenRouteIds || []).filter(item=>String(item)!==id);
+          if(value.hoverDeadlines) delete value.hoverDeadlines[id];
+        });
+        persist(); requestAnimationFrame(refreshMatches);
+      };
       document.addEventListener('pointerover', event => {
         const tile = event.target?.closest?.('.time-route.queue-match-pulse-v136[data-route-id]');
         if (!tile) return;
@@ -90683,8 +90751,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }, true);
       setInterval(() => {
+        if (document.hidden || !state.user || state.queueDragPayload) return;
         const current = ensureStore();
-        if (Date.now() < boardScrollBusyUntilV152) applyToBoard();
+        if (Date.now() < boardScrollBusyUntilV152) return;
         else if (Object.keys(current.pending || {}).length) refreshMatches();
         else applyToBoard();
       }, 2400);
@@ -90761,6 +90830,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .proposed-load-card.queue-card-planned-layout-v152 .proposed-load-title { line-height:1.2; }
     .board-scroll { scroll-behavior:auto !important; }
   </style>
-  <script src="/order-entry.js?build=v152-dnd-distance-performance"></script>
+  <script src="/order-entry.js?build=v155-deep-audit"></script>
 </body>
 </html>

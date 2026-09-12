@@ -52,7 +52,7 @@
     const dateInput = body.querySelector('#new-date');
     dateInput.previousElementSibling?.remove();
     dateInput.type = 'date'; dateInput.className = 'input';
-    dateInput.setAttribute('onchange','state.prefill.date=this.value');
+    dateInput.setAttribute('onchange',"updateNewRouteDateFromInput(this.value);document.getElementById('order-entry-end-date').value=state.prefill.endDate");
     const timing = document.createElement('div'); timing.className = 'grid-2';
     const time = value => { const minutes = Math.round(Number(value || 0)*60); return `${String(Math.floor(minutes/60)%24).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`; };
     timing.innerHTML = `<label>Godzina załadunku<input class="input" id="order-entry-start" type="time" value="${time(state.prefill.startHour)}" onchange="state.prefill.startHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60"></label><label>Data rozładunku<input class="input" id="order-entry-end-date" type="date" value="${attr(state.prefill.endDate || state.prefill.date)}" onchange="state.prefill.endDate=this.value"></label><label>Godzina rozładunku<input class="input" id="order-entry-end" type="time" value="${time(state.prefill.endHour)}" onchange="state.prefill.endHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60"></label>`;
@@ -116,6 +116,7 @@
     const draft = state.prefill, file = draft.orderSourceFile;
     const status = document.getElementById('order-entry-status');
     if (!file) { status.textContent = 'Najpierw wybierz dokument.'; return; }
+    const stopsBefore = JSON.stringify(draft.orderStops || []);
     const token = ++generation;
     const before = new Map(Array.from(document.querySelectorAll('.plan-order-entry input,.plan-order-entry textarea,.plan-order-entry select')).map(el => [el.id,el.value]));
     busy = true; status.textContent = 'Analizuję zlecenie…';
@@ -128,6 +129,8 @@
       state.pdfImportData = null;
       let data;
       try { data = normalizePdfOrderAnalysis(payload); } finally { state.pdfImportData = previousAnalysis; }
+      const stopInputs = ['new-load','new-load-address','new-unload','new-unload-address','new-second-load','new-second-load-address','new-second-unload','new-second-unload-address'];
+      const stopsUntouched = JSON.stringify(draft.orderStops || []) === stopsBefore && stopInputs.every(id => !document.getElementById(id) || document.getElementById(id).value === before.get(id));
       const fields = {'new-load':data.loadCity,'new-load-address':data.loadAddress,'new-unload':data.unloadCity,'new-unload-address':data.unloadAddress,'new-client':data.client,'new-rate':data.rate,'new-loaded':data.loadedKm || '', 'new-driver-notes':data.driverNotes,'new-order-currency':data.currency,'new-notes':[data.reference,data.notes,data.reminders].filter(Boolean).join('\n')};
       for (const [id,value] of Object.entries(fields)) {
         const el = document.getElementById(id);
@@ -139,10 +142,10 @@
       for (const [id,value,key] of [['new-date',data.loadDate,'date'],['order-entry-end-date',data.unloadDate,'endDate'],['order-entry-start',data.loadTime,'startHour'],['order-entry-end',data.unloadTime,'endHour']]) {
         const el = document.getElementById(id);
         if (!el || !value || el.value !== before.get(id)) continue;
-        if (id.includes('date') && /^\d{4}-\d{2}-\d{2}$/.test(value)) { el.value = value; draft[key] = value; }
+        if (id.includes('date') && /^\d{4}-\d{2}-\d{2}$/.test(value)) { if(key==='date')updateNewRouteDateFromInput(value);el.value = value; draft[key] = value; }
         else if (/^\d{2}:\d{2}$/.test(value)) { el.value = value; draft[key] = Number(value.slice(0,2))+Number(value.slice(3))/60; }
       }
-      Object.assign(draft, orderStopFields(payload));
+      if (stopsUntouched) Object.assign(draft, orderStopFields(payload));
       for (const [field, value] of Object.entries(orderStopFields(payload))) {
         const id = {'secondLoad':'new-second-load','secondLoadAddress':'new-second-load-address','secondUnload':'new-second-unload','secondUnloadAddress':'new-second-unload-address'}[field];
         const el = id && document.getElementById(id);

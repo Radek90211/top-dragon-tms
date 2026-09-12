@@ -101,7 +101,9 @@
     return result.join("/");
   }
 
+  const MAX_XML_BYTES_V154 = 64 * 1024 * 1024;
   function zipEntries(bytes) {
+    let totalBytes = 0;
     let eocd = -1;
     for (let index = bytes.length - 22; index >= Math.max(0, bytes.length - 0xffff - 22); index -= 1) {
       if (readU32(bytes, index) === 0x06054b50) { eocd = index; break; }
@@ -117,18 +119,21 @@
       if (readU32(bytes, offset) !== 0x02014b50) throw new Error("Nieprawidłowy wpis ZIP w pliku XLSX.");
       const method = readU16(bytes, offset + 10);
       const compressedSize = readU32(bytes, offset + 20);
+      const uncompressedSize = readU32(bytes, offset + 24);
+      totalBytes += uncompressedSize;
+      if(totalBytes > MAX_XML_BYTES_V154) throw new Error("Arkusz po rozpakowaniu przekracza limit 64 MB.");
       const nameLength = readU16(bytes, offset + 28);
       const extraLength = readU16(bytes, offset + 30);
       const commentLength = readU16(bytes, offset + 32);
       const localOffset = readU32(bytes, offset + 42);
       const name = textDecoder.decode(bytes.slice(offset + 46, offset + 46 + nameLength));
-      files.set(normalizeZipPath(name), { method, compressedSize, localOffset });
+      files.set(normalizeZipPath(name), { method, compressedSize, uncompressedSize, localOffset });
       offset += 46 + nameLength + extraLength + commentLength;
     }
     return files;
   }
 
-  async function inflateRaw(bytes) {
+  async function inflateRaw(bytes, expectedSize) {
     if (typeof DecompressionStream === "undefined") throw new Error("Ta przeglądarka nie potrafi rozpakować skompresowanego XLSX.");
     let stream;
     try {
@@ -136,7 +141,11 @@
     } catch (error) {
       throw new Error("Nie udało się rozpakować arkusza XLSX. Zaktualizuj przeglądarkę i spróbuj ponownie.");
     }
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+    const reader=stream.getReader(), parts=[]; let size=0;
+    try { while(true) { const {done,value}=await reader.read(); if(done)break;size+=value.length;if(size>expectedSize || size>MAX_XML_BYTES_V154) {await reader.cancel();throw new Error("Przekroczony rozmiar danych XLSX.");}parts.push(value); } }
+    finally {reader.releaseLock();}
+    if(size!==expectedSize)throw new Error("Nieprawidłowy rozmiar wpisu XLSX.");
+    return concatBytes(parts);
   }
 
   async function readZipFile(bytes, files, name) {
@@ -148,8 +157,9 @@
     const extraLength = readU16(bytes, offset + 28);
     const start = offset + 30 + nameLength + extraLength;
     const compressed = bytes.slice(start, start + entry.compressedSize);
-    if (entry.method === 0) return compressed;
-    if (entry.method === 8) return inflateRaw(compressed);
+    if (start + entry.compressedSize > bytes.length) throw new Error("Ucięty wpis XLSX.");
+    if (entry.method === 0) {if(compressed.length!==entry.uncompressedSize)throw new Error("Nieprawidłowy rozmiar XLSX.");return compressed;}
+    if (entry.method === 8) return inflateRaw(compressed, entry.uncompressedSize);
     throw new Error("Nieobsługiwany sposób kompresji arkusza XLSX.");
   }
 
@@ -166,16 +176,23 @@
   }
 
   function uniqueHeaders(values) {
-    const used = new Map();
-    return values.map((value, index) => {
-      const base = String(value || "").trim() || `Kolumna ${index + 1}`;
-      const count = (used.get(base) || 0) + 1;
-      used.set(base, count);
-      return count === 1 ? base : `${base} (${count})`;
-    });
+    const used=new Set();
+    return values.map((value,index)=>{const base=String(value||'').trim()||'Kolumna '+(index+1);let name=base,n=1;while(used.has(name))name=base+' ('+(++n)+')';used.add(name);return name;});
   }
-
+  function excelDateValueV155(value, format, date1904) {
+    const code=String(format||'').replace(/"[^"]*"/g,'').replace(/\\./g,'').replace(/\[[^\]]*\]/g,'').toLowerCase();
+    if(typeof value!=='number' || !Number.isFinite(value) || value<0 || value>2958465 || !/[ydhs]/.test(code))return value;
+    const datePart=/[yd]/.test(code), timePart=/[hs]/.test(code);
+    if(/\[h\]/i.test(String(format))) {const total=Math.round(value*86400);return Math.floor(total/3600)+':'+String(Math.floor(total/60)%60).padStart(2,'0')+':'+String(total%60).padStart(2,'0');}
+    const days=Math.floor(value), seconds=Math.round((value-days)*86400);
+    const time=String(Math.floor(seconds/3600)%24).padStart(2,'0')+':'+String(Math.floor(seconds/60)%60).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+    if(!datePart)return time;
+    const epoch=date1904?Date.UTC(1904,0,1):Date.UTC(1899,11,days<60?31:30);
+    const date=!date1904 && days===60?'1900-02-29':new Date(epoch+days*86400000).toISOString().slice(0,10);
+    return timePart?date+' '+time:date;
+  }
   async function readWorkbook(file) {
+    if(file.size>MAX_XML_BYTES_V154)throw new Error("Plik XLSX przekracza limit 64 MB.");
     const bytes = new Uint8Array(await file.arrayBuffer());
     const files = zipEntries(bytes);
     const workbookXml = await readZipFile(bytes, files, "xl/workbook.xml");
@@ -188,6 +205,11 @@
       .map((node) => [String(node.getAttribute("Id") || ""), String(node.getAttribute("Target") || "")]));
     const sharedStringsXml = await readZipFile(bytes, files, "xl/sharedStrings.xml");
     const sharedStrings = sharedStringsXml ? allElements(xmlDocument(sharedStringsXml), "si").map(textFromNode) : [];
+    const stylesBytes=await readZipFile(bytes,files,'xl/styles.xml');
+    const formats=new Map([[14,'yyyy-mm-dd'],[15,'dd-mmm-yy'],[16,'dd-mmm'],[17,'mmm-yy'],[18,'h:mm'],[19,'h:mm:ss'],[20,'h:mm'],[21,'h:mm:ss'],[22,'yyyy-mm-dd h:mm'],[45,'mm:ss'],[46,'[h]:mm:ss'],[47,'mm:ss']]);
+    let styleFormats=[];
+    if(stylesBytes){const styles=xmlDocument(stylesBytes);allElements(styles,'numFmt').forEach(node=>formats.set(Number(node.getAttribute('numFmtId')),node.getAttribute('formatCode')));const xfs=allElements(styles,'cellXfs')[0];styleFormats=children(xfs,'xf').map(node=>formats.get(Number(node.getAttribute('numFmtId'))) || '');}
+    const date1904=['1','true'].includes(allElements(workbook,'workbookPr')[0]?.getAttribute('date1904'));
     const sheets = [];
     const sheetNodes = allElements(workbook, "sheet");
     for (const sheetNode of sheetNodes) {
@@ -203,6 +225,7 @@
         const values = [];
         allElements(rowNode, "c").forEach((cellNode) => {
           const index = columnIndex(cellNode.getAttribute("r"));
+          if(index>16383)throw new Error("Nieprawidłowy numer kolumny XLSX.");
           const type = String(cellNode.getAttribute("t") || "");
           const valueNode = child(cellNode, "v");
           let value = valueNode?.textContent || "";
@@ -210,12 +233,15 @@
           else if (type === "s") value = sharedStrings[Number(value)] || "";
           else if (type === "b") value = value === "1";
           else if (value !== "" && /^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) value = Number(value);
+          value=excelDateValueV155(value,styleFormats[Number(cellNode.getAttribute("s")||0)],date1904);
           values[index] = value;
         });
         rows.push(values);
       });
+      while(rows.length && !rows[0].some(value=>value!=="" && value!=null))rows.shift();
       const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
-      const headers = uniqueHeaders(rows.shift() || Array.from({ length: width }, (_, index) => `Kolumna ${index + 1}`));
+      const headerRow=rows.shift() || [];
+      const headers = uniqueHeaders(Array.from({length:width},(_,index)=>headerRow[index] || ""));
       const normalizedRows = rows.map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
       sheets.push({ name: String(sheetNode.getAttribute("name") || `Arkusz ${sheets.length + 1}`), headers, rows: normalizedRows });
     }
