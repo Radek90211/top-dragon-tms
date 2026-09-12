@@ -1,3 +1,4 @@
+import { fetchWithDeadlineV155 } from '../lib/top-dragon-http-v155.js'
 import { gzipSync } from 'node:zlib'
 
 const MAX_RELATIONS = 100000
@@ -22,11 +23,11 @@ function firstValidSupabaseUrl() {
 
 function firstPublicSupabaseKey() {
   return ['SUPABASE_ANON_KEY','SUPABASE_PUBLISHABLE_KEY','VITE_SUPABASE_ANON_KEY','VITE_SUPABASE_PUBLISHABLE_KEY','NEXT_PUBLIC_SUPABASE_ANON_KEY']
-    .map(env).find(value => value && !/^https?:\/\//i.test(value)) || ''
+    .map(name => env(name)).find(value => value && !/^https?:\/\//i.test(value)) || ''
 }
 
 function serviceSupabaseKey() {
-  return ['SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SECRET_KEY'].map(env).find(Boolean) || ''
+  return ['SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SECRET_KEY'].map(name => env(name)).find(Boolean) || ''
 }
 
 function bearer(req) {
@@ -42,7 +43,7 @@ function cronAuthorized(req) {
 
 function csvCell(value) {
   const text = value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value)
-  return `"${String(text).replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`
+  return `"${String(typeof value === 'string' && /^[\s]*[=+@-]/.test(text) ? "'" + text : text).replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`
 }
 
 function relationCsv(rows) {
@@ -82,10 +83,10 @@ function relationCsv(rows) {
 async function authenticateAdmin(req, supabaseUrl, publicKey) {
   const token = bearer(req)
   if (!token) throw Object.assign(new Error('Brak aktywnej sesji administratora.'), { statusCode: 401 })
-  const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: publicKey, Authorization: `Bearer ${token}` } })
+  const userResponse = await fetchWithDeadlineV155(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: publicKey, Authorization: `Bearer ${token}` } })
   const user = await userResponse.json().catch(() => ({}))
   if (!userResponse.ok || !user?.id) throw Object.assign(new Error('Sesja Supabase jest nieważna lub wygasła.'), { statusCode: 401 })
-  const profileResponse = await fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
+  const profileResponse = await fetchWithDeadlineV155(`${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
     headers: { apikey: publicKey, Authorization: `Bearer ${token}` },
   })
   const profiles = await profileResponse.json().catch(() => ([]))
@@ -101,14 +102,18 @@ async function loadRelations(supabaseUrl, publicKey, token) {
   const dataKey = privileged || publicKey
   const auth = privileged || token
   const rows = []
-  for (let offset = 0; offset < MAX_RELATIONS; offset += PAGE_SIZE) {
-    const response = await fetch(`${supabaseUrl}/rest/v1/tms_relations?select=branch_id,relation_ref,payload,active,updated_at&order=updated_at.asc,relation_ref.asc&limit=${PAGE_SIZE}&offset=${offset}`, {
+  let pageLengthV155 = 0;
+  for (let offset = 0; offset <= MAX_RELATIONS; offset += pageLengthV155) {
+    const response = await fetchWithDeadlineV155(`${supabaseUrl}/rest/v1/tms_relations?select=branch_id,relation_ref,payload,active,updated_at&order=branch_id.asc,relation_ref.asc&limit=${PAGE_SIZE}&offset=${offset}`, {
       headers: { apikey: dataKey, Authorization: `Bearer ${auth}` },
     })
-    const page = await response.json().catch(() => ([]))
+    let page
+    try { page = await response.json() } catch { throw new Error("Nieprawidłowa odpowiedź Supabase. Kopia nie została wysłana.") }
     if (!response.ok || !Array.isArray(page)) throw new Error(`Nie udało się pobrać relacji z Supabase: ${page?.message || response.status}`)
+    if (!page.length) return rows
+    if (rows.length + page.length > MAX_RELATIONS) break
     rows.push(...page)
-    if (page.length < PAGE_SIZE) return rows
+    pageLengthV155 = page.length
   }
   throw Object.assign(new Error(`Kopia przekroczyła bezpieczny limit ${MAX_RELATIONS} relacji. Zwiększ limit lub podziel eksport, aby nie wysłać niepełnego backupu.`), { statusCode: 413 })
 }
@@ -124,7 +129,7 @@ async function sendWithResend({ to, from, subject, html, attachments }) {
   const key = env('RESEND_API_KEY')
   if (!key) throw Object.assign(new Error('Brak RESEND_API_KEY. Dodaj klucz Resend w zmiennych środowiskowych Vercel.'), { statusCode: 503 })
   if (!from) throw Object.assign(new Error('Brak RELATIONS_BACKUP_FROM_EMAIL. Ustaw zweryfikowany adres nadawcy w Vercel.'), { statusCode: 503 })
-  const response = await fetch('https://api.resend.com/emails', {
+  const response = await fetchWithDeadlineV155('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to, subject, html, attachments }),

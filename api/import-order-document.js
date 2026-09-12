@@ -1,3 +1,4 @@
+import { fetchWithDeadlineV155 } from '../lib/top-dragon-http-v155.js'
 /*
  * Chroniony endpoint analizy zleceń transportowych zapisanych jako PDF lub Word.
  * Plik jest przekazywany do Gemini jako dokument; klucz API pozostaje wyłącznie
@@ -110,11 +111,11 @@ async function authenticateOperationalUser(req) {
 
   const baseUrl = supabaseUrl.replace(/\/$/, '')
   const headers = { apikey: anonKey, Authorization: `Bearer ${match[1]}` }
-  const userResponse = await fetch(`${baseUrl}/auth/v1/user`, { headers })
+  const userResponse = await fetchWithDeadlineV155(`${baseUrl}/auth/v1/user`, { headers })
   const userData = await userResponse.json().catch(() => ({}))
   if (!userResponse.ok || !userData?.id) throw Object.assign(new Error('Sesja Supabase jest nieważna lub wygasła.'), { statusCode: 401 })
 
-  const profileResponse = await fetch(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userData.id)}&select=role,active&limit=1`, { headers })
+  const profileResponse = await fetchWithDeadlineV155(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userData.id)}&select=role,active&limit=1`, { headers })
   const profileData = await profileResponse.json().catch(() => ([]))
   const profile = Array.isArray(profileData) ? profileData[0] : null
   if (!profileResponse.ok || !profile || profile.active === false || !['dispatcher', 'branch_manager', 'admin'].includes(String(profile.role || ''))) {
@@ -307,6 +308,7 @@ export default async function handler(req, res) {
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 110000)
+    let geminiData
     let geminiResponse
     try {
       const requestBody = JSON.stringify({
@@ -321,7 +323,7 @@ export default async function handler(req, res) {
         store: false,
       })
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        geminiResponse = await fetchWithDeadlineV155('https://generativelanguage.googleapis.com/v1beta/interactions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey, 'Api-Revision': '2026-05-20' },
           signal: controller.signal,
@@ -331,6 +333,7 @@ export default async function handler(req, res) {
         await geminiResponse.body?.cancel?.().catch(() => {})
         await delay(700 + Math.floor(Math.random() * 350))
       }
+      geminiData = await geminiResponse.json();
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('Analiza dokumentu trwała zbyt długo. Spróbuj ponownie.')
       throw error
@@ -338,7 +341,6 @@ export default async function handler(req, res) {
       clearTimeout(timeout)
     }
 
-    const geminiData = await geminiResponse.json().catch(() => ({}))
     if (!geminiResponse.ok) {
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)}` })
     }

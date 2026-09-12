@@ -1,3 +1,4 @@
+import { fetchWithDeadlineV155 } from '../lib/top-dragon-http-v155.js'
 /*
  * Chroniony endpoint Vercel dla administracyjnego importu AI.
  * Nie używa klucza OpenAI w przeglądarce: iframe przekazuje tylko tekst źródłowy
@@ -66,7 +67,7 @@ function plainTableCell(value) {
 }
 
 function parseStructuredVehicleTable(sourceText) {
-  const lines = String(sourceText || '').replace(/\r/g, '').split('\n')
+  const lines = tableRecordsV154(sourceText)
   const aliases = {
     carrierName: new Set(['firma', 'przewoznik', 'carrier', 'carriername']),
     driverName: new Set(['kierowca', 'driver', 'drivername']),
@@ -96,7 +97,6 @@ function parseStructuredVehicleTable(sourceText) {
   const warnings = []
   for (const line of lines.slice(headerIndex + 1)) {
     if (!String(line || '').trim()) continue
-    if (tableDelimiter(line) !== delimiter && delimiter !== '\t') continue
     const cells = splitTableLine(line, delimiter)
     if (cells.every((cell) => !cell || /^:?-{3,}:?$/.test(cell))) continue
     const get = (key) => indexes[key] >= 0 ? plainTableCell(cells[indexes[key]]) : ''
@@ -129,18 +129,46 @@ function tableDelimiter(line) {
   const text = String(line || '')
   if ((text.match(/\|/g) || []).length >= 2) return '|'
   if (text.includes('\t')) return '\t'
-  if ((text.match(/;/g) || []).length >= 2) return ';'
+  if (text.includes(';')) return ';'
+  if (text.includes(',')) return ','
   return ''
 }
 
+function tableRecordsV154(source) {
+  const rows=[];let row='',quoted=false,fieldStart=true;
+  const text=String(source||'').replace(/\r\n?/g,'\n');
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(c==='"' && (quoted || fieldStart)){
+      if(quoted && text[i+1]==='"'){row+='""';i++;continue;}
+      quoted=!quoted;fieldStart=false;row+=c;continue;
+    }
+    if(!quoted && c==='\n'){rows.push(row);row='';fieldStart=true;continue;}
+    row+=c;
+    if(!quoted){if(/[;,|\t]/.test(c))fieldStart=true;else if(!/\s/.test(c))fieldStart=false;}
+  }
+  if(quoted)throw Object.assign(new Error('Niezamknięty cudzysłów w tabeli.'),{statusCode:400});
+  rows.push(row);return rows;
+}
 function splitTableLine(line, delimiter) {
-  let text = String(line || '').trim()
-  if (delimiter === '|') text = text.replace(/^\|/, '').replace(/\|$/, '')
-  return text.split(delimiter).map(plainTableCell)
+  let text=String(line||'').trim();if(delimiter==='|')text=text.replace(/^\|/,'').replace(/\|$/,'');
+  const cells=[];let cell='',quoted=false,closed=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(c==='"' && (quoted || (!closed && !cell.trim()))){
+      if(quoted && text[i+1]==='"'){cell+='"';i++;continue;}
+      if(quoted){quoted=false;closed=true;}else{quoted=true;cell='';}continue;
+    }
+    if(c===delimiter && !quoted){cells.push(plainTableCell(cell));cell='';closed=false;continue;}
+    if(closed && !/\s/.test(c))throw Object.assign(new Error('Nieprawidłowy tekst po cytowanym polu tabeli.'),{statusCode:400});
+    cell+=c;
+  }
+  if(quoted)throw Object.assign(new Error('Niezamknięty cudzysłów w tabeli.'),{statusCode:400});
+  cells.push(plainTableCell(cell));return cells;
 }
 
 function parseStructuredClientTable(sourceText) {
-  const lines = String(sourceText || '').replace(/\r/g, '').split('\n')
+  const lines = tableRecordsV154(sourceText)
   const aliases = {
     name: new Set(['klient', 'nazwa', 'nazwaklienta', 'client', 'customer', 'name']),
     city: new Set(['miejscowosc', 'miasto', 'city', 'lokalizacja', 'location']),
@@ -242,14 +270,14 @@ async function authenticateAdmin(req) {
   const anonKey = firstValidSupabaseKey()
   if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. SUPABASE_URL musi zawierać adres https://…supabase.co, a klucz publikowalny należy ustawić osobno.'), { statusCode: 500 })
 
-  const userResponse = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, {
+  const userResponse = await fetchWithDeadlineV155(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, {
     headers: { apikey: anonKey, Authorization: `Bearer ${match[1]}` },
   })
   const userData = await userResponse.json().catch(() => ({}))
   if (!userResponse.ok || !userData?.id) throw Object.assign(new Error('Sesja Supabase jest nieważna lub wygasła.'), { statusCode: 401 })
 
   const profileUrl = `${supabaseUrl.replace(/\/$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(userData.id)}&select=role,active&limit=1`
-  const profileResponse = await fetch(profileUrl, {
+  const profileResponse = await fetchWithDeadlineV155(profileUrl, {
     headers: { apikey: anonKey, Authorization: `Bearer ${match[1]}` },
   })
   const profileData = await profileResponse.json().catch(() => ([]))
@@ -286,6 +314,7 @@ function instructionsForKind(kind, referenceDate = '') {
 }
 
 function normalizeItems(kind, items) {
+  if(Array.isArray(items) && items.length>MAX_ITEMS) throw Object.assign(new Error('Import przekracza limit '+MAX_ITEMS+' rekordów. Podziel dane na mniejsze części.'),{statusCode:413});
   return (Array.isArray(items) ? items : []).slice(0, MAX_ITEMS).map((item) => {
     if (!item || typeof item !== 'object') return null
     const normalized = {}
@@ -344,9 +373,10 @@ export default async function handler(req, res) {
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 75000)
+    let geminiData
     let geminiResponse
     try {
-      geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
+      geminiResponse = await fetchWithDeadlineV155(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
         signal: controller.signal,
@@ -356,13 +386,13 @@ export default async function handler(req, res) {
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: kind === 'clients' ? 24000 : 12000, temperature: 0 },
         }),
       })
+      geminiData = await geminiResponse.json();
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('Analiza AI trwała zbyt długo. Spróbuj ponownie lub podziel dane na mniejsze części.')
       throw error
     } finally {
       clearTimeout(timeout)
     }
-    const geminiData = await geminiResponse.json().catch(() => ({}))
     if (!geminiResponse.ok) {
       const providerMessage = errorMessage(geminiData?.error, `Gemini zwróciło HTTP ${geminiResponse.status}.`)
       return json(res, 502, { ok: false, message: `Analiza AI nie powiodła się: ${providerMessage}` })
