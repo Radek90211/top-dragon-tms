@@ -1,3 +1,4 @@
+import { fetchWithDeadlineV155 } from '../../lib/top-dragon-http-v155.js'
 const PRIMARY_ADMIN_EMAIL = 'radek90211@gmail.com'
 const ROLES = new Set(['dispatcher', 'branch_manager', 'accounting', 'admin'])
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -42,7 +43,9 @@ function errorMessage(value, fallback) {
 }
 
 async function readJson(response) {
-  return response.json().catch(() => ({}))
+  const text = await response.text()
+  if (!text.trim() && response.status === 204) return null
+  try { return JSON.parse(text) } catch { throw Object.assign(new Error('Serwer zwrócił nieprawidłowy JSON.'), {statusCode:502}) }
 }
 
 function serviceHeaders(extra = {}) {
@@ -57,13 +60,13 @@ async function authenticateAdmin(req) {
   if (!baseUrl || !key) throw Object.assign(new Error('Nieprawidłowa konfiguracja Supabase. Ustaw SUPABASE_URL jako adres https://…supabase.co, a SUPABASE_SECRET_KEY jako tajny klucz serwera.'), { statusCode: 500 })
   if (!token) throw Object.assign(new Error('Brak tokenu sesji.'), { statusCode: 401 })
 
-  const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {
+  const userResponse = await fetchWithDeadlineV155(`${baseUrl}/auth/v1/user`, {
     headers: { apikey: key, Authorization: `Bearer ${token}` },
   })
   const user = await readJson(userResponse)
   if (!userResponse.ok || !user?.id) throw Object.assign(new Error('Sesja wygasła lub jest nieprawidłowa.'), { statusCode: 401 })
 
-  const profileResponse = await fetch(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
+  const profileResponse = await fetchWithDeadlineV155(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role,active&limit=1`, {
     headers: { apikey: key, Authorization: `Bearer ${token}` },
   })
   const profiles = await readJson(profileResponse)
@@ -75,7 +78,7 @@ async function authenticateAdmin(req) {
 }
 
 async function serviceRequest(path, options = {}) {
-  const response = await fetch(`${supabaseUrl()}${path}`, {
+  const response = await fetchWithDeadlineV155(`${supabaseUrl()}${path}`, {
     ...options,
     headers: serviceHeaders(options.headers || {}),
   })
@@ -88,10 +91,18 @@ async function authUser(userId) {
   return serviceRequest(`/auth/v1/admin/users/${encodeURIComponent(userId)}`)
 }
 
+async function allAdminUsersV154() {
+  const users=[];
+  for(let page=1;;page++) {const data=await serviceRequest('/auth/v1/admin/users?page='+page+'&per_page=500');const rows=data?.users;if(!Array.isArray(rows))throw new Error('Nieprawidłowa lista kont.');users.push(...rows);if(rows.length===0)return {users};}
+}
+async function allProfilesV154() {
+  const profiles=[];
+  for(let offset=0;;) {const rows=await serviceRequest('/rest/v1/profiles?select=id,display_name,role,branch_id,ui_color,active,branch:branches(name)&order=id.asc&limit=500&offset='+offset);if(!Array.isArray(rows))throw new Error('Nieprawidłowa odpowiedź listy profili.');profiles.push(...rows);offset+=rows.length;if(rows.length===0)return profiles.sort((a,b)=>String(a.display_name||'').localeCompare(String(b.display_name||''),'pl'));}
+}
 async function listUsers() {
   const [profiles, authData] = await Promise.all([
-    serviceRequest('/rest/v1/profiles?select=id,display_name,role,branch_id,ui_color,active,branch:branches(name)&order=display_name.asc'),
-    serviceRequest('/auth/v1/admin/users?page=1&per_page=1000'),
+    allProfilesV154(),
+    allAdminUsersV154(),
   ])
   const emails = new Map((authData?.users || []).map(user => [String(user.id), String(user.email || '')]))
   return (Array.isArray(profiles) ? profiles : []).map(profile => ({
@@ -143,7 +154,7 @@ async function inviteUser(body, actor) {
     })
     return { ...(Array.isArray(rows) ? rows[0] : rows), email }
   } catch (error) {
-    await fetch(`${supabaseUrl()}/auth/v1/admin/users/${encodeURIComponent(invited.id)}`, { method: 'DELETE', headers: serviceHeaders() }).catch(() => {})
+    await fetchWithDeadlineV155(`${supabaseUrl()}/auth/v1/admin/users/${encodeURIComponent(invited.id)}`, { method: 'DELETE', headers: serviceHeaders() }).catch(() => {})
     throw error
   }
 }
