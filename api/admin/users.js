@@ -192,7 +192,7 @@ async function updateUser(body, actor) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control','no-store')
-  res.setHeader('X-Top-Dragon-Admin-Build','v159')
+  res.setHeader('X-Top-Dragon-Admin-Build','v160')
   if(!['GET','POST','PATCH'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH');return json(res,405,{ok:false,message:'Niedozwolona metoda.'});}
   let phase='authenticate'
   try {
