@@ -5,21 +5,82 @@
   initNode?.setAttribute('data-top-dragon-order-entry-initialized','true');
   const originalRender = renderAddModal;
   let fileUrl = '', previewFile = null, previewHost = null, generation = 0, busy = false;
-  let activeDraft=null, previewFrame=null;
+  let activeDraft=null, previewFrame=null, analysisFields=[], activeAnalysisField=-1;
   function releaseDraft() {
     generation++; busy=false;
     if(fileUrl)URL.revokeObjectURL(fileUrl);
-    fileUrl='';previewFile=null;previewHost=null;
+    fileUrl='';previewFile=null;previewHost=null;analysisFields=[];activeAnalysisField=-1;
   }
   function syncDraftLifecycle() {
     const next=state.addOpen?state.prefill:null;
-    if(next!==activeDraft){releaseDraft();activeDraft=next;}
+    if(next!==activeDraft){
+      releaseDraft();activeDraft=next;
+      analysisFields=Array.isArray(next?.orderAiExtractedFields)
+        ? next.orderAiExtractedFields.map(field=>({...field,searchValue:field.searchValue||field.value||''})).filter(field=>String(field.value||'').trim())
+        : [];
+      activeAnalysisField=analysisFields.length?0:-1;
+    }
   }
   function schedulePreview() {
     if(previewFrame!==null)return;
     previewFrame=requestAnimationFrame(()=>{previewFrame=null;syncDraftLifecycle();refreshPreview();});
   }
   const isPlan = () => state.addOpen && state.prefill;
+  const analysisText = value => Array.isArray(value)
+    ? value.map(item=>String(item||'').trim()).filter(Boolean).join('\n')
+    : String(value??'').trim();
+  function buildAnalysisFields(data,payload) {
+    const stops=orderStopFields(payload);
+    const notes=Array.from(new Set([data.reference,data.notes,data.reminders]
+      .flatMap(value=>Array.isArray(value)?value:String(value||'').split(/\n+/))
+      .map(value=>String(value||'').trim()).filter(Boolean))).join('\n');
+    const candidates=[
+      ['load','Załadunek',data.loadCity],['loadAddress','Adres załadunku',data.loadAddress],
+      ['secondLoad','Drugi załadunek',stops.secondLoad],['secondLoadAddress','Adres drugiego załadunku',stops.secondLoadAddress],
+      ['unload','Rozładunek',data.unloadCity],['unloadAddress','Adres rozładunku',data.unloadAddress],
+      ['secondUnload','Drugi rozładunek',stops.secondUnload],['secondUnloadAddress','Adres drugiego rozładunku',stops.secondUnloadAddress],
+      ['loadDate','Data załadunku',data.loadDate],['loadTime','Godzina załadunku',data.loadTime],
+      ['unloadDate','Data rozładunku',data.unloadDate],['unloadTime','Godzina rozładunku',data.unloadTime],
+      ['client','Klient',data.client],['clientNip','NIP klienta',data.clientNip],['clientAddress','Adres klienta',data.clientAddress],
+      ['reference','Numer / referencja',data.reference],
+      ['rate','Stawka',[data.rate,data.currency].filter(value=>analysisText(value)).join(' ')],
+      ['loadedKm','Kilometry z ładunkiem',data.loadedKm],['driverNotes','Uwagi dla kierowcy',data.driverNotes],['notes','Pozostałe informacje',notes]
+    ];
+    const seen=new Set();
+    return candidates.map(([key,label,value])=>({key,label,value:analysisText(value),searchValue:analysisText(value)})).filter(field=>{
+      if(!field.value)return false;
+      const signature=`${field.key}:${field.value}`;
+      if(seen.has(signature))return false;
+      seen.add(signature);return true;
+    });
+  }
+  function persistAnalysisFields() {
+    if(!activeDraft)return;
+    activeDraft.orderAiExtractedFields=analysisFields.map(({key,label,value,searchValue})=>({key,label,value,searchValue}));
+  }
+  function renderAnalysisFields() {
+    const review=document.getElementById('order-entry-ai-review');
+    const list=document.getElementById('order-entry-ai-fields');
+    if(!review||!list)return;
+    review.hidden=!analysisFields.length;
+    list.innerHTML=analysisFields.map((field,index)=>`<div class="order-entry-ai-tile ${index===activeAnalysisField?'active':''}"><button class="order-entry-ai-value" type="button" onclick="focusPlanOrderAnalysisTile(${index})" title="Znajdź w dokumencie"><b>${esc(field.label)}</b><span>${esc(field.value)}</span></button><button class="order-entry-ai-remove" type="button" onclick="removePlanOrderAnalysisTile(${index})" aria-label="Usuń ${attr(field.label)}" title="Usuń ten kafelek">×</button></div>`).join('');
+  }
+  window.focusPlanOrderAnalysisTile=index=>{
+    if(!analysisFields[index])return;
+    activeAnalysisField=index;renderAnalysisFields();
+    const frame=document.querySelector('#order-entry-document iframe');
+    const search=analysisFields[index].searchValue||analysisFields[index].value||'';
+    if(frame&&fileUrl)frame.src=`${fileUrl}#toolbar=1&navpanes=0&search=${encodeURIComponent(search)}`;
+  };
+  window.removePlanOrderAnalysisTile=index=>{
+    if(!analysisFields[index])return;
+    analysisFields.splice(index,1);
+    activeAnalysisField=analysisFields.length?Math.min(index,analysisFields.length-1):-1;
+    persistAnalysisFields();renderAnalysisFields();
+  };
+  window.clearPlanOrderAnalysisTiles=()=>{
+    analysisFields=[];activeAnalysisField=-1;persistAnalysisFields();renderAnalysisFields();
+  };
   renderAddModal = function() {
     let html = originalRender.apply(this, arguments);
     if (state.addOpen && state.prefill) html = html.replace('<div class="modal-body">', '<div class="modal-body">' + renderQueueBranchChoice(state.prefill));
@@ -63,7 +124,7 @@
       body.insertBefore(sections, dateInput.previousElementSibling);
     }
     const preview = document.createElement('section'); preview.className = 'order-entry-preview';
-    preview.innerHTML = '<b>Oryginalne zlecenie</b><div id="order-entry-document"></div>';
+    preview.innerHTML = '<section id="order-entry-ai-review" class="order-entry-ai-review" hidden><div class="order-entry-ai-review-head"><div><b>Dane odczytane przez AI</b><p>Żółte kafelki pozostają nad zleceniem. Kliknij treść, aby znaleźć ją w PDF, albo usuń kafelek przyciskiem ×.</p></div><button class="btn-mini danger" type="button" onclick="clearPlanOrderAnalysisTiles()">Usuń wszystkie</button></div><div id="order-entry-ai-fields" class="order-entry-ai-fields"></div></section><b>Oryginalne zlecenie</b><div id="order-entry-document"></div>';
     workspace.append(preview);
     form.setAttribute('ondragover', "if(event.dataTransfer.types.includes('Files'))event.preventDefault()");
     form.setAttribute('ondrop', 'event.preventDefault();event.stopPropagation();selectPlanOrderFile(event.dataTransfer.files[0])');
@@ -77,7 +138,7 @@
     const file = state.prefill.orderSourceFile;
     const host = document.getElementById('order-entry-document');
     const workspace = host?.closest('.order-entry-workspace');
-    if (!host || !file) { if(!file && fileUrl)releaseDraft();workspace?.classList.add('no-document-preview'); return; }
+    if (!host || !file) { if(!file && fileUrl)releaseDraft();workspace?.classList.add('no-document-preview');renderAnalysisFields(); return; }
     if(previewHost===host && previewFile===file && fileUrl)return;
     previewHost=host;
     workspace?.classList.remove('no-document-preview');
@@ -90,6 +151,7 @@
     const link = document.createElement('a'); link.href = fileUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Otwórz dokument'; host.append(link);
     if (orderDocumentFileType(file) === 'pdf') { const frame = document.createElement('iframe'); frame.src = fileUrl; frame.title = 'Oryginalne zlecenie PDF'; host.append(frame); }
     else { const note = document.createElement('p'); note.textContent = 'Dokument Word można otworzyć powyżej. Analiza AI wypełni pola formularza.'; host.append(note); }
+    renderAnalysisFields();
   }
   window.selectPlanOrderFile = file => {
     if (!file || !isPlan() || busy) return;
@@ -97,6 +159,7 @@
     state.prefill.orderSourceFile = file;
     state.prefill.orderSourceFileName = file.name;
     state.prefill.orderSourceFileType = orderDocumentFileType(file);
+    analysisFields=[];activeAnalysisField=-1;persistAnalysisFields();
     refreshPreview();
   };
   window.analyzePlanOrder = async () => {
@@ -125,7 +188,7 @@
       for (const [id,value] of Object.entries(fields)) {
         const el = document.getElementById(id);
         if (!el || value == null || value === '' || el.value !== before.get(id)) continue;
-        el.value = String(value); el.setAttribute('data-ai-filled','');
+        el.value = String(value);
         if (String(value).trim()) el.closest('details.optional-text-details')?.setAttribute('open','');
         if (id === 'new-loaded') markKmInputManual(id);
       }
@@ -139,11 +202,12 @@
       for (const [field, value] of Object.entries(orderStopFields(payload))) {
         const id = {'secondLoad':'new-second-load','secondLoadAddress':'new-second-load-address','secondUnload':'new-second-unload','secondUnloadAddress':'new-second-unload-address'}[field];
         const el = id && document.getElementById(id);
-        if (el && el.value === before.get(id)) { el.value = value; el.setAttribute('data-ai-filled',''); el.closest('.optional-stop-section')?.classList.remove('hidden-by-toggle'); }
+        if (el && el.value === before.get(id)) { el.value = value; el.closest('.optional-stop-section')?.classList.remove('hidden-by-toggle'); }
       }
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
+      analysisFields=buildAnalysisFields(data,payload);activeAnalysisField=analysisFields.length?0:-1;persistAnalysisFields();renderAnalysisFields();
       updateNewRouteFinance('rate');
-      const liveStatus=document.getElementById('order-entry-status');if(liveStatus)liveStatus.textContent = 'Analiza zakończona. Sprawdź żółte pola, terminy i kilometry przed zapisaniem.';
+      const liveStatus=document.getElementById('order-entry-status');if(liveStatus)liveStatus.textContent = 'Analiza zakończona. Sprawdź żółte kafelki nad zleceniem i usuń te, których nie chcesz zachować.';
     } catch (error) { if (state.prefill === draft && document.getElementById('order-entry-status')) document.getElementById('order-entry-status').textContent = `Nie udało się przeanalizować: ${error?.message || error}`; }
     finally { if (generation === token) { busy = false; const liveButton=document.querySelector('[onclick="analyzePlanOrder()"]');if(liveButton)liveButton.disabled=false; } }
   };
