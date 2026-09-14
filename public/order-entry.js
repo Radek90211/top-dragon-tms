@@ -4,7 +4,8 @@
   if(document.querySelector('script[data-top-dragon-order-entry-initialized]'))return;
   initNode?.setAttribute('data-top-dragon-order-entry-initialized','true');
   const originalRender = renderAddModal;
-  let fileUrl = '', previewFile = null, previewHost = null, generation = 0, busy = false;
+  const originalSave = saveNewRoute;
+  let fileUrl = '', previewFile = null, previewHost = null, generation = 0, busy = false, saveBusy = false;
   let activeDraft=null, previewFrame=null, analysisFields=[], activeAnalysisField=-1;
   function releaseDraft() {
     generation++; busy=false;
@@ -29,8 +30,21 @@
   const analysisText = value => Array.isArray(value)
     ? value.map(item=>String(item||'').trim()).filter(Boolean).join('\n')
     : String(value??'').trim();
-  function buildAnalysisFields(data,payload) {
+  const analysisLocationKey = value => removePolishChars(String(value||'')).replace(/[^a-z0-9]+/g,' ').trim();
+  function analyzedExtraStops(data,payload) {
     const stops=orderStopFields(payload);
+    const secondLoad=analysisText(stops.secondLoad);
+    const secondUnload=analysisText(stops.secondUnload);
+    return {
+      ...stops,
+      secondLoad:secondLoad && analysisLocationKey(secondLoad)!==analysisLocationKey(data.loadCity) ? secondLoad : '',
+      secondLoadAddress:secondLoad && analysisLocationKey(secondLoad)!==analysisLocationKey(data.loadCity) ? analysisText(stops.secondLoadAddress) : '',
+      secondUnload:secondUnload && analysisLocationKey(secondUnload)!==analysisLocationKey(data.unloadCity) ? secondUnload : '',
+      secondUnloadAddress:secondUnload && analysisLocationKey(secondUnload)!==analysisLocationKey(data.unloadCity) ? analysisText(stops.secondUnloadAddress) : ''
+    };
+  }
+  function buildAnalysisFields(data,payload) {
+    const stops=analyzedExtraStops(data,payload);
     const notes=Array.from(new Set([data.reference,data.notes,data.reminders]
       .flatMap(value=>Array.isArray(value)?value:String(value||'').split(/\n+/))
       .map(value=>String(value||'').trim()).filter(Boolean))).join('\n');
@@ -96,20 +110,27 @@
     upload.innerHTML = `<summary><b>Zlecenie transportowe</b></summary><div style="margin-top:10px"><p class="small">Wybierz lub upuść PDF albo Word. Sprawdź dane rozpoznane przez AI przed zapisem.</p><input id="order-entry-file" type="file" accept=".pdf,.doc,.docx" onchange="selectPlanOrderFile(this.files[0])"><p><button class="btn btn-ai-action" type="button" onclick="analyzePlanOrder()" ${busy ? 'disabled' : ''}>${busy ? 'Analizowanie…' : 'Analizuj zlecenie AI'}</button></p><div id="order-entry-status" role="status"></div></div>`;
     body.prepend(upload);
     const dateInput = body.querySelector('#new-date');
-    dateInput.previousElementSibling?.remove();
+    const relationDateStepper=dateInput?.previousElementSibling;
+    const relationDateLabel=relationDateStepper?.previousElementSibling;
+    if(relationDateLabel?.classList?.contains('field-label') && /data relacji/i.test(relationDateLabel.textContent||''))relationDateLabel.remove();
+    relationDateStepper?.remove();
     dateInput.type = 'date'; dateInput.className = 'input';
-    dateInput.setAttribute('onchange',"updateNewRouteDateFromInput(this.value);document.getElementById('order-entry-end-date').value=state.prefill.endDate");
-    const timing = document.createElement('div'); timing.className = 'grid-2';
+    dateInput.setAttribute('onchange',"updateNewRouteDateFromInput(this.value);const end=document.getElementById('order-entry-end-date');if(end)end.value=state.prefill.endDate");
     const time = value => { const minutes = Math.round(Number(value || 0)*60); return `${String(Math.floor(minutes/60)%24).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`; };
-    timing.innerHTML = `<label>Godzina załadunku<input class="input" id="order-entry-start" type="time" value="${time(state.prefill.startHour)}" onchange="state.prefill.startHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60"></label><label>Data rozładunku<input class="input" id="order-entry-end-date" type="date" value="${attr(state.prefill.endDate || state.prefill.date)}" onchange="state.prefill.endDate=this.value"></label><label>Godzina rozładunku<input class="input" id="order-entry-end" type="time" value="${time(state.prefill.endHour)}" onchange="state.prefill.endHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60"></label>`;
-    dateInput.after(timing);
+    const startInput=document.createElement('input');startInput.className='input';startInput.id='order-entry-start';startInput.type='time';startInput.value=time(state.prefill.startHour);startInput.setAttribute('onchange',"state.prefill.startHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60");
+    const endDateInput=document.createElement('input');endDateInput.className='input';endDateInput.id='order-entry-end-date';endDateInput.type='date';endDateInput.value=state.prefill.endDate||state.prefill.date;endDateInput.setAttribute('onchange','state.prefill.endDate=this.value');
+    const endInput=document.createElement('input');endInput.className='input';endInput.id='order-entry-end';endInput.type='time';endInput.value=time(state.prefill.endHour);endInput.setAttribute('onchange',"state.prefill.endHour=Number(this.value.slice(0,2))+Number(this.value.slice(3))/60");
+    const labeledControl=(text,control)=>{const label=document.createElement('label');label.className='order-entry-date-control';const caption=document.createElement('span');caption.className='field-label';caption.textContent=text;label.append(caption,control);return label;};
     const locations = body.querySelector('#new-load')?.closest('.grid-2');
     if (locations) {
       const sections = document.createElement('section'); sections.className = 'section details-route-section';
       sections.innerHTML = '<div class="details-section-title">Trasa</div>';
       for (const [kind, title, number] of [['load','Załadunek',1],['unload','Rozładunek',2]]) {
         const card = document.createElement('div'); card.className = 'details-stop-card';
-        card.innerHTML = `<div class="details-stop-heading"><span class="details-stop-index">${number}</span>${title}</div><div class="details-location-grid"></div>`;
+        card.innerHTML = `<div class="details-stop-heading"><span class="details-stop-index">${number}</span>${title}</div><div class="order-entry-stop-timing"></div><div class="details-location-grid"></div>`;
+        const timing=card.querySelector('.order-entry-stop-timing');
+        if(kind==='load')timing.append(labeledControl('Data załadunku',dateInput),labeledControl('Godzina załadunku',startInput));
+        else timing.append(labeledControl('Data rozładunku',endDateInput),labeledControl('Godzina rozładunku',endInput));
         const grid = card.lastElementChild;
         for (const id of [`new-${kind}`,`new-${kind}-address`,`new-second-${kind}-action`,`new-second-${kind}-section`]) {
           let field = body.querySelector('#' + id);
@@ -121,7 +142,6 @@
         sections.append(card);
       }
       locations.replaceWith(sections);
-      body.insertBefore(sections, dateInput.previousElementSibling);
     }
     const preview = document.createElement('section'); preview.className = 'order-entry-preview';
     preview.innerHTML = '<section id="order-entry-ai-review" class="order-entry-ai-review" hidden><div class="order-entry-ai-review-head"><div><b>Dane odczytane przez AI</b><p>Żółte kafelki pozostają nad zleceniem. Kliknij treść, aby znaleźć ją w PDF, albo usuń kafelek przyciskiem ×.</p></div><button class="btn-mini danger" type="button" onclick="clearPlanOrderAnalysisTiles()">Usuń wszystkie</button></div><div id="order-entry-ai-fields" class="order-entry-ai-fields"></div></section><b>Oryginalne zlecenie</b><div id="order-entry-document"></div>';
@@ -198,11 +218,20 @@
         if (id.includes('date') && /^\d{4}-\d{2}-\d{2}$/.test(value)) { if(key==='date')updateNewRouteDateFromInput(value);el.value = value; draft[key] = value; }
         else if (/^\d{2}:\d{2}$/.test(value)) { el.value = value; draft[key] = Number(value.slice(0,2))+Number(value.slice(3))/60; }
       }
-      if (stopsUntouched) Object.assign(draft, orderStopFields(payload));
-      for (const [field, value] of Object.entries(orderStopFields(payload))) {
-        const id = {'secondLoad':'new-second-load','secondLoadAddress':'new-second-load-address','secondUnload':'new-second-unload','secondUnloadAddress':'new-second-unload-address'}[field];
-        const el = id && document.getElementById(id);
-        if (el && el.value === before.get(id)) { el.value = value; el.closest('.optional-stop-section')?.classList.remove('hidden-by-toggle'); }
+      const extraStops=analyzedExtraStops(data,payload);
+      if (stopsUntouched) {
+        draft.orderStops=extraStops.orderStops;
+        Object.assign(draft,{secondLoad:extraStops.secondLoad,secondLoadAddress:extraStops.secondLoadAddress,secondUnload:extraStops.secondUnload,secondUnloadAddress:extraStops.secondUnloadAddress});
+      }
+      for (const [kind,cityField,addressField] of [['load','secondLoad','secondLoadAddress'],['unload','secondUnload','secondUnloadAddress']]) {
+        const city=extraStops[cityField];
+        if(!city)continue;
+        for(const [field,id] of [[cityField,`new-second-${kind}`],[addressField,`new-second-${kind}-address`]]){
+          const value=extraStops[field],el=document.getElementById(id);
+          if(el && value && el.value===before.get(id))el.value=value;
+        }
+        document.getElementById(`new-second-${kind}-section`)?.classList.remove('hidden-by-toggle');
+        document.getElementById(`new-second-${kind}-action`)?.remove();
       }
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
       analysisFields=buildAnalysisFields(data,payload);activeAnalysisField=analysisFields.length?0:-1;persistAnalysisFields();renderAnalysisFields();
@@ -210,6 +239,22 @@
       const liveStatus=document.getElementById('order-entry-status');if(liveStatus)liveStatus.textContent = 'Analiza zakończona. Sprawdź żółte kafelki nad zleceniem i usuń te, których nie chcesz zachować.';
     } catch (error) { if (state.prefill === draft && document.getElementById('order-entry-status')) document.getElementById('order-entry-status').textContent = `Nie udało się przeanalizować: ${error?.message || error}`; }
     finally { if (generation === token) { busy = false; const liveButton=document.querySelector('[onclick="analyzePlanOrder()"]');if(liveButton)liveButton.disabled=false; } }
+  };
+  saveNewRoute = async function() {
+    const event=arguments[0];
+    if(saveBusy){event?.preventDefault?.();return;}
+    saveBusy=true;
+    const submit=document.querySelector('.plan-order-entry .modal-foot .btn-dark');
+    if(submit){submit.disabled=true;submit.dataset.originalText=submit.textContent;submit.textContent='Zapisywanie…';}
+    try {
+      return await originalSave.apply(this,arguments);
+    } catch(error) {
+      showAppMessage('Nie udało się zapisać trasy',String(error?.message||error||'Nieznany błąd zapisu.'),'error');
+    } finally {
+      saveBusy=false;
+      const liveSubmit=document.querySelector('.plan-order-entry .modal-foot .btn-dark');
+      if(liveSubmit){liveSubmit.disabled=false;liveSubmit.textContent=liveSubmit.dataset.originalText||'Zapisz trasę';}
+    }
   };
   const originalClose = closeAdd;
   closeAdd = function() { releaseDraft();activeDraft=null;return originalClose.apply(this,arguments); };

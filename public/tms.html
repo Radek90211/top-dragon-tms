@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v159-ai-review-tiles"></script>
-  <script src="/planning-core.js?build=v159-ai-review-tiles"></script>
-  <script src="/order-stops.js?build=v159-ai-review-tiles"></script>
+  <script src="/xlsx-lite.js?v=v160-route-form-save"></script>
+  <script src="/planning-core.js?build=v160-route-form-save"></script>
+  <script src="/order-stops.js?build=v160-route-form-save"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -71731,15 +71731,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function categoryCEstimateForNewRoute({ freeDayValue, proposedMode, futureMode, loadedValue }) {
       if (freeDayValue || proposedMode) return null;
-      const prefetch = state.prefill?.aiTextBatch && futureMode ? state.aiTextBatchRouteEstimate : null;
-      const signature = prefetch ? aiTextBatchRouteEstimateSignature() : "";
-      if (prefetch && Number(prefetch.index) === Number(state.textImportBatchIndex || 0) && prefetch.signature === signature) {
-        const result = await prefetch.promise;
+      const estimate = async () => {
+        const prefetch = state.prefill?.aiTextBatch && futureMode ? state.aiTextBatchRouteEstimate : null;
+        const signature = prefetch ? aiTextBatchRouteEstimateSignature() : "";
+        if (prefetch && Number(prefetch.index) === Number(state.textImportBatchIndex || 0) && prefetch.signature === signature) {
+          const result = await prefetch.promise;
+          state.aiTextBatchRouteEstimate = null;
+          if (result?.ok && result.value) return result.value;
+        }
         state.aiTextBatchRouteEstimate = null;
-        if (result?.ok && result.value) return result.value;
+        return estimateNewRouteCategoryCTravel(loadedValue);
+      };
+      let timeoutId=0;
+      try {
+        // Routing poprawia szerokość kafelka, ale nie może blokować samego zapisu.
+        return await Promise.race([
+          estimate(),
+          new Promise(resolve=>{timeoutId=setTimeout(()=>resolve(null),8000);})
+        ]);
+      } finally {
+        if(timeoutId)clearTimeout(timeoutId);
       }
-      state.aiTextBatchRouteEstimate = null;
-      return estimateNewRouteCategoryCTravel(loadedValue);
     }
 
     function openAiTextImportBatchItem(index) {
@@ -79622,7 +79634,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         visibilityBranch: visibilityBranchValue,
         bulkTotal: bulkCountValue,
         aiSourceText: String(state.prefill?.aiSourceText || ""),
-        aiSourceType: String(state.prefill?.aiSourceType || "")
+        aiSourceType: String(state.prefill?.aiSourceType || ""),
+        orderAiExtractedFields: cloneData(state.prefill?.orderAiExtractedFields || [])
       };
 
       reconcileOrderStops(route);
@@ -90733,7 +90746,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       transform:translateX(16px) !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v159-ai-review-tiles" />
-  <script src="/order-entry.js?build=v159-ai-review-tiles"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v160-route-form-save" />
+  <script src="/order-entry.js?build=v160-route-form-save"></script>
 </body>
 </html>
