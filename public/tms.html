@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v157-supabase-thenable"></script>
-  <script src="/planning-core.js?build=v157-supabase-thenable"></script>
-  <script src="/order-stops.js?build=v157-supabase-thenable"></script>
+  <script src="/xlsx-lite.js?v=v158-flush-right-panels"></script>
+  <script src="/planning-core.js?build=v158-flush-right-panels"></script>
+  <script src="/order-stops.js?build=v158-flush-right-panels"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -90714,7 +90714,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .proposed-load-card.queue-card-planned-layout-v152 .proposed-load-title { line-height:1.2; }
     .board-scroll { scroll-behavior:auto !important; }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v157-supabase-thenable" />
-  <script src="/order-entry.js?build=v157-supabase-thenable"></script>
+  <style id="targeted-v158-flush-right-panels">
+    /* Otwarte prawe panele wykorzystują całą przestrzeń do krawędzi ekranu.
+       Pasek zakładek znika na czas pracy w panelu; każdy panel ma własny
+       przycisk zamknięcia, więc nie zasłaniamy formularza ani przewijania. */
+    .app .future-drawer.open,
+    .app .proposed-drawer.open,
+    .app .stats-drawer.open,
+    .app .side-panel.open {
+      right:0 !important;
+      inset-inline-end:0 !important;
+      max-width:100vw !important;
+      box-sizing:border-box !important;
+    }
+    .app:has(.future-drawer.open, .proposed-drawer.open, .stats-drawer.open, .side-panel.open) .side-tool-tab {
+      opacity:0 !important;
+      pointer-events:none !important;
+      transform:translateX(16px) !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/order-entry.css?build=v158-flush-right-panels" />
+  <script src="/order-entry.js?build=v158-flush-right-panels"></script>
 </body>
 </html>
