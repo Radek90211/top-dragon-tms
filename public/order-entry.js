@@ -167,7 +167,6 @@
       fileUrl = URL.createObjectURL(file); previewFile = file;
     }
     host.replaceChildren();
-    const label = document.createElement('p'); label.textContent = state.prefill.orderSourceFileName || file.name; host.append(label);
     const link = document.createElement('a'); link.href = fileUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Otwórz dokument'; host.append(link);
     if (orderDocumentFileType(file) === 'pdf') { const frame = document.createElement('iframe'); frame.src = fileUrl; frame.title = 'Oryginalne zlecenie PDF'; host.append(frame); }
     else { const note = document.createElement('p'); note.textContent = 'Dokument Word można otworzyć powyżej. Analiza AI wypełni pola formularza.'; host.append(note); }

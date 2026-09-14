@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v160-route-form-save"></script>
-  <script src="/planning-core.js?build=v160-route-form-save"></script>
-  <script src="/order-stops.js?build=v160-route-form-save"></script>
+  <script src="/xlsx-lite.js?v=v162-order-document-width"></script>
+  <script src="/planning-core.js?build=v162-order-document-width"></script>
+  <script src="/order-stops.js?build=v162-order-document-width"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -86126,14 +86126,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         startX: 0,
         startY: 0,
         startLeft: 0,
-        startTop: 0
+        startTop: 0,
+        latestX: 0,
+        latestY: 0,
+        raf: 0
       };
 
       function stopMiddlePan3L42() {
         if (!middlePan.active) return;
+        if (middlePan.raf) cancelAnimationFrame(middlePan.raf);
+        middlePan.raf = 0;
         middlePan.viewport?.classList?.remove('board-middle-pan-active');
         middlePan.active = false;
         middlePan.viewport = null;
+      }
+
+      function flushMiddlePan3L42() {
+        middlePan.raf = 0;
+        if (!middlePan.active || !middlePan.viewport) return;
+        middlePan.viewport.scrollLeft = middlePan.startLeft - (middlePan.latestX - middlePan.startX);
+        middlePan.viewport.scrollTop = middlePan.startTop - (middlePan.latestY - middlePan.startY);
       }
 
       window.addEventListener('mousedown', event => {
@@ -86147,6 +86159,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         middlePan.viewport = viewport;
         middlePan.startX = event.clientX;
         middlePan.startY = event.clientY;
+        middlePan.latestX = event.clientX;
+        middlePan.latestY = event.clientY;
         middlePan.startLeft = viewport.scrollLeft;
         middlePan.startTop = viewport.scrollTop;
         viewport.classList.add('board-middle-pan-active');
@@ -86159,8 +86173,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         event.preventDefault();
-        middlePan.viewport.scrollLeft = middlePan.startLeft - (event.clientX - middlePan.startX);
-        middlePan.viewport.scrollTop = middlePan.startTop - (event.clientY - middlePan.startY);
+        middlePan.latestX = event.clientX;
+        middlePan.latestY = event.clientY;
+        if (!middlePan.raf) middlePan.raf = requestAnimationFrame(flushMiddlePan3L42);
       }, true);
 
       window.addEventListener('mouseup', event => {
@@ -90746,7 +90761,69 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       transform:translateX(16px) !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v160-route-form-save" />
-  <script src="/order-entry.js?build=v160-route-form-save"></script>
+  <style id="targeted-v161-board-scroll-performance">
+    /* Przy największym pomniejszeniu pomijamy rysowanie pustych komórek poza
+       ekranem. Podczas ruchu zatrzymujemy kosztowne pulsowanie i cienie; stan
+       alertów pozostaje zachowany i wraca zaraz po zatrzymaniu tablicy. */
+    .board-scroll.board-low-scale-v161 .day-cell:not(.route-cell) {
+      content-visibility:auto;
+      contain-intrinsic-size:auto 54px;
+    }
+    .board-scroll.board-low-scale-v161 .day-cell,
+    .board-scroll.board-low-scale-v161 .time-route {
+      transition:none !important;
+    }
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .top,
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .time-route,
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .board-week-finance-col {
+      box-shadow:none !important;
+      filter:none !important;
+    }
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .board *,
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .board *::before,
+    .board-scroll.board-low-scale-v161.board-scroll-moving-v161 .board *::after {
+      animation-play-state:paused !important;
+    }
+  </style>
+  <script id="targeted-v161-board-scroll-performance-script">
+    (() => {
+      let stopTimer = 0;
+
+      function prepareBoardViewportV161(viewport = document.querySelector('.board-scroll')) {
+        if (!viewport) return null;
+        const scale = Number(viewport.querySelector('.board')?.style?.zoom || currentBoardScale() || 1);
+        viewport.classList.toggle('board-low-scale-v161', scale <= 0.6);
+        return viewport;
+      }
+
+      function markBoardMovingV161(viewport) {
+        viewport = prepareBoardViewportV161(viewport);
+        if (!viewport || !viewport.classList.contains('board-low-scale-v161')) return;
+        viewport.classList.add('board-scroll-moving-v161');
+        clearTimeout(stopTimer);
+        stopTimer = setTimeout(() => viewport.classList.remove('board-scroll-moving-v161'), 120);
+      }
+
+      document.addEventListener('scroll', event => {
+        const viewport = event.target?.matches?.('.board-scroll') ? event.target : null;
+        if (viewport) markBoardMovingV161(viewport);
+      }, {capture:true, passive:true});
+
+      document.addEventListener('mousedown', event => {
+        if (event.button === 1) markBoardMovingV161(event.target?.closest?.('.board-scroll'));
+      }, true);
+
+      const baseSyncBoardOnlyV161 = syncBoardOnly;
+      syncBoardOnly = function(...args) {
+        const result = baseSyncBoardOnlyV161.apply(this, args);
+        prepareBoardViewportV161();
+        return result;
+      };
+
+      requestAnimationFrame(() => prepareBoardViewportV161());
+    })();
+  </script>
+  <link rel="stylesheet" href="/order-entry.css?build=v162-order-document-width" />
+  <script src="/order-entry.js?build=v162-order-document-width"></script>
 </body>
 </html>
