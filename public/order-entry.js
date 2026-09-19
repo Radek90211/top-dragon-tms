@@ -7,10 +7,13 @@
   const originalSave = saveNewRoute;
   let fileUrl = '', previewFile = null, previewHost = null, generation = 0, busy = false, saveBusy = false;
   let activeDraft=null, previewFrame=null, analysisFields=[], activeAnalysisField=-1;
+  let planOrderMinimized=false,planOrderAnalysisStarted=false,planOrderAnalysisReady=false;
   function releaseDraft() {
     generation++; busy=false;
     if(fileUrl)URL.revokeObjectURL(fileUrl);
     fileUrl='';previewFile=null;previewHost=null;analysisFields=[];activeAnalysisField=-1;
+    planOrderMinimized=false;planOrderAnalysisStarted=false;planOrderAnalysisReady=false;
+    document.querySelectorAll('.plan-ai-draft-tile-v164').forEach(node=>node.remove());
   }
   function syncDraftLifecycle() {
     const next=state.addOpen?state.prefill:null;
@@ -27,6 +30,53 @@
     previewFrame=requestAnimationFrame(()=>{previewFrame=null;syncDraftLifecycle();refreshPreview();});
   }
   const isPlan = () => state.addOpen && state.prefill;
+  const isBoardPlan = () => isPlan() && !state.prefill?.proposedLoad && !state.prefill?.futureQueue;
+  const fieldValue=(id,fallback='')=>String(document.getElementById(id)?.value??fallback??'');
+  const timeNumber=(value,fallback=8)=>/^\d{2}:\d{2}$/.test(String(value||''))?Number(value.slice(0,2))+Number(value.slice(3))/60:Number(fallback||0);
+  function draftTileModel(){
+    const draft=activeDraft||state.prefill;if(!draft)return null;
+    const date=fieldValue('new-date',draft.date||currentAppDate());
+    return {id:'plan-ai-draft-v164',driverId:String(draft.driverId||''),date,endDate:fieldValue('order-entry-end-date',draft.endDate||addDaysToIso(date,1)),startHour:timeNumber(fieldValue('order-entry-start'),draft.startHour||8),endHour:timeNumber(fieldValue('order-entry-end'),draft.endHour||8)};
+  }
+  function renderPlanAiDraftTile(){
+    document.querySelectorAll('.plan-ai-draft-tile-v164').forEach(node=>node.remove());
+    if(!planOrderAnalysisStarted||!isBoardPlan())return;
+    const model=draftTileModel(),row=model?routeTimelineRowForDriver(model.driverId):null;
+    if(!model||!row)return;
+    const start=Math.max(0,routeGlobalStart(model)),end=Math.min(timelineMaxHour(),routeGlobalEnd(model));
+    if(end<=start)return;
+    const left=boardTimelinePercentForHour(start,'start',dateList());
+    const right=boardTimelinePercentForHour(end,'end',dateList());
+    const width=Math.max(2.8,Math.min(100-left,right-left));
+    const load=fieldValue('new-load',activeDraft?.load||'Załadunek'),unload=fieldValue('new-unload',activeDraft?.unload||'Rozładunek');
+    const tile=document.createElement('button');
+    tile.type='button';tile.className=`time-route continuous plan-ai-draft-tile-v164 ${planOrderAnalysisReady?'is-ready':'is-busy'}`;
+    tile.style.left=`${left}%`;tile.style.width=`${width}%`;tile.setAttribute('aria-label','Otwórz analizowane zlecenie');
+    tile.innerHTML=`<span class="plan-ai-draft-badge-v164">AI</span><span class="time-route-title">${esc(planOrderAnalysisReady?'Analiza gotowa':'Analizowanie zlecenia')}</span><span class="time-route-sub">${esc(load||'Załadunek')} → ${esc(unload||'Rozładunek')}</span>`;
+    tile.addEventListener('click',event=>window.restorePlanOrderEntryFromDock(event));row.appendChild(tile);
+  }
+  function syncPlanOrderActivity(){
+    if(!isBoardPlan())return;
+    state.aiAnalyzerDockVisible=true;state.aiAnalyzerDockAction='status';state.aiActivityLabel='Szczegóły zlecenia';
+    try{syncPdfImportUi();}catch(error){}
+    requestAnimationFrame(renderPlanAiDraftTile);
+  }
+  window.minimizePlanOrderEntry=event=>{
+    event?.preventDefault?.();event?.stopPropagation?.();
+    if(!isBoardPlan())return;
+    planOrderMinimized=true;
+    document.querySelector('.modal-backdrop:has(.plan-order-entry)')?.classList.add('plan-order-minimized-v164');
+    syncPlanOrderActivity();
+  };
+  window.restorePlanOrderEntryFromDock=event=>{
+    event?.preventDefault?.();event?.stopPropagation?.();
+    if(!isBoardPlan())return;
+    planOrderMinimized=false;
+    let backdrop=document.querySelector('.modal-backdrop:has(.plan-order-entry)');
+    if(!backdrop){syncAddModal();backdrop=document.querySelector('.modal-backdrop:has(.plan-order-entry)');}
+    backdrop?.classList.remove('plan-order-minimized-v164');
+    requestAnimationFrame(()=>document.querySelector('.plan-order-entry')?.scrollIntoView?.({block:'center',inline:'center'}));
+  };
   const analysisText = value => Array.isArray(value)
     ? value.map(item=>String(item||'').trim()).filter(Boolean).join('\n')
     : String(value??'').trim();
@@ -103,7 +153,16 @@
     const form = template.content.querySelector('form.modal');
     const body = form.querySelector('.modal-body');
     form.classList.add('plan-order-entry');
+    if(planOrderMinimized&&isBoardPlan())form.closest('.modal-backdrop')?.classList.add('plan-order-minimized-v164');
     form.querySelector('h2').textContent = state.prefill?.proposedLoad ? 'Dodaj wolne ładunki' : state.prefill?.futureQueue ? 'Dodaj planowaną relację' : 'Szczegóły zlecenia';
+    if(isBoardPlan()){
+      const closeButton=form.querySelector('.modal-head > button');
+      if(closeButton){
+        const actions=document.createElement('div');actions.className='plan-order-head-actions-v164';
+        const minimize=document.createElement('button');minimize.type='button';minimize.className='btn ui-window-minimize';minimize.title='Minimalizuj Szczegóły zlecenia';minimize.setAttribute('aria-label','Minimalizuj Szczegóły zlecenia');minimize.setAttribute('onclick','minimizePlanOrderEntry(event)');minimize.innerHTML='<span aria-hidden="true">−</span>';
+        closeButton.before(actions);actions.append(minimize,closeButton);
+      }
+    }
     const workspace = document.createElement('div'); workspace.className = 'order-entry-workspace' + (state.prefill.orderSourceFile ? '' : ' no-document-preview');
     body.before(workspace); workspace.append(body);
     const upload = document.createElement('details'); upload.className = 'order-entry-upload';
@@ -149,6 +208,7 @@
     form.setAttribute('ondragover', "if(event.dataTransfer.types.includes('Files'))event.preventDefault()");
     form.setAttribute('ondrop', 'event.preventDefault();event.stopPropagation();selectPlanOrderFile(event.dataTransfer.files[0])');
     schedulePreview();
+    if(planOrderAnalysisStarted)requestAnimationFrame(renderPlanAiDraftTile);
     return template.innerHTML;
   };
 
@@ -192,6 +252,7 @@
     const token = ++generation;
     const before = new Map(Array.from(document.querySelectorAll('.plan-order-entry input,.plan-order-entry textarea,.plan-order-entry select')).map(el => [el.id,el.value]));
     busy = true; status.textContent = 'Analizuję zlecenie…';
+    if(isBoardPlan()){planOrderAnalysisStarted=true;planOrderAnalysisReady=false;syncPlanOrderActivity();}
     const button = document.querySelector('[onclick="analyzePlanOrder()"]'); if(button)button.disabled = true;
     try {
       const payload = await requestAiAnalyzer('document', {file,fileName:file.name,referenceDate:draft.date || currentAppDate()},130000);
@@ -234,10 +295,11 @@
       }
       draft.clientNip = data.clientNip || ''; draft.aiImported = true;
       analysisFields=buildAnalysisFields(data,payload);activeAnalysisField=analysisFields.length?0:-1;persistAnalysisFields();renderAnalysisFields();
+      if(isBoardPlan()){planOrderAnalysisReady=true;syncPlanOrderActivity();}
       updateNewRouteFinance('rate');
       const liveStatus=document.getElementById('order-entry-status');if(liveStatus)liveStatus.textContent = 'Analiza zakończona. Sprawdź żółte kafelki nad zleceniem i usuń te, których nie chcesz zachować.';
     } catch (error) { if (state.prefill === draft && document.getElementById('order-entry-status')) document.getElementById('order-entry-status').textContent = `Nie udało się przeanalizować: ${error?.message || error}`; }
-    finally { if (generation === token) { busy = false; const liveButton=document.querySelector('[onclick="analyzePlanOrder()"]');if(liveButton)liveButton.disabled=false; } }
+    finally { if (generation === token) { busy = false; const liveButton=document.querySelector('[onclick="analyzePlanOrder()"]');if(liveButton)liveButton.disabled=false;if(isBoardPlan())syncPlanOrderActivity(); } }
   };
   saveNewRoute = async function() {
     const event=arguments[0];
@@ -253,10 +315,36 @@
       saveBusy=false;
       const liveSubmit=document.querySelector('.plan-order-entry .modal-foot .btn-dark');
       if(liveSubmit){liveSubmit.disabled=false;liveSubmit.textContent=liveSubmit.dataset.originalText||'Zapisz trasę';}
+      if(!state.addOpen&&activeDraft){
+        releaseDraft();activeDraft=null;
+        if(!GLOBAL_AI_ACTIVITY.size){state.aiAnalyzerDockVisible=false;state.aiAnalyzerDockAction='';try{syncPdfImportUi();}catch(error){}}
+      }
     }
   };
+  const originalBackdropAction=saveNewRouteOnBackdrop;
+  saveNewRouteOnBackdrop=function(event){
+    if(isBoardPlan()&&event?.target===event?.currentTarget){window.minimizePlanOrderEntry(event);return;}
+    return originalBackdropAction.apply(this,arguments);
+  };
+  const originalRenderAiDock=renderAiAnalyzerDock;
+  renderAiAnalyzerDock=function(){
+    if(isBoardPlan()&&(planOrderMinimized||planOrderAnalysisStarted)){
+      const status=busy?'busy':planOrderAnalysisReady?'ready':'paused';
+      const mark=busy?'●':planOrderAnalysisReady?'✓':'Ⅱ';
+      const label=busy?'Analiza trwa':planOrderAnalysisReady?'Analiza gotowa':'Szczegóły zlecenia';
+      return `<button type="button" class="ai-analyzer-dock status-${status} status-only plan-order-dock-v164" onclick="restorePlanOrderEntryFromDock(event)" title="Otwórz analizowane zlecenie"><span class="ai-analyzer-dock-icon">AI</span><span class="ai-analyzer-dock-state"><b>${esc(label)}</b><small>${esc(fieldValue('new-load',activeDraft?.load||'Załadunek'))} → ${esc(fieldValue('new-unload',activeDraft?.unload||'Rozładunek'))}</small></span><span class="ai-analyzer-dock-mark">${mark}</span></button>`;
+    }
+    return originalRenderAiDock.apply(this,arguments);
+  };
+  const originalAiDockClick=handleAiAnalyzerDockClick;
+  handleAiAnalyzerDockClick=function(event){
+    if(isBoardPlan()&&(planOrderMinimized||planOrderAnalysisStarted))return window.restorePlanOrderEntryFromDock(event);
+    return originalAiDockClick.apply(this,arguments);
+  };
+  const originalSyncBoardOnlyV164=syncBoardOnly;
+  syncBoardOnly=function(){const result=originalSyncBoardOnlyV164.apply(this,arguments);if(planOrderAnalysisStarted)requestAnimationFrame(renderPlanAiDraftTile);return result;};
   const originalClose = closeAdd;
-  closeAdd = function() { releaseDraft();activeDraft=null;return originalClose.apply(this,arguments); };
+  closeAdd = function() { releaseDraft();activeDraft=null;if(!GLOBAL_AI_ACTIVITY.size){state.aiAnalyzerDockVisible=false;state.aiAnalyzerDockAction='';}const result=originalClose.apply(this,arguments);try{syncPdfImportUi();}catch(error){}return result; };
 
   const lifecycleObserver=new MutationObserver(records=>{
     if(records.some(record=>Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(node=>node.nodeType===1 && (node.matches?.('.plan-order-entry') || node.querySelector?.('.plan-order-entry')))))schedulePreview();

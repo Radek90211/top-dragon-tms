@@ -56,3 +56,42 @@
   .modal.plan-order-entry { width:calc(100vw - 16px)!important; height:calc(100dvh - 16px)!important; max-height:calc(100dvh - 16px)!important; }
   .plan-order-entry .modal-foot { display:flex; flex-wrap:wrap; gap:8px; }
 }
+
+/* V164: minimalizacja formularza i roboczy kafelek analizy AI. */
+.modal-backdrop.plan-order-minimized-v164 { display:none!important; }
+.plan-order-head-actions-v164 { display:flex; align-items:center; gap:7px; }
+.plan-ai-draft-tile-v164 {
+  border-color:#818cf8!important;
+  background:linear-gradient(135deg,#4f46e5,#2563eb)!important;
+  color:#fff!important;
+  box-shadow:0 0 0 2px rgba(129,140,248,.34),0 5px 16px rgba(37,99,235,.34)!important;
+  cursor:pointer!important;
+  overflow:hidden;
+  z-index:48!important;
+}
+.plan-ai-draft-tile-v164 .time-route-title,
+.plan-ai-draft-tile-v164 .time-route-sub { color:#fff!important; padding-left:25px; }
+.plan-ai-draft-badge-v164 { position:absolute; left:5px; top:5px; display:grid; place-items:center; width:19px; height:17px; border-radius:5px; background:rgba(255,255,255,.94); color:#4338ca; font-size:9px; font-weight:950; }
+@keyframes planAiDraftPulseV164 { 0%,100%{box-shadow:0 0 0 2px rgba(129,140,248,.28),0 4px 13px rgba(37,99,235,.28)} 50%{box-shadow:0 0 0 4px rgba(167,139,250,.42),0 7px 20px rgba(79,70,229,.52)} }
+.plan-ai-draft-tile-v164.is-busy { animation:planAiDraftPulseV164 1.7s ease-in-out infinite!important; }
+.plan-ai-draft-tile-v164.is-ready { background:linear-gradient(135deg,#7c3aed,#2563eb)!important; }
+
+/* Prawy pasek styka się z krawędzią. Etykiety są całkowicie ukryte do chwili
+   rozwinięcia, więc z wąskiego przycisku nie wystają pojedyncze litery. */
+.app .side-tool-tab {
+  right:0!important;
+  inset-inline-end:0!important;
+  box-sizing:border-box!important;
+  padding:0!important;
+  justify-content:center!important;
+  gap:0!important;
+}
+.app .side-tool-tab .side-tool-label { opacity:0!important; max-width:0!important; overflow:hidden!important; }
+.app .side-tool-tab:hover,
+.app .side-tool-tab:focus-visible { padding:0 12px!important; justify-content:flex-start!important; gap:10px!important; }
+.app .side-tool-tab:hover .side-tool-label,
+.app .side-tool-tab:focus-visible .side-tool-label { opacity:1!important; max-width:180px!important; overflow:visible!important; }
+.app .side-tool-tab:has(.queue-message-indicator-v135) { right:0!important; padding:0 8px!important; justify-content:flex-start!important; gap:6px!important; }
+.app .side-tool-tab:has(.queue-message-indicator-v135):hover,
+.app .side-tool-tab:has(.queue-message-indicator-v135):focus-visible { padding:0 11px!important; gap:8px!important; }
+@media(prefers-reduced-motion:reduce){.plan-ai-draft-tile-v164.is-busy{animation:none!important;}}

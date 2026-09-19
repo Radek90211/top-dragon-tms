@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v162-order-document-width"></script>
-  <script src="/planning-core.js?build=v162-order-document-width"></script>
-  <script src="/order-stops.js?build=v162-order-document-width"></script>
+  <script src="/xlsx-lite.js?v=v164-ai-draft-minimize-sms-tabs"></script>
+  <script src="/planning-core.js?build=v164-ai-draft-minimize-sms-tabs"></script>
+  <script src="/order-stops.js?build=v164-ai-draft-minimize-sms-tabs"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -63778,26 +63778,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (route?.smsManualEdited) return stripGoogleMapsLinksFromSms(route.smsTextOverride || "");
       const loadHour = formatSmsHour(routeStartHour(route));
       const unloadHour = formatSmsHour(routeEndHour(route));
-      const unloadDateSuffix = routeEndDate(route) && routeEndDate(route) !== route.date ? ` (${routeEndDate(route)})` : "";
       const importedByAi = Boolean(route?.orderImportedAt || route?.aiSourceType);
       const driverNotes = String(route?.driverNotes ?? route?.aiDriverNotes ?? (importedByAi ? "" : route?.notes || "")).trim();
       const include = key => !route?.smsSections || route.smsSections[key] !== false;
-      const lines = [
+      const loadLocation = [route.loadAddress, route.load].map(value => String(value || "").trim()).filter(Boolean).join(", ") || "-";
+      const unloadLocation = [route.unloadAddress, route.unload].map(value => String(value || "").trim()).filter(Boolean).join(", ") || "-";
+      const sections = [
         include("distance") ? `Trasa: ${routeSmsKm(totalKm(route))} km` : "",
-        include("greeting") ? `Cześć ${driver?.driver?.split(" ")[0] || ""},` : "",
-        include("greeting") ? `Dane trasy na ${route.date}:` : "",
-        include("pickup") ? `Załadunek: ${route.load || "-"}${route.loadAddress ? ", " + route.loadAddress : ""}` : "",
-        include("pickup") ? `Godzina załadunku: ${loadHour}` : "",
-        include("secondPickup") && route.secondLoad ? `Drugi załadunek: ${route.secondLoad}${route.secondLoadAddress ? ", " + route.secondLoadAddress : ""}` : "",
-        include("delivery") ? `Rozładunek: ${route.unload || "-"}${route.unloadAddress ? ", " + route.unloadAddress : ""}` : "",
-        include("delivery") ? `Godzina rozładunku: ${unloadHour}${unloadDateSuffix}` : "",
-        include("secondDelivery") && route.secondUnload ? `Drugi rozładunek: ${route.secondUnload}${route.secondUnloadAddress ? ", " + route.secondUnloadAddress : ""}` : "",
+        include("pickup") ? `Załadunek: ${formatDateForInput(route.date)} ${loadHour}\n${loadLocation}` : "",
+        include("secondPickup") && route.secondLoad ? `Drugi załadunek:\n${[route.secondLoadAddress, route.secondLoad].filter(Boolean).join(", ")}` : "",
+        include("delivery") ? `Rozładunek: ${formatDateForInput(routeEndDate(route))} ${unloadHour}\n${unloadLocation}` : "",
+        include("secondDelivery") && route.secondUnload ? `Drugi rozładunek:\n${[route.secondUnloadAddress, route.secondUnload].filter(Boolean).join(", ")}` : "",
         include("driverNotes") && driverNotes ? `Informacje dla kierowcy: ${driverNotes}` : ""
-      ].filter(line => line !== null && line !== undefined && line !== "");
+      ].filter(section => section !== null && section !== undefined && section !== "");
 
       // Link mapy nie jest dołączany do wiadomości SMS.
 
-      return lines.join("\n");
+      return sections.join("\n\n");
     }
 
     function invalidateRouteSmsGeneration(route, refreshDom = false) {
@@ -68576,7 +68573,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                     <b>${esc(item.driver.driver)}</b>
                     <div class="small"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> · ${esc(item.driver.carrier)} · naczepa ${driverTrailerHeight(item.driver).toFixed(2)} m · ${esc(driverNationality(item.driver))}</div>
                     ${renderCompatibilityMini(item.driver, { loadHeightM: state.nearestLoadHeight, requirePolishDriver: state.nearestRequirePolishDriver })}
-                    <div class="small">Najbliższa znana pozycja: ${esc(item.positionLabel)}</div>
+                    <div class="small">Pozycja po rozładunku ${esc(formatDateForInput(item.positionDate))}: ${esc(item.positionLabel)}</div>
                     <div class="availability-line">
                       <div class="small">
                         ${item.nextLoadLabel ? `Następna relacja z ładunkiem:<br>${esc(item.nextLoadLabel)}` : "Brak zaplanowanej następnej relacji z ładunkiem"}
@@ -69054,11 +69051,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const NEAREST_VEHICLE_SNAPSHOT_CACHE = new Map();
     function nearestVehicleSnapshots(date, drivers) {
+      const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : currentAppDate();
       const driverKey = (drivers || []).map(driver => driver.id).join(",");
-      const cacheKey = `${OPERATIONAL_RENDER_CYCLE}|${date || ""}|${driverKey}`;
+      const cacheKey = `${OPERATIONAL_RENDER_CYCLE}|${selectedDate}|${driverKey}`;
       if (NEAREST_VEHICLE_SNAPSHOT_CACHE.has(cacheKey)) return NEAREST_VEHICLE_SNAPSHOT_CACHE.get(cacheKey);
-      const selectedIdx = Math.max(0, getDateIndex(date));
-      const selectedEnd = selectedIdx * 24 + 24;
       const byDriver = new Map();
       activeRoutes().forEach(route => {
         // Do wyznaczenia statusu potrzebujemy także kolejnej relacji zaczynającej się
@@ -69072,11 +69068,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const records = drivers.map(driver => {
         const routes = byDriver.get(driver.id) || [];
-        let lastRoute = null;
-        for (const route of routes) {
-          if (routeGlobalStart(route) <= selectedEnd && (!lastRoute || routeGlobalEnd(route) > routeGlobalEnd(lastRoute))) lastRoute = route;
-        }
-        const currentEnd = lastRoute ? routeGlobalEnd(lastRoute) : selectedEnd;
+        // Kandydat musi kończyć relację dokładnie w dniu wybranym w panelu.
+        // Wcześniej ostatni rozładunek sprzed tego dnia pozostawał pozycją pojazdu,
+        // dlatego w wynikach pojawiały się trasy zakończone kilka dni wcześniej.
+        const lastRoute = routes
+          .filter(route => routeEndDate(route) === selectedDate)
+          .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
+        const currentEnd = lastRoute ? routeGlobalEnd(lastRoute) : null;
         const next = routes.find(route => lastRoute && route.id !== lastRoute.id && routeGlobalStart(route) >= currentEnd) || null;
         const gapHours = next ? routeGlobalStart(next) - currentEnd : null;
         return { driver, lastRoute, next, gapHours, isSoon:Boolean(next && Number.isFinite(gapHours) && gapHours <= NEXT_LOAD_READY_WINDOW_HOURS) };
@@ -69167,6 +69165,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             driver:snapshot.driver,
             routeId:snapshot.route?.id || snapshot.next?.id || "",
             positionLabel:snapshot.label,
+            positionDate:routeEndDate(snapshot.route),
             hasNextLoad:snapshot.isSoon,
             mapColorClass:snapshot.isSoon ? "available-soon" : "no-soon-load",
             loadStatusLabel:snapshot.next
@@ -90823,7 +90822,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       requestAnimationFrame(() => prepareBoardViewportV161());
     })();
   </script>
-  <link rel="stylesheet" href="/order-entry.css?build=v162-order-document-width" />
-  <script src="/order-entry.js?build=v162-order-document-width"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v164-ai-draft-minimize-sms-tabs" />
+  <script src="/order-entry.js?build=v164-ai-draft-minimize-sms-tabs"></script>
 </body>
 </html>
