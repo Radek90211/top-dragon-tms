@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v164-ai-draft-minimize-sms-tabs"></script>
-  <script src="/planning-core.js?build=v164-ai-draft-minimize-sms-tabs"></script>
-  <script src="/order-stops.js?build=v164-ai-draft-minimize-sms-tabs"></script>
+  <script src="/xlsx-lite.js?v=v165-theme-fleet-window"></script>
+  <script src="/planning-core.js?build=v165-theme-fleet-window"></script>
+  <script src="/order-stops.js?build=v165-theme-fleet-window"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -60735,13 +60735,55 @@
 
     const ANON_PHONE = "797797563";
 
-    const DRIVER_BASE_POOL = [];
+    const DRIVER_BASE_POOL = [
+      "00-001 Warszawa", "60-001 Poznań", "50-001 Wrocław", "80-001 Gdańsk", "30-001 Kraków",
+      "40-001 Katowice", "90-001 Łódź", "70-001 Szczecin", "20-001 Lublin", "35-001 Rzeszów",
+      "15-001 Białystok", "85-001 Bydgoszcz", "10-001 Olsztyn", "45-001 Opole", "25-001 Kielce"
+    ];
 
-    const DRIVER_NAME_POOL = [];
+    const DRIVER_NAME_POOL = ["Adam", "Bartosz", "Dariusz", "Grzegorz", "Jacek", "Kamil", "Łukasz", "Marek", "Paweł", "Tomasz"];
+    const DRIVER_SURNAME_POOL_V165 = ["Bąk", "Duda", "Górski", "Jankowski", "Kaczmarek", "Kowalski", "Król", "Mazur", "Nowak", "Wójcik"];
+    const CARRIER_NAME_POOL = ["Amber", "Baltic", "Cargo", "Dragon", "Express", "Logistic", "North", "Polonia", "Road", "Trans"];
+    const VEHICLE_BRAND_POOL_V165 = ["DAF", "MAN", "Mercedes-Benz", "Scania", "Volvo", "Renault", "Iveco"];
 
-    const CARRIER_NAME_POOL = [];
+    function deterministicFleetValueV165(index, salt, modulo) {
+      let value = Math.imul(index + 1, 1103515245) + Math.imul(salt + 17, 12345);
+      value ^= value >>> 16;
+      return Math.abs(value) % Math.max(1, modulo);
+    }
 
-    const DRIVERS = [];
+    function buildSampleFleetV165(count = 60) {
+      const dispatchers = ["MARCIN", "ADAM", "KASIA", "PIOTR"];
+      const districtLetters = ["WA", "PO", "DW", "GD", "KR", "SK", "EL", "ZS", "LU", "RZ"];
+      return Array.from({ length: count }, (_, index) => {
+        const serial = String(index + 1).padStart(2, "0");
+        const firstName = DRIVER_NAME_POOL[deterministicFleetValueV165(index, 1, DRIVER_NAME_POOL.length)];
+        const surname = DRIVER_SURNAME_POOL_V165[deterministicFleetValueV165(index, 2, DRIVER_SURNAME_POOL_V165.length)];
+        const carrierRoot = CARRIER_NAME_POOL[deterministicFleetValueV165(index, 3, CARRIER_NAME_POOL.length)];
+        const district = districtLetters[deterministicFleetValueV165(index, 4, districtLetters.length)];
+        const registration = `${district} ${String(31000 + deterministicFleetValueV165(index, 5, 68000))}`;
+        return {
+          id: `sample-fleet-v165-${serial}`,
+          dispatcher: dispatchers[index % dispatchers.length],
+          homeDispatcher: dispatchers[index % dispatchers.length],
+          carrier: `${carrierRoot} Transport ${serial}`,
+          driver: `${firstName} ${surname} ${serial}`,
+          phone: `+48 5${String(10000000 + deterministicFleetValueV165(index, 6, 89999999))}`,
+          nationality: "PL",
+          base: DRIVER_BASE_POOL[deterministicFleetValueV165(index, 7, DRIVER_BASE_POOL.length)],
+          tractorReg: registration,
+          vehicleBrand: VEHICLE_BRAND_POOL_V165[deterministicFleetValueV165(index, 8, VEHICLE_BRAND_POOL_V165.length)],
+          trailerReg: `${district} N${String(1000 + deterministicFleetValueV165(index, 9, 8999))}`,
+          trailerHeight: 2.7,
+          sampleFleet: true,
+          fleetHidden: false,
+          relationLocked: false,
+          createdBy: "V165"
+        };
+      });
+    }
+
+    const DRIVERS = buildSampleFleetV165(60);
 
     const DRIVER_ASSIGNMENT_STORAGE_KEY = "topDragonDriverAssignmentsV1";
     const DRIVER_HOME_DISPATCHERS = new Map(DRIVERS.map(driver => [driver.id, driver.dispatcher]));
@@ -60773,8 +60815,8 @@
 
     applyStoredDriverAssignments();
 
-    const BOARD_PAST_DAYS = 7;
-    const BOARD_FUTURE_DAYS = 14;
+    const BOARD_PAST_DAYS = 2;
+    const BOARD_FUTURE_DAYS = 10;
     const START_DATE = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
 
     function currentAppDate() {
@@ -65496,7 +65538,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="badge" style="gap:8px;"><span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">${esc(state.user.login)}</span><span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span></div>
                   ${state.user.role === "rozliczenia" ? `<span class="theme-pill">Widok rozliczeń</span>` : ""}
                   <button class="btn tutorial-launch-button" type="button" onclick="openTutorialMenu(event)" title="Otwórz samouczki" aria-label="Otwórz samouczki">?</button>
-                  <button class="btn" data-action="dark-mode" onclick="toggleDarkMode()">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
+                  <button class="btn" data-action="dark-mode" onclick="toggleDarkMode(event)">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
                   <button class="btn" onclick="logout()">Wyloguj</button>
                 </div>
               </div>
@@ -70433,7 +70475,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function notifyProposedLoadsIfNeeded(force = false) {
-      const silent = Boolean(state.proposedSignalSilentOnce);
       state.proposedSignalSilentOnce = false;
       if (!state.user || state.user.role !== "spedytor") return;
       const date = state.reportDate || START_DATE;
@@ -70445,8 +70486,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.proposedLastSignalKey = key;
       // Powiadomienie o wolnych ładunkach nie może samo otwierać prawego panelu.
       // Użytkownik otwiera zakładkę „Wolne ładunki” wyłącznie ręcznie.
-      if (!silent) playAttentionSound();
-      showAttentionToast(`Wolne ładunki: ${count} pojazdów spełnia wymagania zgłoszonego załadunku. Odległości są widoczne dla wszystkich spedytorów.`);
+      // Dopasowanie pozostaje widoczne na właściwym kafelku i znaczniku kolejki,
+      // ale nie tworzy już komunikatu w prawym dolnym rogu ani sygnału dźwiękowego.
       syncProposedPanel();
     }
 
@@ -75893,14 +75934,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!applyBoardOnlyMineState()) syncBoardOnly();
     }
 
-    function toggleDarkMode() {
-      state.darkMode = !state.darkMode;
+    function toggleDarkMode(event) {
       const app = document.querySelector(".app");
-      if (app) app.classList.toggle("dark-mode", Boolean(state.darkMode));
-      syncDarkModeButton();
+      const button = event?.currentTarget || document.querySelector('[data-action="dark-mode"]');
+      if (!app) return;
+      app.classList.add("theme-transition-v165");
+      state.darkMode = !state.darkMode;
+      document.documentElement.style.colorScheme = state.darkMode ? "dark" : "light";
       requestAnimationFrame(() => {
+        app.classList.toggle("dark-mode", Boolean(state.darkMode));
+        syncDarkModeButton();
+        button?.blur?.();
         try { state.leafletMap?.invalidateSize?.({ animate: false }); } catch (error) {}
       });
+      clearTimeout(state.themeTransitionTimerV165);
+      state.themeTransitionTimerV165 = setTimeout(() => app.classList.remove("theme-transition-v165"), 340);
     }
 
     function scheduleReportDateDependentPanelsSync() {
@@ -90822,7 +90870,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       requestAnimationFrame(() => prepareBoardViewportV161());
     })();
   </script>
-  <link rel="stylesheet" href="/order-entry.css?build=v164-ai-draft-minimize-sms-tabs" />
-  <script src="/order-entry.js?build=v164-ai-draft-minimize-sms-tabs"></script>
+  <style id="targeted-v165-theme-transition">
+    /* Krótka animacja wyłącznie właściwości kolorystycznych nie przelicza układu
+       tablicy i nie pogarsza przewijania przy dużej liczbie pojazdów. */
+    .app.theme-transition-v165,
+    .app.theme-transition-v165 :is(.header-inner,.card,.board-wrap,.side-panel,.panel-head,.modal,.section,.route-card,.map-head,.map-body,.head-cell,.left-cell,.day-cell,.route-cell,.time-route,.driver-week,.metric,.badge,.btn,.input,.select,.textarea,.readonly-box,.side-tool-tab) {
+      transition-property:background-color,color,border-color,box-shadow,fill,stroke,transform !important;
+      transition-duration:260ms !important;
+      transition-timing-function:ease-in-out !important;
+    }
+    @media(prefers-reduced-motion:reduce) {
+      .app.theme-transition-v165,
+      .app.theme-transition-v165 * { transition-duration:0ms !important; }
+    }
+  </style>
+  <link rel="stylesheet" href="/order-entry.css?build=v165-theme-fleet-window" />
+  <script src="/order-entry.js?build=v165-theme-fleet-window"></script>
 </body>
 </html>
