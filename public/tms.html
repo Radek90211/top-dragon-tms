@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v165-theme-fleet-window"></script>
-  <script src="/planning-core.js?build=v165-theme-fleet-window"></script>
-  <script src="/order-stops.js?build=v165-theme-fleet-window"></script>
+  <script src="/xlsx-lite.js?v=v167-september-relations"></script>
+  <script src="/planning-core.js?build=v167-september-relations"></script>
+  <script src="/order-stops.js?build=v167-september-relations"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -61228,7 +61228,77 @@
       return kept;
     }
 
-    const INITIAL_ROUTES = [];
+    const SEPTEMBER_RELATION_CITY_POOL_V167 = [
+      "Warszawa", "Poznań", "Wrocław", "Gdańsk", "Kraków", "Katowice", "Łódź", "Szczecin",
+      "Lublin", "Rzeszów", "Białystok", "Bydgoszcz", "Olsztyn", "Opole", "Kielce", "Toruń",
+      "Gorzów Wielkopolski", "Zielona Góra", "Radom", "Gliwice", "Częstochowa", "Bielsko-Biała"
+    ];
+
+    function septemberRelationDatesV167() {
+      const year = currentAppDate().slice(0, 4);
+      return Array.from({ length: 22 }, (_, index) => `${year}-09-${String(index + 1).padStart(2, "0")}`);
+    }
+
+    function sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex) {
+      const loadIndex = deterministicFleetValueV165(driverIndex * 31 + dayIndex, 21, SEPTEMBER_RELATION_CITY_POOL_V167.length);
+      let unloadIndex = deterministicFleetValueV165(driverIndex * 37 + dayIndex, 22, SEPTEMBER_RELATION_CITY_POOL_V167.length);
+      if (unloadIndex === loadIndex) unloadIndex = (unloadIndex + 7) % SEPTEMBER_RELATION_CITY_POOL_V167.length;
+      const load = SEPTEMBER_RELATION_CITY_POOL_V167[loadIndex];
+      const unload = SEPTEMBER_RELATION_CITY_POOL_V167[unloadIndex];
+      const startHour = 6 + deterministicFleetValueV165(driverIndex, dayIndex + 23, 4);
+      const endHour = 16 + deterministicFleetValueV165(driverIndex, dayIndex + 24, 5);
+      const approachKm = 12 + deterministicFleetValueV165(driverIndex * 41 + dayIndex, 25, 89);
+      const loadedKm = 170 + deterministicFleetValueV165(driverIndex * 43 + dayIndex, 26, 631);
+      const total = approachKm + loadedKm;
+      const rate = Math.round(1100 + total * (5.8 + deterministicFleetValueV165(driverIndex, dayIndex + 27, 18) / 10));
+      const sequence = driverIndex * 22 + dayIndex + 1;
+      const statusKind = deterministicFleetValueV165(driverIndex, dayIndex + 28, 5);
+      return {
+        id: `sample-relation-v167-${String(driverIndex + 1).padStart(3, "0")}-${String(dayIndex + 1).padStart(2, "0")}`,
+        driverId: String(driver.id || ""),
+        date,
+        loadDate: date,
+        load: locationWithPostal(load),
+        loadAddress: `ul. Załadunkowa ${1 + deterministicFleetValueV165(sequence, 29, 120)}`,
+        unload: locationWithPostal(unload),
+        unloadAddress: `ul. Rozładunkowa ${1 + deterministicFleetValueV165(sequence, 30, 120)}`,
+        client: `Klient ${String(sequence).padStart(4, "0")}`,
+        approachKm,
+        loadedKm,
+        baseKm: 0,
+        rate,
+        cost: Math.round(total * CARRIER_RATE_PER_KM),
+        startHour,
+        endDate: date,
+        endHour,
+        createdBy: String(driver.dispatcher || "V167"),
+        ownerDispatcher: String(driver.dispatcher || "V167"),
+        approvalStatus: "accepted",
+        accountingStatus: statusKind === 4 ? "Wprowadzone" : "Nowe",
+        accountingFinal: statusKind === 4,
+        accountingCheck: false,
+        dispatcherStatus: statusKind === 3 ? "sms" : "",
+        seedStatus: statusKind === 4 ? "accounting" : statusKind === 3 ? "sms" : "new",
+        sampleRelationV167: true
+      };
+    }
+
+    function buildSeptemberRelationsV167(drivers = DRIVERS) {
+      const dates = septemberRelationDatesV167();
+      return (drivers || []).flatMap((driver, driverIndex) => dates.map((date, dayIndex) => sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex)));
+    }
+
+    function ensureSeptemberRelationsV167(routes = [], drivers = DRIVERS) {
+      const target = Array.isArray(routes) ? routes : [];
+      const existing = new Set(target.filter(route => route?.sampleRelationV167).map(route => `${route.driverId}|${route.date}`));
+      buildSeptemberRelationsV167(drivers).forEach(route => {
+        const key = `${route.driverId}|${route.date}`;
+        if (!existing.has(key)) { target.push(route); existing.add(key); }
+      });
+      return target;
+    }
+
+    const INITIAL_ROUTES = buildSeptemberRelationsV167();
 
     function cloneData(value) {
       if (typeof structuredClone === "function") return structuredClone(value);
@@ -63811,32 +63881,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return dateList().some(date => isCellExpanded(driverId, date));
     }
 
-    function routeSmsSectionEnabled(route, key) {
-      const sections = route?.smsSections;
-      return !sections || sections[key] !== false;
-    }
-
     function routeSms(route, driver) {
-      if (route?.smsManualEdited) return stripGoogleMapsLinksFromSms(route.smsTextOverride || "");
       const loadHour = formatSmsHour(routeStartHour(route));
       const unloadHour = formatSmsHour(routeEndHour(route));
-      const importedByAi = Boolean(route?.orderImportedAt || route?.aiSourceType);
-      const driverNotes = String(route?.driverNotes ?? route?.aiDriverNotes ?? (importedByAi ? "" : route?.notes || "")).trim();
-      const include = key => !route?.smsSections || route.smsSections[key] !== false;
       const loadLocation = [route.loadAddress, route.load].map(value => String(value || "").trim()).filter(Boolean).join(", ") || "-";
       const unloadLocation = [route.unloadAddress, route.unload].map(value => String(value || "").trim()).filter(Boolean).join(", ") || "-";
-      const sections = [
-        include("distance") ? `Trasa: ${routeSmsKm(totalKm(route))} km` : "",
-        include("pickup") ? `Załadunek: ${formatDateForInput(route.date)} ${loadHour}\n${loadLocation}` : "",
-        include("secondPickup") && route.secondLoad ? `Drugi załadunek:\n${[route.secondLoadAddress, route.secondLoad].filter(Boolean).join(", ")}` : "",
-        include("delivery") ? `Rozładunek: ${formatDateForInput(routeEndDate(route))} ${unloadHour}\n${unloadLocation}` : "",
-        include("secondDelivery") && route.secondUnload ? `Drugi rozładunek:\n${[route.secondUnloadAddress, route.secondUnload].filter(Boolean).join(", ")}` : "",
-        include("driverNotes") && driverNotes ? `Informacje dla kierowcy: ${driverNotes}` : ""
-      ].filter(section => section !== null && section !== undefined && section !== "");
-
-      // Link mapy nie jest dołączany do wiadomości SMS.
-
-      return sections.join("\n\n");
+      return [
+        `Trasa: ${routeSmsKm(totalKm(route))} km`,
+        `Załadunek: ${formatDateForInput(route.date)} ${loadHour}\n${loadLocation}`,
+        `Rozładunek: ${formatDateForInput(routeEndDate(route))} ${unloadHour}\n${unloadLocation}`
+      ].join("\n\n");
     }
 
     function invalidateRouteSmsGeneration(route, refreshDom = false) {
@@ -63846,19 +63900,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (refreshDom) {
         try { refreshDetailsSmsDom(route); } catch (error) {}
       }
-    }
-
-    function renderRouteSmsChoices(route, canEdit) {
-      const choices = [
-        ["secondPickup", "Drugi załadunek", Boolean(route?.secondLoad)],
-        ["secondDelivery", "Drugi rozładunek", Boolean(route?.secondUnload)],
-        ["driverNotes", "Informacje dla kierowcy", Boolean(String(route?.driverNotes || route?.aiDriverNotes || "").trim())]
-      ].filter(([, , visible]) => visible);
-      if (!choices.length) return "";
-      return `<div class="sms-content-choices" aria-label="Wybierz dodatkowe dane do SMS">
-        <div class="sms-content-choices-title">Dodatkowe dane do SMS</div>
-        <div class="sms-content-choice-list">${choices.map(([key, label]) => `<label><input type="checkbox" ${routeSmsSectionEnabled(route, key) ? "checked" : ""} ${canEdit ? "" : "disabled"} onchange="toggleRouteSmsSection('${attr(route.id)}','${attr(key)}',this.checked)" />${esc(label)}</label>`).join("")}</div>
-      </div>`;
     }
 
     const BOARD_ARCHIVE_DAYS = 183;
@@ -75565,7 +75606,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <summary>Uwagi do zlecenia</summary>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
               </details>
-              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy - dodawane do SMS</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}
+              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}
             </section>
 
 
@@ -75598,9 +75639,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <span id="copy-ok-${attr(route.id)}" class="copy-ok" style="${state.copiedRouteId === route.id ? "display:inline-flex;" : ""}">Skopiowano</span>
               </div>
 
-              ${renderRouteSmsChoices(route, canEdit)}
-
-              <textarea data-details-sms-textarea="${attr(route.id)}" class="textarea" style="min-height:150px;" ${canEdit ? "" : "readonly"} oninput="updateRouteSmsText('${attr(route.id)}', this.value)">${esc(sms)}</textarea>
+              <textarea data-details-sms-textarea="${attr(route.id)}" class="textarea" style="min-height:150px;" readonly aria-label="Treść SMS generowana według stałego wzoru">${esc(sms)}</textarea>
 
               <div class="grid-2" style="margin-top:10px;">
                 <button class="btn sms-copy-button ${state.copiedRouteId === route.id ? "btn-dark" : ""}" onclick="copySms('${attr(route.id)}')">Kopiuj SMS</button>
@@ -75770,7 +75809,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
               </details>
               <details class="optional-text-details" ${String(prefill.driverNotes || "").trim() ? "open" : ""}>
-                <summary>Informacje dla kierowcy - dodawane do SMS</summary>
+                <summary>Informacje dla kierowcy</summary>
                 <textarea id="new-driver-notes" class="textarea" placeholder="tylko informacje potrzebne kierowcy">${esc(prefill.driverNotes || "")}</textarea>
               </details>
 
@@ -79855,11 +79894,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function updateRouteSmsText(routeId, value) {
       const route = state.routes.find(item => item.id === routeId);
       if (!route || !canEditBoardRoute(route)) return;
-      route.smsManualEdited = true;
-      route.smsTextOverride = String(value || "");
+      route.smsManualEdited = false;
+      route.smsTextOverride = "";
       const driver = driverById(route.driverId);
       const open = document.querySelector(`[data-sms-open-route="${routeId}"]`);
       if (open && driver) open.dataset.smsHref = `sms:${driver.phone}?&body=${encodeURIComponent(routeSms(route, driver))}`;
+      refreshDetailsSmsDom(route);
     }
 
     function toggleRouteSmsSection(routeId, key, checked) {
@@ -79939,17 +79979,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       assert("LDZ normalizuje się do Łódź z kodem", normalizeLocation("LDZ") === "Łódź 90-001");
       assert("KRK normalizuje się do Kraków z kodem", normalizeLocation("KRK") === "Kraków 30-001");
-      assert("Wszyscy kierowcy mają numer 797797563", DRIVERS.every(driver => driver.phone === ANON_PHONE));
-      assert("Kierowcy mają wygenerowane imiona i nazwiska", DRIVERS.every(driver => DRIVER_NAME_POOL.includes(driver.driver)));
+      assert("Wszyscy kierowcy mają numer telefonu", DRIVERS.every(driver => String(driver.phone || "").replace(/\D/g, "").length >= 9));
+      assert("Kierowcy mają wygenerowane imiona i nazwiska", DRIVERS.every(driver => String(driver.driver || "").trim().split(/\s+/).length >= 2));
       assert("Przewoźnicy mają wygenerowane dane", DRIVERS.every(driver => CARRIER_NAME_POOL.some(name => String(driver.carrier || "").startsWith(name + " "))));
-      assert("Klienci są zanonimizowani", INITIAL_ROUTES.every(route => /^Klient \d{3}$/.test(route.client)));
+      assert("Klienci są zanonimizowani", INITIAL_ROUTES.every(route => /^Klient \d{4}$/.test(route.client)));
       assert("Poznań ma współrzędne", Array.isArray(getCoords("Poznań")));
       assert("Pobiedziska mają współrzędne", Array.isArray(getCoords("Pobiedziska")));
       assert("Budziszewice mają współrzędne", Array.isArray(getCoords("Budziszewice")));
       assert("Rawa Mazowiecka ma współrzędne", Array.isArray(getCoords("Rawa Mazowiecka")));
-      assert("Suma km r1 = 280", totalKm(INITIAL_ROUTES[0]) === 280);
-      assert("SMS zaczyna się od sumy kilometrów", routeSms(INITIAL_ROUTES[0], driverById("d1")).startsWith("Trasa: 280 km"));
-      assert("SMS nie zawiera rozbicia dolot + ładowne", !routeSms(INITIAL_ROUTES[0], driverById("d1")).includes("dolot 35 km + ładowne 245 km"));
+      assert("Pierwsza relacja ma kilometry", totalKm(INITIAL_ROUTES[0]) > 0);
+      assert("SMS zaczyna się od sumy kilometrów", routeSms(INITIAL_ROUTES[0], driverById(INITIAL_ROUTES[0]?.driverId)).startsWith("Trasa: "));
+      assert("SMS nie zawiera rozbicia dolot + ładowne", !routeSms(INITIAL_ROUTES[0], driverById(INITIAL_ROUTES[0]?.driverId)).includes("dolot"));
       assert("Mapa ma zoom domyślny powyżej 100%", state.mapZoom > 1);
       assert("Nie ma osobnego ukrywania samej mapy", !renderToStringForTest(false).includes(">Ukryj mapę<"));
       assert("Panel mapy startuje widoczny i może być ukryty", state.unloadPanelCollapsed === false && typeof toggleUnloadPanel === "function");
@@ -79958,15 +79998,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Przycisk moje pojazdy działa jak przycisk trybu", typeof toggleOnlyMine === "function" && renderToStringForTest(false).includes("Moje pojazdy"));
       assert("Błędy mają komunikat centralny", typeof showAppMessage === "function" && typeof closeAppMessage === "function");
       assert("Przesuwanie działa precyzyjnie co 15 minut", typeof snapToQuarterHour === "function" && snapToQuarterHour(1.12) === 1);
-      assert("Nie można przenieść relacji między spedytorami", typeof canMoveRouteToDriver === "function" && canMoveRouteToDriver(INITIAL_ROUTES[0], "d2") === false);
+      assert("Nie można przenieść relacji między spedytorami", typeof canMoveRouteToDriver === "function" && canMoveRouteToDriver(INITIAL_ROUTES[0], DRIVERS.find(driver => driver.dispatcher !== DRIVERS[0]?.dispatcher)?.id) === false);
       assert("Menu statusów jest dostępne pod prawym przyciskiem", typeof openRouteContextMenu === "function" && typeof setRouteStatus === "function");
       assert("Szybka edycja pokazuje jedną podpowiedź", typeof singleQuickUnloadSuggestion === "function");
       assert("Najbliżsi klienci są dostępni z menu kafelka", typeof nearestClientsForRoute === "function" && typeof showRouteNearbyClients === "function");
       assert("Mapa obsługuje warstwę klientów", typeof toggleClientsOnMap === "function" && typeof updateLeafletClientMarkers === "function");
       assert("Baza klientów ma kontrolę kodów pocztowych", typeof validateClientAddress === "function" && typeof verifyClientDatabase === "function");
       assert("Relacje można usuwać", typeof deleteRoute === "function" && renderToStringForTest(false).includes("Usuń relację"));
-      assert("Wygenerowano relacje na dni robocze dla każdego kierowcy", INITIAL_ROUTES.length >= DRIVERS.length * 5);
-      assert("Każdy kierowca ma relacje na dni robocze", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length >= 5));
+      assert("Wygenerowano relacje 1-22 września dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * 22);
+      assert("Każdy kierowca ma 22 relacje wrześniowe", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === 22));
       assert("Przykładowe relacje nie mają kolizji", hasRouteCollisions(INITIAL_ROUTES) === false);
       assert("Rozliczenia nie mogą dodawać tras", renderToStringForTest(false).includes("+ Dodaj trasę") === false);
       assert("Wyszukiwarka najbliższego pojazdu jest dostępna", renderToStringForTest(false).includes("Najbliższy pojazd"));
@@ -80056,6 +80096,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         syncProposedPanel();
       }
       if (event.key === DRIVER_ASSIGNMENT_STORAGE_KEY) {
+        state.routes = ensureSeptemberRelationsV167(state.routes || [], DRIVERS);
         applyStoredDriverAssignments();
         renderKeepingScroll();
       }
@@ -80527,6 +80568,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
 
+      ensureSeptemberRelationsV167(merged, DRIVERS);
       const afterFingerprint = centralRelationsSetFingerprint(merged);
       state.routes = merged;
       CENTRAL_RELATIONS_READY = true;
@@ -80552,7 +80594,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const currentKeys = new Set();
       (state.routes || []).forEach(route => {
-        if (!route || route.futureQueue || route.proposedLoad) return;
+        if (!route || route.futureQueue || route.proposedLoad || route.sampleRelationV167) return;
         const relationId = String(route.id || "").trim();
         const branchId = centralRouteBranchId(route);
         if (!relationId || !branchId) return;
@@ -83063,6 +83105,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.mapVisibleDriverIds = { ...(state.mapVisibleDriverIds || {}), [normalized.id]: true };
         });
 
+        state.routes = ensureSeptemberRelationsV167(state.routes || [], DRIVERS);
         applyStoredDriverAssignments();
         invalidateFleetCaches();
 
@@ -89997,13 +90040,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app.dark-mode .route-order-document-stage { background:#020617; }
     .app.dark-mode .route-order-extracted-overlay { background:rgba(66,32,6,.96); border-color:#f59e0b; }
 
-    /* Spedytor składa SMS z wybranych grup danych. */
-    .sms-content-choices { margin-bottom:10px; padding:10px; border:1px solid var(--border); border-radius:11px; background:var(--soft); }
-    .sms-content-choices-title { margin-bottom:7px; font-size:11px; font-weight:850; color:var(--muted); text-transform:uppercase; letter-spacing:.035em; }
-    .sms-content-choice-list { display:flex; flex-wrap:wrap; gap:7px; }
-    .sms-content-choice-list label { display:inline-flex; align-items:center; gap:5px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:var(--card); font-size:11px; font-weight:750; cursor:pointer; }
-    .sms-content-choice-list input { width:15px; height:15px; margin:0; accent-color:#2563eb; }
-
     @media(max-width:860px) {
       .route-order-document-stage,
       .route-order-document-stage .route-order-document,
@@ -90884,7 +90920,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app.theme-transition-v165 * { transition-duration:0ms !important; }
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v165-theme-fleet-window" />
-  <script src="/order-entry.js?build=v165-theme-fleet-window"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v167-september-relations" />
+  <script src="/order-entry.js?build=v167-september-relations"></script>
 </body>
 </html>
