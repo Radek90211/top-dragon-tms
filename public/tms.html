@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v167-september-relations"></script>
-  <script src="/planning-core.js?build=v167-september-relations"></script>
-  <script src="/order-stops.js?build=v167-september-relations"></script>
+  <script src="/xlsx-lite.js?v=v168-continuous-weekend-routes"></script>
+  <script src="/planning-core.js?build=v168-continuous-weekend-routes"></script>
+  <script src="/order-stops.js?build=v168-continuous-weekend-routes"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -61284,12 +61284,45 @@
     }
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
-      const dates = septemberRelationDatesV167();
-      return (drivers || []).flatMap((driver, driverIndex) => dates.map((date, dayIndex) => sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex)));
+      const dates = septemberRelationDatesV167().filter(date => !isWeekendIso(date));
+      const lastDate = septemberRelationDatesV167().slice(-1)[0];
+      return (drivers || []).flatMap((driver, driverIndex) => {
+        let previous = null;
+        return dates.map((date, dayIndex) => {
+          const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
+          route.id = `sample-relation-v168-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 168;
+          route.startHour = previous ? previous.endHour : 6 + deterministicFleetValueV165(driverIndex, 41, 25) / 4;
+          // Wspólna granica kafelków: koniec poprzedniej trasy to początek następnej.
+          // Piątek prowadzi bezpośrednio do poniedziałku, bez oddzielnych tras weekendowych.
+          const nextDate = dates[dayIndex + 1];
+          if (nextDate) {
+            route.endDate = nextDate;
+            const monday = new Date(`${nextDate}T00:00:00Z`).getUTCDay() === 1;
+            route.endHour = monday
+              ? 6 + deterministicFleetValueV165(driverIndex * 31 + dayIndex, 42, 25) / 4
+              : 6 + deterministicFleetValueV165(driverIndex * 31 + dayIndex, 43, 49) / 4;
+          } else {
+            let endDate = addDaysToIso(date, 1);
+            while (isWeekendIso(endDate)) endDate = addDaysToIso(endDate, 1);
+            const friday = new Date(`${date}T00:00:00Z`).getUTCDay() === 5;
+            route.endDate = friday || date < lastDate ? endDate : lastDate;
+            route.endHour = friday
+              ? 6 + deterministicFleetValueV165(driverIndex, 44, 25) / 4
+              : route.endDate === date ? 18 + deterministicFleetValueV165(driverIndex, 46, 24) / 4 : 6 + deterministicFleetValueV165(driverIndex, 45, 49) / 4;
+          }
+          previous = route;
+          return route;
+        });
+      });
     }
 
     function ensureSeptemberRelationsV167(routes = [], drivers = DRIVERS) {
       const target = Array.isArray(routes) ? routes : [];
+      // Jednorazowa wymiana starego układu przykładowego. Prawdziwe relacje pozostają bez zmian.
+      for (let index = target.length - 1; index >= 0; index -= 1) {
+        if (target[index]?.sampleRelationV167 && target[index].sampleScheduleVersion !== 168) target.splice(index, 1);
+      }
       const existing = new Set(target.filter(route => route?.sampleRelationV167).map(route => `${route.driverId}|${route.date}`));
       buildSeptemberRelationsV167(drivers).forEach(route => {
         const key = `${route.driverId}|${route.date}`;
@@ -80005,8 +80038,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Mapa obsługuje warstwę klientów", typeof toggleClientsOnMap === "function" && typeof updateLeafletClientMarkers === "function");
       assert("Baza klientów ma kontrolę kodów pocztowych", typeof validateClientAddress === "function" && typeof verifyClientDatabase === "function");
       assert("Relacje można usuwać", typeof deleteRoute === "function" && renderToStringForTest(false).includes("Usuń relację"));
-      assert("Wygenerowano relacje 1-22 września dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * 22);
-      assert("Każdy kierowca ma 22 relacje wrześniowe", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === 22));
+      assert("Wygenerowano relacje 1-22 września dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * septemberRelationDatesV167().filter(date => !isWeekendIso(date)).length);
+      assert("Każdy kierowca ma ciąg relacji z weekendami", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === septemberRelationDatesV167().filter(date => !isWeekendIso(date)).length));
       assert("Przykładowe relacje nie mają kolizji", hasRouteCollisions(INITIAL_ROUTES) === false);
       assert("Rozliczenia nie mogą dodawać tras", renderToStringForTest(false).includes("+ Dodaj trasę") === false);
       assert("Wyszukiwarka najbliższego pojazdu jest dostępna", renderToStringForTest(false).includes("Najbliższy pojazd"));
@@ -90920,7 +90953,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app.theme-transition-v165 * { transition-duration:0ms !important; }
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v167-september-relations" />
-  <script src="/order-entry.js?build=v167-september-relations"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v168-continuous-weekend-routes" />
+  <script src="/order-entry.js?build=v168-continuous-weekend-routes"></script>
 </body>
 </html>
