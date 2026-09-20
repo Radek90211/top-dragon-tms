@@ -4381,7 +4381,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v169-reset-relations"
+          src="/tms.html?embedded=1&build=request-workflow-v170-stable-dense-board"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4842,3 +4842,4 @@ async function bootstrap() {
 }
 
 bootstrap().catch(renderFatalError)
+
