@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v168-continuous-weekend-routes"></script>
-  <script src="/planning-core.js?build=v168-continuous-weekend-routes"></script>
-  <script src="/order-stops.js?build=v168-continuous-weekend-routes"></script>
+  <script src="/xlsx-lite.js?v=v169-reset-relations"></script>
+  <script src="/planning-core.js?build=v169-reset-relations"></script>
+  <script src="/order-stops.js?build=v169-reset-relations"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -61290,8 +61290,8 @@
         let previous = null;
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
-          route.id = `sample-relation-v168-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 168;
+          route.id = `sample-relation-v169-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 169;
           route.startHour = previous ? previous.endHour : 6 + deterministicFleetValueV165(driverIndex, 41, 25) / 4;
           // Wspólna granica kafelków: koniec poprzedniej trasy to początek następnej.
           // Piątek prowadzi bezpośrednio do poniedziałku, bez oddzielnych tras weekendowych.
@@ -61317,17 +61317,50 @@
       });
     }
 
+    function relationMomentV169(date, hour) {
+      const day = Date.parse(`${String(date || "")}T00:00:00Z`);
+      return Number.isFinite(day) ? day + Number(hour || 0) * 3600000 : NaN;
+    }
+
+    function routesOverlapV169(left, right) {
+      if (!left || !right || String(left.driverId || "") !== String(right.driverId || "")) return false;
+      const leftStart = relationMomentV169(left.date, left.startHour);
+      const leftEnd = relationMomentV169(left.endDate || left.date, left.endHour);
+      const rightStart = relationMomentV169(right.date, right.startHour);
+      const rightEnd = relationMomentV169(right.endDate || right.date, right.endHour);
+      return [leftStart, leftEnd, rightStart, rightEnd].every(Number.isFinite) && leftStart < rightEnd && rightStart < leftEnd;
+    }
+
+    function sampleRelationSignatureV169(route) {
+      return [route?.id, route?.driverId, route?.date, Number(route?.startHour), route?.endDate, Number(route?.endHour)].join("|");
+    }
+
     function ensureSeptemberRelationsV167(routes = [], drivers = DRIVERS) {
       const target = Array.isArray(routes) ? routes : [];
-      // Jednorazowa wymiana starego układu przykładowego. Prawdziwe relacje pozostają bez zmian.
-      for (let index = target.length - 1; index >= 0; index -= 1) {
-        if (target[index]?.sampleRelationV167 && target[index].sampleScheduleVersion !== 168) target.splice(index, 1);
-      }
-      const existing = new Set(target.filter(route => route?.sampleRelationV167).map(route => `${route.driverId}|${route.date}`));
+      const realRoutes = target.filter(route => !route?.sampleRelationV167);
+      const rebuilt = [];
       buildSeptemberRelationsV167(drivers).forEach(route => {
-        const key = `${route.driverId}|${route.date}`;
-        if (!existing.has(key)) { target.push(route); existing.add(key); }
+        // Rzeczywista relacja ma pierwszeństwo. Kafelek demonstracyjny, który wszedłby
+        // na ten sam czas kierowcy, nie jest ponownie dodawany.
+        if (realRoutes.some(existing => routesOverlapV169(existing, route))) return;
+        if (rebuilt.some(existing => routesOverlapV169(existing, route))) return;
+        rebuilt.push(route);
       });
+
+      const currentSamples = target.filter(route => route?.sampleRelationV167);
+      const expectedSignatures = new Set(rebuilt.map(sampleRelationSignatureV169));
+      const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
+      const currentIsFresh = currentSamples.length === rebuilt.length
+        && currentSignatures.size === currentSamples.length
+        && currentSamples.every(route => route.sampleScheduleVersion === 169 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+      if (currentIsFresh) return target;
+
+      // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
+      // a następnie wstaw od początku jeden, sprawdzony układ bez duplikatów.
+      for (let index = target.length - 1; index >= 0; index -= 1) {
+        if (target[index]?.sampleRelationV167) target.splice(index, 1);
+      }
+      target.push(...rebuilt);
       return target;
     }
 
@@ -90953,7 +90986,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app.theme-transition-v165 * { transition-duration:0ms !important; }
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v168-continuous-weekend-routes" />
-  <script src="/order-entry.js?build=v168-continuous-weekend-routes"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v169-reset-relations" />
+  <script src="/order-entry.js?build=v169-reset-relations"></script>
 </body>
 </html>
