@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v169-reset-relations"></script>
-  <script src="/planning-core.js?build=v169-reset-relations"></script>
-  <script src="/order-stops.js?build=v169-reset-relations"></script>
+  <script src="/xlsx-lite.js?v=v170-stable-dense-board"></script>
+  <script src="/planning-core.js?build=v170-stable-dense-board"></script>
+  <script src="/order-stops.js?build=v170-stable-dense-board"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -62958,15 +62958,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return route?.timelineWidthMode === "manual" || route?.timelineWidthMode === "estimated";
     }
 
-    // 3K.6: szerokość kafelka oszacowanego z routingu kat. C nadal wynika z
-    // realnego czasu przejazdu + przerw, ale otrzymuje wcześniejsze +30%
-    // powiększenia wizualnego. Dzięki temu automatyczne wyliczenie czasu nie
-    // powoduje nagłego zwężenia świeżo dodanego kafelka na widoku 14-dniowym.
+    // Szerokość kafelka wynika wyłącznie z rzeczywistego przedziału czasu.
+    // Dzięki temu sąsiednie relacje mogą stykać się krawędziami bez kolizji.
     function routeTimelineDisplayWidthPercent(route, exactWidthPercent) {
       const exact = Math.max(0.01, Number(exactWidthPercent || 0.01));
-      if (route?.timelineWidthMode === "manual") return Math.max(1.95, exact);
-      if (route?.timelineWidthMode === "estimated") return Math.max(2.535, exact * 1.3);
-      return Math.max(2.535, exact * 1.3);
+      // Szerokość wizualna musi odpowiadać dokładnie przedziałowi czasu.
+      // Dawne powiększenie o 30% powodowało, że poprawnie następujące po sobie
+      // relacje nachodziły na kolejne kafelki mimo braku kolizji w danych.
+      return exact;
     }
 
     function snapToQuarterHour(value) {
@@ -64212,83 +64211,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       restoreScrollState(scrollState);
     }
 
-    let routeTileLabelFitFrame = 0;
-
-    function fitRouteTileLabels(root = document) {
-      const labels = Array.from(root.querySelectorAll?.(".board .time-route-title .route-unload-label") || []);
-      if (!labels.length || !document.body) return;
-
-      const measure = document.createElement("span");
-      measure.setAttribute("aria-hidden", "true");
-      Object.assign(measure.style, {
-        position: "fixed",
-        left: "-10000px",
-        top: "-10000px",
-        zIndex: "-1",
-        visibility: "hidden",
-        display: "block",
-        boxSizing: "border-box",
-        whiteSpace: "normal",
-        overflowWrap: "anywhere",
-        wordBreak: "normal",
-        textAlign: "center",
-        lineHeight: "1.02",
-        padding: "0",
-        margin: "0"
-      });
-      document.body.appendChild(measure);
-
-      labels.forEach(label => {
-        const title = label.closest(".time-route-title");
-        const tile = label.closest(".time-route");
-        if (!title || !tile || title.clientWidth < 12 || title.clientHeight < 8) return;
-
-        const indicators = title.querySelector(".route-title-indicators");
-        const indicatorWidth = indicators ? Math.ceil(indicators.offsetWidth) : 0;
-        const safeSide = indicatorWidth ? indicatorWidth + 5 : 2;
-        const availableWidth = Math.max(12, title.clientWidth - safeSide * 2);
-        const availableHeight = Math.max(8, title.clientHeight - 1);
-        const titleStyle = getComputedStyle(title);
-        const boost = Math.max(1, Number.parseFloat(getComputedStyle(tile).getPropertyValue("--route-font-boost")) || 1);
-        const minFont = Math.max(6, 7 * boost);
-        const maxFont = Math.max(minFont, Math.min(16 * boost, availableHeight * 0.78));
-
-        measure.style.width = `${availableWidth}px`;
-        measure.style.fontFamily = titleStyle.fontFamily;
-        measure.style.fontWeight = titleStyle.fontWeight;
-        measure.style.letterSpacing = titleStyle.letterSpacing;
-        measure.textContent = label.textContent || "";
-
-        let low = minFont;
-        let high = maxFont;
-        let best = minFont;
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          const candidate = (low + high) / 2;
-          measure.style.fontSize = `${candidate}px`;
-          if (measure.scrollHeight <= availableHeight + 0.5 && measure.scrollWidth <= availableWidth + 0.5) {
-            best = candidate;
-            low = candidate;
-          } else {
-            high = candidate;
-          }
-        }
-
-        title.style.setProperty("--route-indicators-width", `${indicatorWidth}px`);
-        label.style.setProperty("--route-title-fit", `${best.toFixed(2)}px`);
-      });
-
-      measure.remove();
-    }
-
     function scheduleRouteTileLabelFit() {
-      if (routeTileLabelFitFrame) return;
-      routeTileLabelFitFrame = requestAnimationFrame(() => {
-        routeTileLabelFitFrame = 0;
-        fitRouteTileLabels();
-      });
+      // Rozmiar nazw jest stały od pierwszej klatki. Pomiar każdej etykiety po
+      // renderze powodował zmianę czcionki na oczach użytkownika oraz kosztowny
+      // reflow całej tablicy przy większej liczbie kafelków.
+      return;
     }
-
-    window.addEventListener("resize", scheduleRouteTileLabelFit, { passive: true });
 
     function render() {
       const app = document.getElementById("app");
@@ -73120,6 +73048,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         String(a.dispatcher || "").localeCompare(String(b.dispatcher || ""), "pl") ||
         String(a.driver || "").localeCompare(String(b.driver || ""), "pl")
       );
+      const denseBoard = boardDrivers.length >= 40 || state.routes.filter(route => !route.futureQueue).length >= 240;
       const rowHeights = boardDrivers.length
         ? boardDrivers.map(driver => boardRowHeightForDriver(driver)).join(" ")
         : "92px";
@@ -73173,7 +73102,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             </div>
           </div>
-          <div class="board-scroll">
+          <div class="board-scroll ${denseBoard ? "board-dense-v170" : ""}">
             <div class="board ${state.hideCarrierColumn ? "carrier-hidden" : ""} ${state.hideDriverColumn ? "driver-hidden" : ""} ${state.hideParamsColumn ? "params-hidden" : ""} ${state.hideTimeAxis ? "time-axis-hidden" : ""}" style="zoom:${currentBoardScale()};--route-font-boost:${currentBoardRouteFontBoost()};grid-template-rows:38px ${rowHeights};grid-template-columns:var(--col-a) var(--col-b) var(--col-c) var(--col-d) ${boardDateTrackTemplate(dates)};min-width:${boardDateTrackMinWidth(dates)};">
               ${header}
               ${boardContent}
@@ -90947,7 +90876,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function markBoardMovingV161(viewport) {
         viewport = prepareBoardViewportV161(viewport);
-        if (!viewport || !viewport.classList.contains('board-low-scale-v161')) return;
+        if (!viewport || (!viewport.classList.contains('board-low-scale-v161') && !viewport.classList.contains('board-dense-v170'))) return;
         viewport.classList.add('board-scroll-moving-v161');
         clearTimeout(stopTimer);
         stopTimer = setTimeout(() => viewport.classList.remove('board-scroll-moving-v161'), 120);
@@ -90986,7 +90915,45 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app.theme-transition-v165 * { transition-duration:0ms !important; }
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v169-reset-relations" />
-  <script src="/order-entry.js?build=v169-reset-relations"></script>
+  <style id="targeted-v170-stable-dense-board">
+    /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
+       pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
+    .board .time-route .route-unload-label {
+      font-size:calc(15px * var(--route-font-boost,1)) !important;
+      line-height:1.02 !important;
+    }
+    .board .time-route.compact-content .route-unload-label {
+      font-size:calc(13px * var(--route-font-boost,1)) !important;
+    }
+
+    /* Przy gęstej tablicy przeglądarka pomija układ i malowanie komórek poza
+       widokiem. W czasie przewijania wyłączamy tylko kosztowne efekty. */
+    .board-scroll.board-dense-v170 {
+      overscroll-behavior:contain;
+    }
+    .board-scroll.board-dense-v170 .day-cell,
+    .board-scroll.board-dense-v170 .timeline-row {
+      content-visibility:auto;
+      contain-intrinsic-size:auto 54px;
+    }
+    .board-scroll.board-dense-v170 .day-cell,
+    .board-scroll.board-dense-v170 .time-route {
+      transition:none !important;
+    }
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .top,
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .time-route,
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .board-week-finance-col {
+      box-shadow:none !important;
+      filter:none !important;
+    }
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .board *,
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .board *::before,
+    .board-scroll.board-dense-v170.board-scroll-moving-v161 .board *::after {
+      animation-play-state:paused !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/order-entry.css?build=v170-stable-dense-board" />
+  <script src="/order-entry.js?build=v170-stable-dense-board"></script>
 </body>
 </html>
+
