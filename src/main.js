@@ -41,6 +41,16 @@ let workflowReloadTimer = null
 let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
+let boardEntryMode = 'excel'
+let boardPreferencesAvailable = false
+
+async function loadBoardEntryMode() {
+  try {
+    const { data, error } = await supabase.from('tms_board_preferences').select('entry_mode').eq('id', 'global').maybeSingle()
+    boardPreferencesAvailable = !error && ['excel', 'classic'].includes(data?.entry_mode)
+    if (boardPreferencesAvailable) boardEntryMode = data.entry_mode
+  } catch { boardPreferencesAvailable = false }
+}
 let auditedSessionUserId = ''
 // Administrator może przełączyć wyłącznie kontekst podglądu interfejsu. Konto,
 // token Supabase i uprawnienia do operacji administracyjnych pozostają bez zmian.
@@ -801,6 +811,19 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       ${renderAdminRoleGuide()}
       ${renderAdminTools(auditRows, users)}
 
+      <section class="admin-card" style="margin:16px 0">
+        <h2>Sposób pracy na planie kierowców</h2>
+        <p class="muted">Ustawienie dla wszystkich spedytorów, stosowane po ponownym otwarciu aplikacji. Zmiana trybu zachowuje relacje i oba rozładunki.</p>
+        <label>Tryb tablicy
+          <select id="board-entry-mode" ${boardPreferencesAvailable ? '' : 'disabled'}>
+            <option value="excel" ${boardEntryMode === 'excel' ? 'selected' : ''}>Szybka edycja — jak w Excelu</option>
+            <option value="classic" ${boardEntryMode === 'classic' ? 'selected' : ''}>Dotychczasowy widok</option>
+          </select>
+        </label>
+        <button type="button" id="board-entry-mode-save" ${boardPreferencesAvailable ? '' : 'disabled'}>Zapisz tryb tablicy</button>
+        <p id="board-entry-mode-status" role="status">${boardPreferencesAvailable ? '' : 'Uruchom plik supabase/board-entry-mode.sql w Supabase SQL Editor, aby aktywować przełącznik.'}</p>
+      </section>
+
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
       <div class="admin-section-title">
@@ -955,6 +978,21 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   `
 
   document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
+  document.querySelector('#board-entry-mode-save')?.addEventListener('click', async (event) => {
+    if (!isActualAdmin()) return
+    const mode = document.querySelector('#board-entry-mode')?.value
+    if (!['excel', 'classic'].includes(mode)) return
+    const button = event.currentTarget
+    const status = document.querySelector('#board-entry-mode-status')
+    button.disabled = true
+    try {
+      const { data, error } = await supabase.from('tms_board_preferences').update({ entry_mode: mode }).eq('id', 'global').select('entry_mode').single()
+      if (error || data?.entry_mode !== mode) throw error || new Error('Nie potwierdzono zapisu ustawienia.')
+      boardEntryMode = mode
+      status.textContent = 'Zapisano. Spedytorzy zobaczą wybrany tryb po ponownym otwarciu aplikacji.'
+    } catch (error) { status.textContent = `Nie zapisano: ${error.message || error}` }
+    finally { button.disabled = false }
+  })
   wireAdminPreviewControls()
   document.querySelector('#admin-data-transfer')?.addEventListener('click', () => {
     if (!isActualAdmin()) return
@@ -1176,6 +1214,8 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   // przy powrocie utworzy je ponownie i pobierze świeży snapshot.
   const viewLease=hostViews.begin('admin')
   suspendTmsRuntimeForAdminPanel()
+  await loadBoardEntryMode()
+  if (!hostViews.isCurrent(viewLease)) return
 
   if (adminCache && !forceReload) {
     if (!Array.isArray(adminCache.audit)) {
@@ -4367,6 +4407,8 @@ async function renderDashboard(user) {
 
   currentUser = user
   currentProfile = profile
+  await loadBoardEntryMode()
+  if (!hostViews.isCurrent(viewLease)) return
   if (auditedSessionUserId !== String(user.id || '')) {
     auditedSessionUserId = String(user.id || '')
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
@@ -4381,7 +4423,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v170-stable-dense-board"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v171-excel-board"
         title="Top Dragon TMS"
       ></iframe>
     </main>
