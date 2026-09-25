@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v170-stable-dense-board"></script>
-  <script src="/planning-core.js?build=v170-stable-dense-board"></script>
-  <script src="/order-stops.js?build=v170-stable-dense-board"></script>
+  <script src="/xlsx-lite.js?v=v171-excel-board"></script>
+  <script src="/planning-core.js?build=v171-excel-board"></script>
+  <script src="/order-stops.js?build=v171-excel-board"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -63905,6 +63905,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderBoardRouteTitle(route, fallbackDriver = null) {
       const indicators = `${routeDispatcherChip(route, fallbackDriver)}${routeOrderTileIcon(route)}${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}`;
+      if (excelBoardMode() && route.boardExcelSplit) {
+        return `<span class="route-title-indicators">${indicators}</span><span class="excel-stops-v171"><span class="route-unload-label" data-excel-stop="unload" title="Pierwszy rozładunek — dwuklik, aby edytować">${esc(displayCity(route.unload) || route.unload || 'Pierwszy rozładunek')}</span><span class="route-unload-label" data-excel-stop="secondUnload" title="Drugi rozładunek — dwuklik, aby edytować">${esc(displayCity(route.secondUnload) || route.secondUnload || 'Drugi rozładunek')}</span></span>`;
+      }
       return `<span class="route-title-indicators">${indicators}</span><span class="route-unload-label">${esc(routeUnloadBoardLabel(route))}</span>`;
     }
 
@@ -73092,6 +73095,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
+              ${excelBoardMode() ? `<span class="small">Dwuklik: miejscowość · ⇥│: dwa rozładunki · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
@@ -73288,6 +73292,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${renderBoardRouteTitle(route, driver)}</span>
+                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) && !route.boardExcelSplit ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwa rozładunki" title="Podziel kafelek na dwa rozładunki" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'||event.key===' '){splitExcelBoardTile(event,'${attr(route.id)}')}">⇥│</span>` : ''}
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
@@ -76147,6 +76152,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function queueOpenRouteFromBoard(event, id) {
+      if (event?.target?.closest?.('.quick-editing,.excel-split-v171')) return;
+      if (excelBoardMode()) {
+        cancelBoardRouteOpen();
+        document.querySelector('.time-route.excel-selected-v171')?.classList.remove('excel-selected-v171');
+        event?.currentTarget?.classList.add('excel-selected-v171');
+        return;
+      }
       if (event?.target?.closest?.(".time-resize")) return;
       if (Date.now() < suppressBoardRouteOpenUntil) return;
       cancelBoardRouteOpen();
@@ -76386,6 +76398,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       setTimeout(() => hideSingleSuggestionButton(document.getElementById("new-client-suggestion")), 130);
     }
 
+    function excelBoardMode() {
+      return new URLSearchParams(window.location.search).get('boardMode') !== 'classic';
+    }
+
+    function splitExcelBoardTile(event, routeId) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      cancelBoardRouteOpen();
+      const route = state.routes.find(item => item.id === routeId);
+      if (!excelBoardMode() || !route || !canEditBoardRoute(route) || isFreeDayRoute(route) || route.boardExcelSplit) return;
+      if ((route.orderStops || []).filter(point => point.type === 'delivery').length > 2) {
+        showAppMessage('Więcej niż dwa rozładunki', 'Ta relacja ma więcej punktów. Edytuj je w szczegółach pod prawym przyciskiem myszy.');
+        return;
+      }
+      route.boardExcelSplit = true;
+      if (route.secondUnload) scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
+      const tile = routeButtonElement(routeId);
+      startQuickUnloadEdit({preventDefault(){}, stopPropagation(){}, currentTarget:tile, target:tile?.querySelector('[data-excel-stop="secondUnload"]')}, routeId);
+    }
+
     function startQuickUnloadEdit(event, routeId) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -76393,6 +76426,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return false;
+      const editField = excelBoardMode() && route.boardExcelSplit && event?.target?.closest?.('[data-excel-stop]')?.dataset.excelStop === 'secondUnload' ? 'secondUnload' : 'unload';
+      const pendingSplit = Boolean(route.boardExcelSplit && !String(route.secondUnload || '').trim());
       if (!canEditBoardRoute(route)) {
         if (state.user?.role === "rozliczenia") blockAccountingOperationMessage();
         else blockForeignRouteEditMessage();
@@ -76412,7 +76447,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       button.setAttribute("draggable", "false");
       title.innerHTML = `
         <span class="quick-unload-edit-wrap">
-          <input class="quick-unload-input" list="locations-list" autocomplete="off" aria-label="Rozładunek" value="${attr(route.unload || "")}" />
+          <input class="quick-unload-input" list="locations-list" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość' : 'Miejscowość rozładunku'}" value="${attr(route[editField] || '')}" />
           <button type="button" class="quick-unload-suggestion" tabindex="-1"></button>
         </span>
       `;
@@ -76458,12 +76493,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const raw = String(forcedValue || input.value || "").trim();
         if (commit && raw) {
           const normalized = normalizeLocation(raw);
-          route.unload = normalized || raw;
+          const changedLocation = route[editField] !== (normalized || raw);
+          route[editField] = normalized || raw;
+          if (changedLocation) route[editField + 'Address'] = '';
+          route.emptyTile = false;
           route.freeDay = false;
-          const geo = postalGeoCoordsFromText(route.unload);
-          route.routeDestinationCoords = geo?.coords
-            ? { lat: Number(geo.coords[0]), lng: Number(geo.coords[1]), label: geo.label || route.unload }
+          const geo = postalGeoCoordsFromText(route[editField]);
+          route[editField === 'secondUnload' ? 'routeSecondUnloadCoords' : 'routeDestinationCoords'] = geo?.coords
+            ? { lat: Number(geo.coords[0]), lng: Number(geo.coords[1]), label: geo.label || route[editField] }
             : null;
+          if (editField === 'secondUnload' && route.orderStops?.length && route.orderStops.filter(point => point.type === 'delivery').length < 2) {
+            route.orderStops.push({type:'delivery',city:route.secondUnload,address:'',fullAddress:'',postalCode:'',date:routeEndDate(route),time:''});
+          }
+          reconcileOrderStops(route);
+          invalidateRouteSmsGeneration(route, true);
+          scheduleSavedRoutePointGeocodes(route);
+          window.resetQueueRouteAlertV154?.(route.id);
+          scheduleCentralRelationsDiff(0);
           state.detailsRoutePlannerAutoFitNext = true;
           scheduleRouteHistoryCapture(route);
           button.classList.remove("quick-editing");
@@ -76479,12 +76525,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (window.requestIdleCallback) window.requestIdleCallback(delayedMapSync, { timeout: 500 });
           else setTimeout(delayedMapSync, 120);
         } else {
+          if (route.boardExcelSplit && !String(route.secondUnload || '').trim()) {
+            delete route.boardExcelSplit;
+            scheduleCentralRelationsDiff(0);
+          }
           button.classList.remove("quick-editing");
           button.setAttribute("draggable", canEditBoardRoute(route) ? "true" : "false");
           title.innerHTML = renderBoardRouteTitle(route, driverById(route.driverId));
           scheduleRouteTileLabelFit();
           button.blur?.();
         }
+        if (pendingSplit && !route.boardExcelSplit) syncBoardOnly();
       };
 
       input.addEventListener("click", e => e.stopPropagation());
@@ -76494,9 +76545,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (e.key === "Enter") {
           e.preventDefault();
           finish(true, currentSuggestion || input.value);
-        } else if (e.key === "Tab" && currentSuggestion) {
+        } else if (e.key === "Tab") {
           e.preventDefault();
-          finish(true, currentSuggestion);
+          finish(true, currentSuggestion || input.value);
         } else if (e.key === "Escape") {
           e.preventDefault();
           finish(false);
@@ -77352,6 +77403,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function handleRouteResizePointerDown(event) {
       if (routeResize.active) return;
+      if (event.target?.closest?.('.excel-split-v171,.quick-editing')) return;
       if (event.button !== undefined && event.button !== 0) return;
       const target = event.target;
       const handle = target?.closest ? target.closest(".time-resize") : null;
@@ -90915,7 +90967,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app.theme-transition-v165 * { transition-duration:0ms !important; }
     }
   </style>
-  <style id="targeted-v170-stable-dense-board">
+  <style id="excel-board-v171">
+    .board .time-route.excel-selected-v171 { outline:2px solid #2563eb; outline-offset:-2px; }
+    .excel-stops-v171 { display:flex; flex:1 1 0; min-width:0; align-self:stretch; align-items:stretch; }
+    .board .excel-stops-v171 > .route-unload-label { flex:1 1 0 !important; width:50%; align-self:stretch !important; display:flex !important; align-items:center; justify-content:center; padding:0 4px !important; }
+    .board .excel-stops-v171 > .route-unload-label + .route-unload-label { border-left:2px solid currentColor; }
+    .excel-split-v171 { position:absolute; right:10px; bottom:1px; z-index:35; border-radius:4px; padding:1px 5px; font:700 11px/16px system-ui; background:var(--card,#fff); color:var(--text,#0f172a); border:1px solid var(--border,#cbd5e1); cursor:pointer; }
+    .excel-split-v171:focus-visible { outline:2px solid #2563eb; }
+    .quick-editing .excel-split-v171 { display:none; }
+    .quick-unload-edit-wrap { min-width:0; width:100%; }
+  </style>
+  <style id="targeted-v171-excel-board">
     /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
        pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
     .board .time-route .route-unload-label {
@@ -90952,8 +91014,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v170-stable-dense-board" />
-  <script src="/order-entry.js?build=v170-stable-dense-board"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v171-excel-board" />
+  <script src="/order-entry.js?build=v171-excel-board"></script>
 </body>
 </html>
 
