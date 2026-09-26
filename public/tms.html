@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v172-click-board-stability"></script>
-  <script src="/planning-core.js?build=v172-click-board-stability"></script>
-  <script src="/order-stops.js?build=v172-click-board-stability"></script>
+  <script src="/xlsx-lite.js?v=v173-doubleclick-split-hover"></script>
+  <script src="/planning-core.js?build=v173-doubleclick-split-hover"></script>
+  <script src="/order-stops.js?build=v173-doubleclick-split-hover"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -73132,7 +73132,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           style="grid-column:${boardDayGridColumn(dayColumnIndex, dateList())};grid-row:${row};"
           data-driver-id="${attr(driver.id)}"
           data-date="${attr(date)}"
-          onclick="if(excelBoardMode()) addExcelBoardTileV172(event, '${attr(driver.id)}', '${attr(date)}')"
+          ondblclick="if(excelBoardMode()) addExcelBoardTileV172(event, '${attr(driver.id)}', '${attr(date)}')"
           ondragover="allowRouteDrop(event)"
           ondragleave="clearDropHover(event)"
           ondrop="dropRoute(event, '${attr(driver.id)}', '${attr(date)}')"
@@ -73145,7 +73145,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           ${renderCurrentTimeLine(date)}
 
-          ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<button class="time-plus" title="Dodaj relację" onclick="openAddAt(event, '${attr(driver.id)}', '${attr(date)}')">+</button>` : ""}
+          ${["spedytor","kierownik","admin"].includes(state.user.role) ? `<button class="time-plus" title="Dodaj relację — dwuklik" ondblclick="openAddAt(event, '${attr(driver.id)}', '${attr(date)}')">+</button>` : ""}
 
           ${renderFutureDayMarker(driver, date)}
         </div>
@@ -76448,8 +76448,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       route.boardExcelSplit = true;
       if (route.secondUnload) scheduleCentralRelationsDiff(0);
-      syncBoardOnly();
       const tile = routeButtonElement(routeId);
+      const title = tile?.querySelector('.time-route-title');
+      if (title) title.innerHTML = renderBoardRouteTitle(route, driverById(route.driverId));
       startQuickUnloadEdit({preventDefault(){}, stopPropagation(){}, currentTarget:tile, target:tile?.querySelector('[data-excel-stop="secondUnload"]')}, routeId);
     }
 
@@ -76481,37 +76482,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       button.setAttribute("draggable", "false");
       title.innerHTML = `
         <span class="quick-unload-edit-wrap">
-          <input class="quick-unload-input" list="locations-list" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość' : 'Miejscowość rozładunku'}" value="${attr(route[editField] || '')}" />
-          <button type="button" class="quick-unload-suggestion" tabindex="-1"></button>
+          <input class="quick-unload-input" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość' : 'Miejscowość rozładunku'}" value="${attr(displayCity(route[editField]) || '')}" />
+          <div class="quick-unload-suggestion" role="listbox"></div>
         </span>
       `;
 
       const input = title.querySelector(".quick-unload-input");
-      const suggestionButton = title.querySelector(".quick-unload-suggestion");
-      if (!input || !suggestionButton) return false;
+      const suggestionHost = title.querySelector(".quick-unload-suggestion");
+      if (!input || !suggestionHost) return false;
 
       let finished = false;
       let currentSuggestion = "";
 
       const hideSuggestion = () => {
         currentSuggestion = "";
-        suggestionButton.textContent = "";
-        suggestionButton.classList.remove("visible");
+        suggestionHost.textContent = "";
+        suggestionHost.classList.remove("visible");
       };
 
       const updateSuggestion = () => {
         const raw = String(input.value || "").trim();
-        fillDatalist(raw);
         if (quickUnloadSuggestionTimer) clearTimeout(quickUnloadSuggestionTimer);
         hideSuggestion();
         if (raw.length < 2) return;
         quickUnloadSuggestionTimer = setTimeout(() => {
           if (finished || raw !== String(input.value || "").trim()) return;
-          const suggestion = singleQuickUnloadSuggestion(raw);
-          if (!suggestion || removePolishChars(suggestion) === removePolishChars(raw)) return;
-          currentSuggestion = suggestion;
-          suggestionButton.textContent = suggestion;
-          suggestionButton.classList.add("visible");
+          const suggestions = locationSearchOptions(raw, 6).filter(value => removePolishChars(value) !== removePolishChars(raw));
+          if (!suggestions.length) return;
+          currentSuggestion = suggestions[0];
+          suggestionHost.innerHTML = suggestions.map(value => `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}">${esc(value)}</button>`).join("");
+          suggestionHost.classList.add("visible");
         }, 180);
       };
 
@@ -76527,7 +76527,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const raw = String(forcedValue || input.value || "").trim();
         if (commit && raw) {
           delete route.quickEntryDraftV172;
-          const normalized = normalizeLocation(raw);
+          const normalized = displayCity(normalizeLocation(raw));
           const changedLocation = route[editField] !== (normalized || raw);
           route[editField] = normalized || raw;
           if (changedLocation) route[editField + 'Address'] = '';
@@ -76593,28 +76593,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           finish(false);
         } else if (e.key === "ArrowDown" && currentSuggestion) {
           e.preventDefault();
-          suggestionButton.focus();
+          suggestionHost.querySelector('.quick-unload-choice')?.focus();
         }
       });
       input.addEventListener("blur", () => {
         setTimeout(() => {
-          if (!finished && document.activeElement !== suggestionButton) finish(true);
+          if (!finished && !suggestionHost.contains(document.activeElement)) finish(true);
         }, 0);
       }, { once: true });
 
-      suggestionButton.addEventListener("pointerdown", e => {
-        e.preventDefault();
-        e.stopPropagation();
-        finish(true, currentSuggestion || suggestionButton.textContent);
+      suggestionHost.addEventListener("pointerdown", e => {
+        const choice = e.target.closest('.quick-unload-choice');
+        if (!choice) return;
+        e.preventDefault(); e.stopPropagation();
+        finish(true, choice.dataset.value || choice.textContent);
       });
-      suggestionButton.addEventListener("keydown", e => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          finish(true, currentSuggestion || suggestionButton.textContent);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          finish(false);
-        }
+      suggestionHost.addEventListener("keydown", e => {
+        const choice = e.target.closest('.quick-unload-choice');
+        if ((e.key === "Enter" || e.key === " ") && choice) { e.preventDefault(); finish(true, choice.dataset.value || choice.textContent); }
+        else if (e.key === "Escape") { e.preventDefault(); finish(false); }
       });
 
       requestAnimationFrame(() => {
@@ -91027,12 +91024,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .excel-stops-v171 { display:flex; flex:1 1 0; min-width:0; align-self:stretch; align-items:stretch; }
     .board .excel-stops-v171 > .route-unload-label { flex:1 1 0 !important; width:50%; align-self:stretch !important; display:flex !important; align-items:center; justify-content:center; padding:0 4px !important; }
     .board .excel-stops-v171 > .route-unload-label + .route-unload-label { border-left:2px solid currentColor; }
-    .excel-split-v171 { position:absolute; right:10px; bottom:1px; z-index:35; border-radius:4px; padding:1px 5px; font:700 11px/16px system-ui; background:var(--card,#fff); color:var(--text,#0f172a); border:1px solid var(--border,#cbd5e1); cursor:pointer; }
+    .excel-split-v171 { position:absolute; right:10px; bottom:1px; z-index:35; border-radius:4px; padding:1px 5px; font:700 11px/16px system-ui; background:var(--card,#fff); color:var(--text,#0f172a); border:1px solid var(--border,#cbd5e1); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .12s ease; }
+    .time-route:hover .excel-split-v171, .excel-split-v171:focus { opacity:1; pointer-events:auto; }
     .excel-split-v171:focus-visible { outline:2px solid #2563eb; }
     .quick-editing .excel-split-v171 { display:none; }
     .quick-unload-edit-wrap { min-width:0; width:100%; }
+    .quick-unload-suggestion { max-height:154px; overflow:auto; padding:3px; cursor:default; }
+    .quick-unload-choice { display:block; width:100%; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
+    .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v172-click-board-stability">
+  <style id="targeted-v173-doubleclick-split-hover">
     /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
        pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
     .board .time-route .route-unload-label {
@@ -91069,8 +91070,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v172-click-board-stability" />
-  <script src="/order-entry.js?build=v172-click-board-stability"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v173-doubleclick-split-hover" />
+  <script src="/order-entry.js?build=v173-doubleclick-split-hover"></script>
 </body>
 </html>
 
