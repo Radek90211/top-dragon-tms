@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v173-doubleclick-split-hover"></script>
-  <script src="/planning-core.js?build=v173-doubleclick-split-hover"></script>
-  <script src="/order-stops.js?build=v173-doubleclick-split-hover"></script>
+  <script src="/xlsx-lite.js?v=v174-excel-no-resize-postal-options"></script>
+  <script src="/planning-core.js?build=v174-excel-no-resize-postal-options"></script>
+  <script src="/order-stops.js?build=v174-excel-no-resize-postal-options"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -73270,11 +73270,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const hasPauseConflict = false;
 
             const canEditThisRoute = canEditBoardRoute(route);
+            const canResizeThisRoute = canEditThisRoute && !excelBoardMode();
             return `
               <button
-                class="time-route continuous ${canEditThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
+                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
                 data-route-id="${attr(route.id)}"
-                data-can-resize="${canEditThisRoute ? "1" : "0"}"
+                data-can-resize="${canResizeThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 onclick="queueOpenRouteFromBoard(event,'${attr(route.id)}')"
@@ -73284,7 +73285,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
                 style="left:${left}%;width:${renderedWidth}%;"
               >
-                ${canEditThisRoute ? `<span
+                ${canResizeThisRoute ? `<span
                   class="time-resize time-resize-left"
                   data-route-id="${attr(route.id)}"
                   title="Rozciągnij od lewej"
@@ -73298,7 +73299,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
-                ${canEditThisRoute ? `<span
+                ${canResizeThisRoute ? `<span
                   class="time-resize time-resize-right"
                   data-route-id="${attr(route.id)}"
                   title="Rozciągnij od prawej"
@@ -76510,7 +76511,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const suggestions = locationSearchOptions(raw, 6).filter(value => removePolishChars(value) !== removePolishChars(raw));
           if (!suggestions.length) return;
           currentSuggestion = suggestions[0];
-          suggestionHost.innerHTML = suggestions.map(value => `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}">${esc(value)}</button>`).join("");
+          suggestionHost.innerHTML = suggestions.map(value => {
+            const city = displayCity(value) || value;
+            const postal = postalCodeFromText(value);
+            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}</span>${postal ? `<small>${esc(postal)}</small>` : ""}</button>`;
+          }).join("");
           suggestionHost.classList.add("visible");
         }, 180);
       };
@@ -91030,10 +91035,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-editing .excel-split-v171 { display:none; }
     .quick-unload-edit-wrap { min-width:0; width:100%; }
     .quick-unload-suggestion { max-height:154px; overflow:auto; padding:3px; cursor:default; }
-    .quick-unload-choice { display:block; width:100%; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
+    .quick-unload-choice { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
+    .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; }
+    .app.dark-mode .quick-unload-choice small { color:#cbd5e1; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v173-doubleclick-split-hover">
+  <style id="targeted-v174-excel-no-resize-postal-options">
     /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
        pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
     .board .time-route .route-unload-label {
@@ -91070,8 +91077,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v173-doubleclick-split-hover" />
-  <script src="/order-entry.js?build=v173-doubleclick-split-hover"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v174-excel-no-resize-postal-options" />
+  <script src="/order-entry.js?build=v174-excel-no-resize-postal-options"></script>
 </body>
 </html>
 
