@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v174-excel-no-resize-postal-options"></script>
-  <script src="/planning-core.js?build=v174-excel-no-resize-postal-options"></script>
-  <script src="/order-stops.js?build=v174-excel-no-resize-postal-options"></script>
+  <script src="/xlsx-lite.js?v=v175-postal-prefix-entry"></script>
+  <script src="/planning-core.js?build=v175-postal-prefix-entry"></script>
+  <script src="/order-stops.js?build=v175-postal-prefix-entry"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -76481,16 +76481,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       closeRouteContextMenu(false);
       button.classList.add("quick-editing");
       button.setAttribute("draggable", "false");
+      const postalField = editField === 'secondUnload' ? 'secondUnloadPostalCode' : 'unloadPostalCode';
       title.innerHTML = `
         <span class="quick-unload-edit-wrap">
           <input class="quick-unload-input" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość' : 'Miejscowość rozładunku'}" value="${attr(displayCity(route[editField]) || '')}" />
+          <input class="quick-unload-postal" inputmode="numeric" autocomplete="off" aria-label="Początek kodu pocztowego" placeholder="kod, np. 00" maxlength="6" value="${attr(route[postalField] || postalCodeFromText(route[editField]) || '')}" />
           <div class="quick-unload-suggestion" role="listbox"></div>
         </span>
       `;
 
       const input = title.querySelector(".quick-unload-input");
+      const postalInput = title.querySelector(".quick-unload-postal");
       const suggestionHost = title.querySelector(".quick-unload-suggestion");
-      if (!input || !suggestionHost) return false;
+      if (!input || !postalInput || !suggestionHost) return false;
 
       let finished = false;
       let currentSuggestion = "";
@@ -76503,18 +76506,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const updateSuggestion = () => {
         const raw = String(input.value || "").trim();
+        const postalPrefix = String(postalInput.value || "").replace(/[^0-9-]/g, "").slice(0, 6);
         if (quickUnloadSuggestionTimer) clearTimeout(quickUnloadSuggestionTimer);
         hideSuggestion();
         if (raw.length < 2) return;
         quickUnloadSuggestionTimer = setTimeout(() => {
           if (finished || raw !== String(input.value || "").trim()) return;
-          const suggestions = locationSearchOptions(raw, 6).filter(value => removePolishChars(value) !== removePolishChars(raw));
+          const suggestions = locationSearchOptions(raw, 30)
+            .filter(value => !postalPrefix || postalCodeFromText(value).startsWith(postalPrefix))
+            .filter(value => removePolishChars(value) !== removePolishChars(raw))
+            .slice(0, 6);
           if (!suggestions.length) return;
           currentSuggestion = suggestions[0];
           suggestionHost.innerHTML = suggestions.map(value => {
             const city = displayCity(value) || value;
             const postal = postalCodeFromText(value);
-            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}</span>${postal ? `<small>${esc(postal)}</small>` : ""}</button>`;
+            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}</span>${postal ? `<small>kod ${esc(postal)}</small>` : ""}</button>`;
           }).join("");
           suggestionHost.classList.add("visible");
         }, 180);
@@ -76533,8 +76540,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (commit && raw) {
           delete route.quickEntryDraftV172;
           const normalized = displayCity(normalizeLocation(raw));
+          const selectedPostal = postalCodeFromText(forcedValue) || String(postalInput.value || "").trim();
           const changedLocation = route[editField] !== (normalized || raw);
           route[editField] = normalized || raw;
+          route[postalField] = selectedPostal;
           if (changedLocation) route[editField + 'Address'] = '';
           route.emptyTile = false;
           route.freeDay = false;
@@ -76543,9 +76552,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ? { lat: Number(geo.coords[0]), lng: Number(geo.coords[1]), label: geo.label || route[editField] }
             : null;
           if (editField === 'secondUnload' && route.orderStops?.length && route.orderStops.filter(point => point.type === 'delivery').length < 2) {
-            route.orderStops.push({type:'delivery',city:route.secondUnload,address:'',fullAddress:'',postalCode:'',date:routeEndDate(route),time:''});
+            route.orderStops.push({type:'delivery',city:route.secondUnload,address:'',fullAddress:'',postalCode:route.secondUnloadPostalCode || '',date:routeEndDate(route),time:''});
           }
           reconcileOrderStops(route);
+          const deliveryStops = route.orderStops?.filter(point => point.type === 'delivery') || [];
+          const deliveryIndex = editField === 'secondUnload' ? 1 : 0;
+          if (deliveryStops[deliveryIndex]) deliveryStops[deliveryIndex].postalCode = selectedPostal;
           invalidateRouteSmsGeneration(route, true);
           scheduleRoutePointGeocode(route, editField, () => scheduleUiSync({unload:true, details:state.detailsOpen}));
           window.resetQueueRouteAlertV154?.(route.id);
@@ -76585,14 +76597,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       input.addEventListener("click", e => e.stopPropagation());
       input.addEventListener("dblclick", e => e.stopPropagation());
+      postalInput.addEventListener("click", e => e.stopPropagation());
       input.addEventListener("input", updateSuggestion);
+      postalInput.addEventListener("input", updateSuggestion);
       input.addEventListener("keydown", e => {
         if (e.key === "Enter") {
           e.preventDefault();
           finish(true, currentSuggestion || input.value);
         } else if (e.key === "Tab") {
           e.preventDefault();
-          finish(true, currentSuggestion || input.value);
+          postalInput.focus();
         } else if (e.key === "Escape") {
           e.preventDefault();
           finish(false);
@@ -76603,14 +76617,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
       input.addEventListener("blur", () => {
         setTimeout(() => {
-          if (!finished && !suggestionHost.contains(document.activeElement)) finish(true);
+          if (!finished && document.activeElement !== postalInput && !suggestionHost.contains(document.activeElement)) finish(true);
         }, 0);
       }, { once: true });
+      postalInput.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); finish(true, currentSuggestion || input.value); }
+        else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      });
+      postalInput.addEventListener("blur", () => {
+        setTimeout(() => { if (!finished && !suggestionHost.contains(document.activeElement)) finish(true); }, 0);
+      }, { once:true });
 
       suggestionHost.addEventListener("pointerdown", e => {
         const choice = e.target.closest('.quick-unload-choice');
         if (!choice) return;
         e.preventDefault(); e.stopPropagation();
+        const code = postalCodeFromText(choice.dataset.value || choice.textContent);
+        if (code) postalInput.value = code;
         finish(true, choice.dataset.value || choice.textContent);
       });
       suggestionHost.addEventListener("keydown", e => {
@@ -91038,9 +91061,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-choice { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
     .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; }
     .app.dark-mode .quick-unload-choice small { color:#cbd5e1; }
+    .quick-unload-edit-wrap { display:grid; grid-template-columns:minmax(0,1fr) 54px; gap:4px; align-items:center; }
+    .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
+    .quick-unload-postal { width:54px; height:22px; border:1px solid #64748b; border-radius:6px; background:#fff; color:#0f172a; padding:2px 5px; font:850 10px/1 system-ui; outline:none; text-align:center; }
+    .quick-unload-postal:focus { border-color:#0f172a; box-shadow:0 0 0 2px rgba(15,23,42,.12); }
+    .app.dark-mode .quick-unload-postal { background:#111827; color:#f8fafc; border-color:#94a3b8; }
+    .quick-unload-edit-wrap::after { content:"Kod"; position:absolute; right:7px; top:-10px; padding:0 2px; background:var(--card,#fff); color:var(--muted,#64748b); font-size:7px; font-weight:900; pointer-events:none; }
+    .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v174-excel-no-resize-postal-options">
+  <style id="targeted-v175-postal-prefix-entry">
     /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
        pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
     .board .time-route .route-unload-label {
@@ -91077,8 +91107,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v174-excel-no-resize-postal-options" />
-  <script src="/order-entry.js?build=v174-excel-no-resize-postal-options"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v175-postal-prefix-entry" />
+  <script src="/order-entry.js?build=v175-postal-prefix-entry"></script>
 </body>
 </html>
 
