@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v183-tile-keyboard-fast-color"></script>
-  <script src="/planning-core.js?build=v183-tile-keyboard-fast-color"></script>
-  <script src="/order-stops.js?build=v183-tile-keyboard-fast-color"></script>
+  <script src="/xlsx-lite.js?v=v184-smooth-pairs-board-fill"></script>
+  <script src="/planning-core.js?build=v184-smooth-pairs-board-fill"></script>
+  <script src="/order-stops.js?build=v184-smooth-pairs-board-fill"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -61236,7 +61236,11 @@
 
     function septemberRelationDatesV167() {
       const year = currentAppDate().slice(0, 4);
-      return Array.from({ length: 22 }, (_, index) => `${year}-09-${String(index + 1).padStart(2, "0")}`);
+      return [
+        `${year}-09-28`, `${year}-09-29`, `${year}-09-30`,
+        `${year}-10-01`, `${year}-10-02`, `${year}-10-03`,
+        `${year}-10-04`, `${year}-10-05`, `${year}-10-06`
+      ];
     }
 
     function sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex) {
@@ -61251,7 +61255,7 @@
       const loadedKm = 170 + deterministicFleetValueV165(driverIndex * 43 + dayIndex, 26, 631);
       const total = approachKm + loadedKm;
       const rate = Math.round(1100 + total * (5.8 + deterministicFleetValueV165(driverIndex, dayIndex + 27, 18) / 10));
-      const sequence = driverIndex * 22 + dayIndex + 1;
+      const sequence = driverIndex * 9 + dayIndex + 1;
       const statusKind = deterministicFleetValueV165(driverIndex, dayIndex + 28, 5);
       return {
         id: `sample-relation-v167-${String(driverIndex + 1).padStart(3, "0")}-${String(dayIndex + 1).padStart(2, "0")}`,
@@ -61284,34 +61288,16 @@
     }
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
-      const dates = septemberRelationDatesV167().filter(date => !isWeekendIso(date));
-      const lastDate = septemberRelationDatesV167().slice(-1)[0];
+      const dates = septemberRelationDatesV167();
       return (drivers || []).flatMap((driver, driverIndex) => {
-        let previous = null;
-        return dates.map((date, dayIndex) => {
+        return dates.filter(date => date !== `${currentAppDate().slice(0, 4)}-10-06` || driverIndex < 16).map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
-          route.id = `sample-relation-v169-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 169;
-          route.startHour = previous ? previous.endHour : 6 + deterministicFleetValueV165(driverIndex, 41, 25) / 4;
-          // Wspólna granica kafelków: koniec poprzedniej trasy to początek następnej.
-          // Piątek prowadzi bezpośrednio do poniedziałku, bez oddzielnych tras weekendowych.
-          const nextDate = dates[dayIndex + 1];
-          if (nextDate) {
-            route.endDate = nextDate;
-            const monday = new Date(`${nextDate}T00:00:00Z`).getUTCDay() === 1;
-            route.endHour = monday
-              ? 6 + deterministicFleetValueV165(driverIndex * 31 + dayIndex, 42, 25) / 4
-              : 6 + deterministicFleetValueV165(driverIndex * 31 + dayIndex, 43, 49) / 4;
-          } else {
-            let endDate = addDaysToIso(date, 1);
-            while (isWeekendIso(endDate)) endDate = addDaysToIso(endDate, 1);
-            const friday = new Date(`${date}T00:00:00Z`).getUTCDay() === 5;
-            route.endDate = friday || date < lastDate ? endDate : lastDate;
-            route.endHour = friday
-              ? 6 + deterministicFleetValueV165(driverIndex, 44, 25) / 4
-              : route.endDate === date ? 18 + deterministicFleetValueV165(driverIndex, 46, 24) / 4 : 6 + deterministicFleetValueV165(driverIndex, 45, 49) / 4;
-          }
-          previous = route;
+          route.id = `sample-relation-v184-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 184;
+          route.startHour = 0;
+          route.endDate = date;
+          route.endHour = 24;
+          route.timelineWidthMode = "manual";
           return route;
         });
       });
@@ -61352,7 +61338,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 169 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 184 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -76479,6 +76465,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return true;
     }
 
+    function actualExcelSplitPartner(route) {
+      if (!route?.boardSplitGroupId) return null;
+      return state.routes.find(item => item.id !== route.id
+        && item.boardSplitGroupId === route.boardSplitGroupId
+        && item.driverId === route.driverId
+        && item.date === route.date) || null;
+    }
+
+    function clearStaleExcelSplitState(route) {
+      if (!route?.boardSplitGroupId || actualExcelSplitPartner(route)) return false;
+      delete route.boardSplitGroupId;
+      delete route.boardSplitPart;
+      setExcelRouteToDay(route, route.date);
+      updateRouteResizePreview(route);
+      return true;
+    }
+
     function releaseExcelSplitPartner(route) {
       if (!route?.boardSplitGroupId) return;
       const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
@@ -76486,10 +76489,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         delete partner.boardSplitGroupId;
         delete partner.boardSplitPart;
         setExcelRouteToDay(partner, partner.date);
+        updateRouteResizePreview(partner);
       }
       delete route.boardSplitGroupId;
       delete route.boardSplitPart;
       setExcelRouteToDay(route, route.date);
+      updateRouteResizePreview(route);
     }
 
     function dropExcelRouteOnTile(event, targetRouteId) {
@@ -76500,7 +76505,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const source = state.routes.find(item => String(item.id) === String(sourceRouteId));
       const target = state.routes.find(item => String(item.id) === String(targetRouteId));
       if (!source || !target || source.id === target.id || !canEditBoardRoute(source)) return;
-      if (target.boardSplitGroupId) {
+      clearStaleExcelSplitState(target);
+      if (actualExcelSplitPartner(target)) {
         showAppMessage("Dzień jest już połączony", "Najpierw rozdziel istniejącą parę relacji.");
         return;
       }
@@ -76512,8 +76518,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       source.ownerDispatcher = driverById(target.driverId)?.dispatcher || source.ownerDispatcher;
       clearRouteDragState();
-      scheduleCentralRelationsDiff(0);
-      syncBoardOnly();
+      applyRouteMoveDomPreview(source);
+      updateRouteResizePreview(target);
+      scheduleCentralRelationsDiff(350);
+      scheduleRouteMoveBoardReconcile(320);
     }
 
     function separateExcelRoutePair(event, routeId) {
@@ -76535,8 +76543,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       delete partner.boardSplitPart;
       setExcelRouteToDay(partner, currentDate);
       setExcelRouteToDay(route, nextDate);
-      scheduleCentralRelationsDiff(0);
-      syncBoardOnly();
+      updateRouteResizePreview(partner);
+      applyRouteMoveDomPreview(route);
+      scheduleCentralRelationsDiff(350);
+      scheduleRouteMoveBoardReconcile(320);
     }
     function showExcelDayOccupiedMessage() {
       showAppMessage("Dzień jest już zajęty", "W trybie jak w Excelu jeden dzień kierowcy może zawierać jedną relację. Użyj Podziel, aby dodać drugi rozładunek do tego samego kafelka.");
@@ -76808,11 +76818,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const route = state.routes.find(item => item.id === routeId);
       if (!route || !canEditBoardRoute(route)) return;
       if (color === "red") route.boardFontColor = "red"; else delete route.boardFontColor;
-      scheduleCentralRelationsDiff(0);
-      state.contextMenu = null;
-      syncRouteContextMenu();
       const tile = routeButtonElement(routeId);
       if (tile) tile.classList.toggle("route-text-red-v177", route.boardFontColor === "red");
+      state.contextMenu = null;
+      document.querySelector(".route-context-menu")?.remove();
+      scheduleCentralRelationsDiff(450);
     }
     function setRouteStatus(routeId, status) {
       const route = state.routes.find(item => item.id === routeId);
@@ -91227,7 +91237,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v183-tile-keyboard-fast-color">
+  <style id="targeted-v184-smooth-pairs-board-fill">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -91278,8 +91288,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v183-tile-keyboard-fast-color" />
-  <script src="/order-entry.js?build=v183-tile-keyboard-fast-color"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v184-smooth-pairs-board-fill" />
+  <script src="/order-entry.js?build=v184-smooth-pairs-board-fill"></script>
 </body>
 </html>
 
