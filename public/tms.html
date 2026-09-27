@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v184-smooth-pairs-board-fill"></script>
-  <script src="/planning-core.js?build=v184-smooth-pairs-board-fill"></script>
-  <script src="/order-stops.js?build=v184-smooth-pairs-board-fill"></script>
+  <script src="/xlsx-lite.js?v=v187-location-suggestions-stable-board"></script>
+  <script src="/planning-core.js?build=v187-location-suggestions-stable-board"></script>
+  <script src="/order-stops.js?build=v187-location-suggestions-stable-board"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -62433,6 +62433,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       leafletTileLayer: null,
       leafletDataSignature: "",
       leafletFitSignature: "",
+      leafletClientPointsRef: null,
+      leafletClientModeKey: "",
+      leafletClientRevision: 0,
+      leafletBaseModeKey: "",
+      leafletBaseRevision: 0,
       leafletRenderToken: 0,
       unloadRoutePreviewLayer: null,
       unloadRoutePreviewRouteId: "",
@@ -68596,6 +68601,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function toggleNearestVehiclePanel() {
       state.nearestPanelOpen = !state.nearestPanelOpen;
+      document.querySelector(".nearest-suggestions-portal-v187")?.remove();
       replaceElementHtml("#nearest-vehicle-section", renderNearestVehicleSearch());
       try { syncWorkspaceToolTabs(); } catch (error) {}
     }
@@ -68614,8 +68620,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function updateNearestSuggestionsBox() {
       const box = document.getElementById("nearest-suggestions-box");
-      if (!box) return;
-      box.innerHTML = renderNearestSuggestions();
+      document.querySelector(".nearest-suggestions-portal-v187")?.remove();
+      if (box) box.innerHTML = "";
+      if (!box || !state.nearestSuggestions.length) return;
+      const input = document.querySelector(".nearest-search-wrap input");
+      const rect = input?.getBoundingClientRect?.();
+      if (!rect) return;
+      const portal = document.createElement("div");
+      portal.className = "nearest-suggestions-portal-v187";
+      portal.innerHTML = renderNearestSuggestions();
+      const availableBelow = Math.max(0, window.innerHeight - rect.bottom - 8);
+      const availableAbove = Math.max(0, rect.top - 8);
+      const openBelow = availableBelow >= 160 || availableBelow >= availableAbove;
+      const listHeight = Math.min(230, Math.max(90, openBelow ? availableBelow : availableAbove));
+      portal.style.left = `${Math.max(8, rect.left)}px`;
+      portal.style.top = `${openBelow ? rect.bottom + 4 : Math.max(8, rect.top - listHeight - 4)}px`;
+      portal.style.width = `${Math.max(220, rect.width)}px`;
+      portal.style.maxHeight = `${listHeight}px`;
+      document.body.appendChild(portal);
     }
 
     function renderNearestVehicleResults() {
@@ -73086,7 +73108,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
-              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz · Prawy przycisk: szczegóły</span>` : ''}
+              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz maks. 3 · Ctrl+C, wybierz dzień, Ctrl+V: kopiuj · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
@@ -73122,6 +73144,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           style="grid-column:${boardDayGridColumn(dayColumnIndex, dateList())};grid-row:${row};"
           data-driver-id="${attr(driver.id)}"
           data-date="${attr(date)}"
+          onclick="selectExcelBoardCellV186(event, '${attr(driver.id)}', '${attr(date)}')"
           ondblclick="if(excelBoardMode()) addExcelBoardTileV172(event, '${attr(driver.id)}', '${attr(date)}')"
           ondragover="allowRouteDrop(event)"
           ondragleave="clearDropHover(event)"
@@ -73607,11 +73630,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function scheduleLeafletMapSync(points) {
-      const signature = JSON.stringify({ points, dependencies: mapDependencySignature(points) }).replaceAll("<", "\u003c");
+      // Zmiana daty wpływa tylko na pojazdy. Nie dokładamy do sygnatury setek
+      // klientów, baz i wszystkich relacji, bo te warstwy są synchronizowane osobno.
+      const signature = JSON.stringify(points || []).replaceAll("<", "\u003c");
       const renderToken = ++state.leafletRenderToken;
       requestAnimationFrame(() => {
         if (renderToken !== state.leafletRenderToken) return;
-        syncLeafletMap(points, signature);
+        setTimeout(() => {
+          if (renderToken !== state.leafletRenderToken) return;
+          syncLeafletMap(points, signature);
+        }, 0);
       });
     }
 
@@ -73812,6 +73840,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.leafletClientMarkers = new Map();
           state.leafletDataSignature = "";
           state.leafletFitSignature = "";
+          state.leafletClientPointsRef = null;
+          state.leafletClientModeKey = "";
+          state.leafletBaseModeKey = "";
 
           const polandBounds = leafletPolandBounds();
 
@@ -73900,15 +73931,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         if (state.leafletDataSignature !== signature) {
           updateLeafletMarkers(points);
-          updateLeafletClientMarkers();
-          updateLeafletBaseMarkers();
           state.leafletDataSignature = signature;
         }
 
-        const clientPoints = (state.showClientsOnMap || state.showUnassignedClientsOnMap) ? clientMapPoints() : [];
+        const clientsVisible = state.showClientsOnMap || state.showUnassignedClientsOnMap;
+        const clientPoints = clientsVisible ? clientMapPoints() : null;
+        const clientModeKey = `${state.showClientsOnMap ? 1 : 0}:${state.showUnassignedClientsOnMap ? 1 : 0}:${currentClientMapHistoryDays()}`;
+        if (state.leafletClientPointsRef !== clientPoints || state.leafletClientModeKey !== clientModeKey) {
+          updateLeafletClientMarkers();
+          state.leafletClientPointsRef = clientPoints;
+          state.leafletClientModeKey = clientModeKey;
+          state.leafletClientRevision = Number(state.leafletClientRevision || 0) + 1;
+        }
+
+        const baseModeKey = `${state.showDriverBasesOnMap ? 1 : 0}:${DRIVERS.length}`;
+        if (state.leafletBaseModeKey !== baseModeKey) {
+          updateLeafletBaseMarkers();
+          state.leafletBaseModeKey = baseModeKey;
+          state.leafletBaseRevision = Number(state.leafletBaseRevision || 0) + 1;
+        }
         const basePoints = state.showDriverBasesOnMap ? driverBaseMapPoints() : [];
-        const fitPoints = [...points, ...clientPoints.map(point => ({ coords: point.coords })), ...basePoints.map(point => ({ coords: point.coords }))];
-        const fitSignature = `${leafletFitSignature(points)}|clients:${clientPoints.map(point => `${point.id}:${markerLocationKey(point.coords)}`).join(";")}|bases:${basePoints.map(point => `${point.id}:${markerLocationKey(point.coords)}`).join(";")}`;
+        const fitPoints = [...points, ...(clientPoints || []).map(point => ({ coords: point.coords })), ...basePoints.map(point => ({ coords: point.coords }))];
+        const fitSignature = `${leafletFitSignature(points)}|clients:${state.leafletClientRevision || 0}|bases:${state.leafletBaseRevision || 0}`;
 
         if (state.leafletFitSignature !== fitSignature) {
           fitLeafletMapToPoints(fitPoints, fitSignature);
@@ -76168,10 +76212,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     let boardRouteClipboardV183 = null;
+    const BOARD_ROUTE_CLIPBOARD_KEY_V186 = "top-dragon-board-route-clipboard-v186";
+    let selectedExcelBoardCellV186 = null;
 
     function selectedBoardRouteV183() {
       const tile = document.querySelector(".time-route.excel-selected-v171[data-route-id]");
       return tile ? state.routes.find(route => String(route.id) === String(tile.dataset.routeId)) || null : null;
+    }
+
+    function boardRouteSnapshotV186(route) {
+      return JSON.parse(JSON.stringify(route, (key, value) => {
+        if (String(key).startsWith("_central")) return undefined;
+        if (typeof value === "string" && value.length > 1000 && /^data:/i.test(value)) return undefined;
+        return value;
+      }));
     }
 
     function routeClipboardTextV183(route) {
@@ -76184,16 +76238,99 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         `Rozładunek: ${[route?.unloadAddress, route?.unload].filter(Boolean).join(", ") || "-"}`,
         route?.secondUnload ? `Drugi rozładunek: ${[route.secondUnloadAddress, route.secondUnload].filter(Boolean).join(", ")}` : "",
         `Klient: ${route?.client || "-"}`
-      ].filter(Boolean).join("\n");
+      ].filter(Boolean).join("\n") + `\nTOP_DRAGON_ROUTE_V186:${btoa(unescape(encodeURIComponent(JSON.stringify(boardRouteSnapshotV186(route)))))} `;
+    }
+
+    function routeFromClipboardTextV186(text) {
+      const marker = String(text || "").match(/TOP_DRAGON_ROUTE_V186:([^\s]+)/);
+      if (!marker) return null;
+      try { return JSON.parse(decodeURIComponent(escape(atob(marker[1])))); }
+      catch (error) { return null; }
     }
 
     function copySelectedBoardRouteV183(cut = false) {
       const route = selectedBoardRouteV183();
       if (!route || !canEditBoardRoute(route)) return false;
-      boardRouteClipboardV183 = JSON.parse(JSON.stringify(route));
+      boardRouteClipboardV183 = boardRouteSnapshotV186(route);
+      try {
+        localStorage.setItem(BOARD_ROUTE_CLIPBOARD_KEY_V186, JSON.stringify({ version:186, copiedAt:new Date().toISOString(), route:boardRouteClipboardV183 }));
+      } catch (error) {}
       navigator.clipboard?.writeText?.(routeClipboardTextV183(route)).catch(() => {});
       if (cut) deleteRoute(route.id);
       else showAppMessage("Skopiowano kafelek", "Dane relacji zostały skopiowane do schowka.", "success");
+      return true;
+    }
+
+    function selectExcelBoardCellV186(event, driverId, date) {
+      if (!excelBoardMode() || event?.target?.closest?.(".time-route,.time-plus")) return;
+      document.querySelector(".time-route.excel-selected-v171")?.classList.remove("excel-selected-v171");
+      document.querySelectorAll(".day-cell.excel-paste-target-v186").forEach(cell => cell.classList.remove("excel-paste-target-v186"));
+      const cell = event?.currentTarget?.closest?.(".day-cell") || event?.currentTarget;
+      cell?.classList?.add?.("excel-paste-target-v186");
+      selectedExcelBoardCellV186 = { driverId:String(driverId || ""), date:String(date || "") };
+    }
+
+    function boardRouteClipboardPayloadV186() {
+      if (boardRouteClipboardV183) return JSON.parse(JSON.stringify(boardRouteClipboardV183));
+      try {
+        const stored = JSON.parse(localStorage.getItem(BOARD_ROUTE_CLIPBOARD_KEY_V186) || "null");
+        if (stored?.route && stored.version === 186) return JSON.parse(JSON.stringify(stored.route));
+      } catch (error) {}
+      return null;
+    }
+
+    function boardPasteTargetV186() {
+      const selectedRoute = selectedBoardRouteV183();
+      if (selectedRoute) return { driverId:String(selectedRoute.driverId || ""), date:String(selectedRoute.date || "") };
+      return selectedExcelBoardCellV186;
+    }
+
+    function pasteBoardRouteV186() {
+      if (!excelBoardMode()) return false;
+      const source = boardRouteClipboardPayloadV186();
+      const target = boardPasteTargetV186();
+      if (!source || !target?.driverId || !target?.date) {
+        showAppMessage("Wybierz miejsce", "Skopiuj kafelek, kliknij docelowy dzień na swojej tablicy i użyj Ctrl + V.");
+        return false;
+      }
+      const targetDriver = driverById(target.driverId);
+      const candidate = { driverId:target.driverId, ownerDispatcher:targetDriver?.dispatcher || "", createdBy:state.user?.login || "" };
+      if (!targetDriver || state.user?.role !== "spedytor") {
+        showAppMessage("Brak uprawnień", "Kopię relacji może umieścić na tablicy spedytor.");
+        return false;
+      }
+      const occupied = activeRoutes().filter(item => item.driverId === target.driverId && item.approvalStatus !== "rejected" && routeOverlapsDate(item, target.date));
+      if (occupied.length >= 3) {
+        showAppMessage("Osiągnięto limit", "W jednym dniu można połączyć maksymalnie trzy relacje.");
+        return false;
+      }
+      const copy = source;
+      copy.id = `copy-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      copy.driverId = target.driverId;
+      copy.ownerDispatcher = targetDriver.dispatcher;
+      copy.createdBy = state.user.login;
+      copy.createdAt = new Date().toISOString();
+      copy.updatedAt = copy.createdAt;
+      copy.approvalStatus = targetDriver.dispatcher === state.user.login ? "approved" : "pending";
+      copy.dispatcherStatus = "";
+      copy.accountingCheck = false;
+      copy.accountingFinal = false;
+      copy.accountingStatus = "Nowe";
+      delete copy.boardSplitGroupId;
+      delete copy.boardSplitPart;
+      delete copy.supabaseRelation;
+      Object.keys(copy).filter(key => key.startsWith("_central")).forEach(key => delete copy[key]);
+      setExcelRouteToDay(copy, target.date);
+      stampRouteAdded(copy);
+      state.routes.push(copy);
+      if (occupied.length && !joinExcelRoutes(copy, target.driverId, target.date)) {
+        state.routes = state.routes.filter(item => item !== copy);
+        showAppMessage("Nie można połączyć", "W jednym dniu można połączyć maksymalnie trzy relacje.");
+        return false;
+      }
+      scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
+      showAppMessage("Wklejono kopię", `${routeUnloadBoardTitle(copy)} · ${targetDriver.driver}.`, "success");
       return true;
     }
 
@@ -76212,6 +76349,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           event.preventDefault();
           deleteRoute(route.id);
         }
+      }
+    });
+
+    document.addEventListener("paste", event => {
+      if (!excelBoardMode()) return;
+      const target = event.target;
+      if (target?.matches?.("input,textarea,select") || target?.isContentEditable) return;
+      const sharedRoute = routeFromClipboardTextV186(event.clipboardData?.getData?.("text/plain") || "");
+      if (sharedRoute) {
+        boardRouteClipboardV183 = sharedRoute;
+        try { localStorage.setItem(BOARD_ROUTE_CLIPBOARD_KEY_V186, JSON.stringify({version:186,copiedAt:new Date().toISOString(),route:sharedRoute})); } catch (error) {}
+      }
+      if (sharedRoute || boardRouteClipboardPayloadV186()) {
+        event.preventDefault();
+        pasteBoardRouteV186();
       }
     });
 
@@ -76452,15 +76604,39 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route.date = date; route.endDate = date; route.startHour = 0; route.endHour = 24; route.timelineWidthMode = "manual";
       invalidateRouteSmsGeneration(route, false); return route;
     }
+    function excelSplitGroupMembersV186(route) {
+      if (!route?.boardSplitGroupId) return route ? [route] : [];
+      return activeRoutes().filter(item => item.boardSplitGroupId === route.boardSplitGroupId
+        && item.driverId === route.driverId && item.date === route.date && item.approvalStatus !== "rejected");
+    }
+    function normalizeExcelSplitGroupV186(routes, date) {
+      const members = Array.from(new Map((routes || []).map(item => [String(item.id), item])).values());
+      if (!members.length) return members;
+      if (members.length === 1) {
+        delete members[0].boardSplitGroupId; delete members[0].boardSplitPart;
+        setExcelRouteToDay(members[0], date || members[0].date);
+        updateRouteResizePreview(members[0]);
+        return members;
+      }
+      const groupId = members.find(item => item.boardSplitGroupId)?.boardSplitGroupId || `split-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+      members.sort((a,b) => Number(a.boardSplitPart || 99) - Number(b.boardSplitPart || 99) || routeGlobalStart(a) - routeGlobalStart(b));
+      members.forEach((item, index) => {
+        item.boardSplitGroupId = groupId; item.boardSplitPart = index + 1;
+        setExcelRouteToDay(item, date || item.date);
+        item.startHour = (24 * index) / members.length;
+        item.endHour = (24 * (index + 1)) / members.length;
+        updateRouteResizePreview(item);
+      });
+      return members;
+    }
     function joinExcelRoutes(route, driverId, date) {
       const existing = activeRoutes().filter(item => item.id !== route.id && item.driverId === driverId && item.approvalStatus !== "rejected" && routeOverlapsDate(item, date));
-      if (existing.length !== 1) return false;
-      const base = existing[0];
-      const groupId = base.boardSplitGroupId || `split-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
-      base.boardSplitGroupId = groupId; base.boardSplitPart = 1;
-      setExcelRouteToDay(base, date); base.endHour = 12;
-      route.driverId = driverId; route.boardSplitGroupId = groupId; route.boardSplitPart = 2;
-      setExcelRouteToDay(route, date); route.startHour = 12;
+      if (!existing.length || existing.length >= 3) return false;
+      const existingGroupIds = new Set(existing.map(item => item.boardSplitGroupId).filter(Boolean));
+      if (existingGroupIds.size > 1) return false;
+      route.driverId = driverId;
+      setExcelRouteToDay(route, date);
+      normalizeExcelSplitGroupV186([...existing, route], date);
       scheduleCentralRelationsDiff(0);
       return true;
     }
@@ -76474,7 +76650,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function clearStaleExcelSplitState(route) {
-      if (!route?.boardSplitGroupId || actualExcelSplitPartner(route)) return false;
+      if (!route?.boardSplitGroupId || excelSplitGroupMembersV186(route).length >= 2) return false;
       delete route.boardSplitGroupId;
       delete route.boardSplitPart;
       setExcelRouteToDay(route, route.date);
@@ -76484,17 +76660,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function releaseExcelSplitPartner(route) {
       if (!route?.boardSplitGroupId) return;
-      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
-      if (partner) {
-        delete partner.boardSplitGroupId;
-        delete partner.boardSplitPart;
-        setExcelRouteToDay(partner, partner.date);
-        updateRouteResizePreview(partner);
-      }
+      const remaining = excelSplitGroupMembersV186(route).filter(item => item.id !== route.id);
       delete route.boardSplitGroupId;
       delete route.boardSplitPart;
       setExcelRouteToDay(route, route.date);
       updateRouteResizePreview(route);
+      normalizeExcelSplitGroupV186(remaining, remaining[0]?.date || route.date);
     }
 
     function dropExcelRouteOnTile(event, targetRouteId) {
@@ -76506,8 +76677,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const target = state.routes.find(item => String(item.id) === String(targetRouteId));
       if (!source || !target || source.id === target.id || !canEditBoardRoute(source)) return;
       clearStaleExcelSplitState(target);
-      if (actualExcelSplitPartner(target)) {
-        showAppMessage("Dzień jest już połączony", "Najpierw rozdziel istniejącą parę relacji.");
+      if (excelSplitGroupMembersV186(target).length >= 3) {
+        showAppMessage("Osiągnięto limit", "W jednym dniu można połączyć maksymalnie trzy relacje.");
         return;
       }
       if (rejectCrossDispatcherMove(source, target.driverId)) return;
@@ -76529,27 +76700,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       event?.stopPropagation?.();
       const route = state.routes.find(item => item.id === routeId);
       if (!route?.boardSplitGroupId || !canEditBoardRoute(route)) return;
-      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
-      if (!partner) return;
+      const members = excelSplitGroupMembersV186(route);
+      if (members.length < 2) return;
       const currentDate = route.date;
       const nextDate = dateList().find(date => date > currentDate && !excelCellHasRoute(route.driverId, date, route.id));
       if (!nextDate) {
         showAppMessage("Brak pustego dnia", "Nie znaleziono kolejnej pustej kolumny, do której można przenieść rozdzielaną relację.");
         return;
       }
-      delete route.boardSplitGroupId;
-      delete route.boardSplitPart;
-      delete partner.boardSplitGroupId;
-      delete partner.boardSplitPart;
-      setExcelRouteToDay(partner, currentDate);
+      const remaining = members.filter(item => item.id !== route.id);
+      delete route.boardSplitGroupId; delete route.boardSplitPart;
+      normalizeExcelSplitGroupV186(remaining, currentDate);
       setExcelRouteToDay(route, nextDate);
-      updateRouteResizePreview(partner);
       applyRouteMoveDomPreview(route);
       scheduleCentralRelationsDiff(350);
       scheduleRouteMoveBoardReconcile(320);
     }
     function showExcelDayOccupiedMessage() {
-      showAppMessage("Dzień jest już zajęty", "W trybie jak w Excelu jeden dzień kierowcy może zawierać jedną relację. Użyj Podziel, aby dodać drugi rozładunek do tego samego kafelka.");
+      showAppMessage("Nie można połączyć relacji", "W jednym dniu można połączyć maksymalnie trzy relacje. Przenieś kafelek na inny dzień albo najpierw rozdziel istniejącą grupę.");
     }
     function addExcelBoardTileV172(event, driverId, date) {
       event?.preventDefault?.(); event?.stopPropagation?.();
@@ -76620,16 +76788,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const postalField = editField === 'secondUnload' ? 'secondUnloadPostalCode' : 'unloadPostalCode';
       title.innerHTML = `
         <span class="quick-unload-edit-wrap">
-          <input class="quick-unload-input" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość' : 'Miejscowość rozładunku'}" value="${attr(displayCity(route[editField]) || '')}" />
-          <input class="quick-unload-postal" inputmode="numeric" autocomplete="off" aria-label="Początek kodu pocztowego" placeholder="kod, np. 00" maxlength="6" value="${attr(route[postalField] || postalCodeFromText(route[editField]) || '')}" />
+          <input class="quick-unload-input" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość lub kod' : 'Miejscowość lub kod pocztowy'}" value="${attr(displayCity(route[editField]) || '')}" />
           <div class="quick-unload-suggestion" role="listbox"></div>
         </span>
       `;
 
       const input = title.querySelector(".quick-unload-input");
-      const postalInput = title.querySelector(".quick-unload-postal");
       const suggestionHost = title.querySelector(".quick-unload-suggestion");
-      if (!input || !postalInput || !suggestionHost) return false;
+      if (!input || !suggestionHost) return false;
 
       let finished = false;
       let currentSuggestion = "";
@@ -76642,14 +76808,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const updateSuggestion = () => {
         const raw = String(input.value || "").trim();
-        const postalPrefix = String(postalInput.value || "").replace(/[^0-9-]/g, "").slice(0, 6);
         if (quickUnloadSuggestionTimer) clearTimeout(quickUnloadSuggestionTimer);
         hideSuggestion();
         if (raw.length < 2) return;
         quickUnloadSuggestionTimer = setTimeout(() => {
           if (finished || raw !== String(input.value || "").trim()) return;
           const suggestions = locationSearchOptions(raw, 30)
-            .filter(value => !postalPrefix || postalCodeFromText(value).startsWith(postalPrefix))
             .filter(value => removePolishChars(value) !== removePolishChars(raw))
             .slice(0, 6);
           if (!suggestions.length) return;
@@ -76657,7 +76821,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           suggestionHost.innerHTML = suggestions.map(value => {
             const city = displayCity(value) || value;
             const postal = postalCodeFromText(value);
-            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}</span>${postal ? `<small>kod ${esc(postal)}</small>` : ""}</button>`;
+            const postalPrefix = postal ? `${postal.slice(0, 3)}` : "";
+            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}${postalPrefix ? ` <small>· ${esc(postalPrefix)}</small>` : ""}</span></button>`;
           }).join("");
           suggestionHost.classList.add("visible");
         }, 180);
@@ -76676,7 +76841,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (commit && raw) {
           delete route.quickEntryDraftV172;
           const normalized = displayCity(normalizeLocation(raw));
-          const selectedPostal = postalCodeFromText(forcedValue) || String(postalInput.value || "").trim();
+          const selectedPostal = postalCodeFromText(forcedValue) || postalCodeFromText(raw) || "";
           const changedLocation = route[editField] !== (normalized || raw);
           route[editField] = normalized || raw;
           route[postalField] = selectedPostal;
@@ -76733,16 +76898,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       input.addEventListener("click", e => e.stopPropagation());
       input.addEventListener("dblclick", e => e.stopPropagation());
-      postalInput.addEventListener("click", e => e.stopPropagation());
       input.addEventListener("input", updateSuggestion);
-      postalInput.addEventListener("input", updateSuggestion);
       input.addEventListener("keydown", e => {
         if (e.key === "Enter") {
           e.preventDefault();
           finish(true, currentSuggestion || input.value);
         } else if (e.key === "Tab") {
           e.preventDefault();
-          postalInput.focus();
+          finish(true, currentSuggestion || input.value);
         } else if (e.key === "Escape") {
           e.preventDefault();
           finish(false);
@@ -76753,23 +76916,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
       input.addEventListener("blur", () => {
         setTimeout(() => {
-          if (!finished && document.activeElement !== postalInput && !suggestionHost.contains(document.activeElement)) finish(true);
+          if (!finished && !suggestionHost.contains(document.activeElement)) finish(true);
         }, 0);
       }, { once: true });
-      postalInput.addEventListener("keydown", e => {
-        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); finish(true, currentSuggestion || input.value); }
-        else if (e.key === "Escape") { e.preventDefault(); finish(false); }
-      });
-      postalInput.addEventListener("blur", () => {
-        setTimeout(() => { if (!finished && !suggestionHost.contains(document.activeElement)) finish(true); }, 0);
-      }, { once:true });
 
       suggestionHost.addEventListener("pointerdown", e => {
         const choice = e.target.closest('.quick-unload-choice');
         if (!choice) return;
         e.preventDefault(); e.stopPropagation();
-        const code = postalCodeFromText(choice.dataset.value || choice.textContent);
-        if (code) postalInput.value = code;
         finish(true, choice.dataset.value || choice.textContent);
       });
       suggestionHost.addEventListener("keydown", e => {
@@ -77219,6 +77373,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
       if (excelBoardMode()) {
+        if (route.boardSplitGroupId && (route.driverId !== driverId || route.date !== date)) releaseExcelSplitPartner(route);
         const occupied = excelCellHasRoute(driverId, date, route.id);
         const joined = occupied && joinExcelRoutes(route, driverId, date);
         if (occupied && !joined) { showExcelDayOccupiedMessage(); return; }
@@ -77386,6 +77541,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       element.dataset.widthMode = route?.timelineWidthMode === "manual" ? "manual" : route?.timelineWidthMode === "estimated" ? "estimated" : "auto30";
       element.style.left = `${geometry.left}%`;
       element.style.width = `${geometry.width}%`;
+      element.classList.toggle("compact-content", geometry.width <= 4.5);
     }
 
     function syncResizedRouteDom(route, scrollState = null) {
@@ -86254,6 +86410,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
   <script id="targeted-3l39-finance-cache-bridge">
     (() => {
+      let boardFinanceSyncTimerV187 = null;
       /* Jednotygodniowa odpowiedź (np. bezpośrednio po zapisaniu przelewu/dodatku)
          zasila też cache tablicy. Dzięki temu kolumny niedziela→poniedziałek
          pojawiają się natychmiast i nie zależą od drugiego requestu. */
@@ -86267,7 +86424,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           carrierAdjustments:Array.isArray(message.carrierAdjustments)?message.carrierAdjustments:[],
           transfers:Array.isArray(message.transfers)?message.transfers:[]
         };
-        if (state.appView === 'plan') requestAnimationFrame(() => syncBoardOnly());
+        if (state.appView === 'plan') {
+          clearTimeout(boardFinanceSyncTimerV187);
+          boardFinanceSyncTimerV187 = setTimeout(() => {
+            boardFinanceSyncTimerV187 = null;
+            syncBoardOnly();
+          }, 160);
+        }
       });
     })();
   </script>
@@ -88675,9 +88838,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       },true);
 
-      /* Po załadowaniu końcowego skryptu wykonujemy jeden render, aby pierwsza
-         widoczna tablica od razu korzystała z fizycznych torów grid. */
-      requestAnimationFrame(()=>{ if(state.appView==='plan') syncBoardOnly(); });
+      /* Tablica korzysta z fizycznych torów już w pierwszym renderze. Kolejny
+         pełny render w następnej klatce powodował widoczny przeskok planu. */
     })();
   </script>
 
@@ -89325,7 +89487,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       document.addEventListener('visibilitychange', () => { if(!document.hidden) requestQueueChat3L52(); });
       setTimeout(requestQueueChat3L52, 650);
-      requestAnimationFrame(() => { if (state.appView === 'plan') syncBoardOnly(); });
+      /* Czat nie zmienia geometrii planu, dlatego nie przebudowujemy tablicy
+         ponownie tuż po uruchomieniu strony. */
     })();
   </script>
 
@@ -91228,16 +91391,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-choice { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
     .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; }
     .app.dark-mode .quick-unload-choice small { color:#cbd5e1; }
-    .quick-unload-edit-wrap { display:grid; grid-template-columns:minmax(0,1fr) 54px; gap:4px; align-items:center; }
+    .quick-unload-edit-wrap { display:block; }
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
-    .quick-unload-postal { width:54px; height:22px; border:1px solid #64748b; border-radius:6px; background:#fff; color:#0f172a; padding:2px 5px; font:850 10px/1 system-ui; outline:none; text-align:center; }
-    .quick-unload-postal:focus { border-color:#0f172a; box-shadow:0 0 0 2px rgba(15,23,42,.12); }
-    .app.dark-mode .quick-unload-postal { background:#111827; color:#f8fafc; border-color:#94a3b8; }
-    .quick-unload-edit-wrap::after { content:"Kod"; position:absolute; right:7px; top:-10px; padding:0 2px; background:var(--card,#fff); color:var(--muted,#64748b); font-size:7px; font-weight:900; pointer-events:none; }
-    .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v184-smooth-pairs-board-fill">
+  <style id="targeted-v187-location-suggestions-stable-board">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -91261,6 +91419,28 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .board .time-route.compact-content .route-unload-label {
       font-size:calc(13px * var(--route-font-boost,1)) !important;
     }
+    /* Zaznaczenie miejsca wklejenia nie zmienia wymiarów siatki. */
+    .board .day-cell.excel-paste-target-v186 { box-shadow:inset 0 0 0 2px #2563eb !important; }
+    /* Przy łączeniu rozmiar napisu zmienia się bez animowania geometrii i bez
+       ponownego pomiaru wszystkich kafelków. */
+    .board .time-route,
+    .board .time-route .route-unload-label { transition-property:background-color,color,border-color,box-shadow !important; }
+    /* Podpowiedzi najbliższego pojazdu są portalem ponad wszystkimi warstwami
+       planu. Nie mogą zostać przykryte przez sticky nagłówki ani kafelki. */
+    .nearest-suggestions-portal-v187 {
+      position:fixed;
+      z-index:2147482000;
+      overflow:visible;
+    }
+    .nearest-suggestions-portal-v187 .custom-suggestions {
+      position:static;
+      width:100%;
+      max-height:inherit;
+      box-sizing:border-box;
+    }
+    /* Stała rezerwa na pasek przewijania zapobiega poziomemu przesunięciu
+       całego planu, gdy po starcie dołączą dane z synchronizacji. */
+    html { scrollbar-gutter:stable; }
 
     /* Przy gęstej tablicy przeglądarka pomija układ i malowanie komórek poza
        widokiem. W czasie przewijania wyłączamy tylko kosztowne efekty. */
@@ -91288,8 +91468,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v184-smooth-pairs-board-fill" />
-  <script src="/order-entry.js?build=v184-smooth-pairs-board-fill"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v187-location-suggestions-stable-board" />
+  <script src="/order-entry.js?build=v187-location-suggestions-stable-board"></script>
 </body>
 </html>
 
