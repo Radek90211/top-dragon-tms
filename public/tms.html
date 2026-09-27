@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v181-tile-join-separate-grid"></script>
-  <script src="/planning-core.js?build=v181-tile-join-separate-grid"></script>
-  <script src="/order-stops.js?build=v181-tile-join-separate-grid"></script>
+  <script src="/xlsx-lite.js?v=v183-tile-keyboard-fast-color"></script>
+  <script src="/planning-core.js?build=v183-tile-keyboard-fast-color"></script>
+  <script src="/order-stops.js?build=v183-tile-keyboard-fast-color"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -73100,7 +73100,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
-              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Podziel: dwa rozładunki · Prawy przycisk: szczegóły</span>` : ''}
+              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
@@ -73301,9 +73301,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${renderBoardRouteTitle(route, driver)}</span>
-                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) ? (route.boardSplitGroupId
-                  ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Rozdziel połączone relacje" title="Rozdziel połączone relacje" onpointerdown="event.stopPropagation()" onclick="separateExcelRoutePair(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Rozdziel</span>`
-                  : `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwie relacje" title="Podziel kafelek na dwie relacje" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Podziel</span>`) : ''}
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
@@ -76184,6 +76181,54 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }, 230);
     }
 
+    let boardRouteClipboardV183 = null;
+
+    function selectedBoardRouteV183() {
+      const tile = document.querySelector(".time-route.excel-selected-v171[data-route-id]");
+      return tile ? state.routes.find(route => String(route.id) === String(tile.dataset.routeId)) || null : null;
+    }
+
+    function routeClipboardTextV183(route) {
+      const driver = driverById(route?.driverId);
+      return [
+        `Kierowca: ${driver?.driver || "-"}`,
+        `Data: ${formatDateForInput(route?.date || "")}`,
+        `Załadunek: ${[route?.loadAddress, route?.load].filter(Boolean).join(", ") || "-"}`,
+        route?.secondLoad ? `Drugi załadunek: ${[route.secondLoadAddress, route.secondLoad].filter(Boolean).join(", ")}` : "",
+        `Rozładunek: ${[route?.unloadAddress, route?.unload].filter(Boolean).join(", ") || "-"}`,
+        route?.secondUnload ? `Drugi rozładunek: ${[route.secondUnloadAddress, route.secondUnload].filter(Boolean).join(", ")}` : "",
+        `Klient: ${route?.client || "-"}`
+      ].filter(Boolean).join("\n");
+    }
+
+    function copySelectedBoardRouteV183(cut = false) {
+      const route = selectedBoardRouteV183();
+      if (!route || !canEditBoardRoute(route)) return false;
+      boardRouteClipboardV183 = JSON.parse(JSON.stringify(route));
+      navigator.clipboard?.writeText?.(routeClipboardTextV183(route)).catch(() => {});
+      if (cut) deleteRoute(route.id);
+      else showAppMessage("Skopiowano kafelek", "Dane relacji zostały skopiowane do schowka.", "success");
+      return true;
+    }
+
+    document.addEventListener("keydown", event => {
+      if (!excelBoardMode()) return;
+      const target = event.target;
+      if (target?.matches?.("input,textarea,select") || target?.isContentEditable) return;
+      const key = String(event.key || "").toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "c") {
+        if (copySelectedBoardRouteV183(false)) event.preventDefault();
+      } else if ((event.ctrlKey || event.metaKey) && key === "x") {
+        if (copySelectedBoardRouteV183(true)) event.preventDefault();
+      } else if (event.key === "Delete") {
+        const route = selectedBoardRouteV183();
+        if (route && canDeleteBoardRoute(route)) {
+          event.preventDefault();
+          deleteRoute(route.id);
+        }
+      }
+    });
+
     function openRoute(id) {
       if (state.routeOpenBusy) return;
       if (state.detailsOpen && String(state.selectedRouteId || "") === String(id || "")) {
@@ -76444,6 +76489,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       delete route.boardSplitGroupId;
       delete route.boardSplitPart;
+      setExcelRouteToDay(route, route.date);
     }
 
     function dropExcelRouteOnTile(event, targetRouteId) {
@@ -76764,7 +76810,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (color === "red") route.boardFontColor = "red"; else delete route.boardFontColor;
       scheduleCentralRelationsDiff(0);
       state.contextMenu = null;
-      syncBoardOnly();
+      syncRouteContextMenu();
+      const tile = routeButtonElement(routeId);
+      if (tile) tile.classList.toggle("route-text-red-v177", route.boardFontColor === "red");
     }
     function setRouteStatus(routeId, status) {
       const route = state.routes.find(item => item.id === routeId);
@@ -77030,37 +77078,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function updateRouteDropGuide(event, target) {
-      const route = state.routes.find(item => item.id === routeDragState.routeId);
-      if (!route || !target) return;
-      const driverId = target.dataset?.driverId || target.closest?.("[data-driver-id]")?.dataset?.driverId || route.driverId;
-      const row = routeTimelineRowForDriver(driverId);
-      if (!row) return;
-
-      // Jedna ciągła geometria osi dla wszystkich 14 dni. Dzięki temu środek
-      // nie zmienia położenia względem kafelka podczas przechodzenia między dniami.
-      const pointerGlobal = rawGlobalHourFromDriverTimeline(event, driverId, target);
-      const startGlobal = routeDropStartFromPointer(pointerGlobal, route);
-      const maxHour = Math.max(0.25, timelineMaxHour());
-      const duration = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, routeGlobalDuration(route));
-      const exactStartPercent = boardTimelinePercentForHour(startGlobal, "start", dateList());
-      const exactEndPercent = boardTimelinePercentForHour(Math.min(maxHour, startGlobal + duration), "end", dateList());
-      const exactWidthPercent = Math.max(0.01, exactEndPercent - exactStartPercent);
-      const visualWidthPercent = routeTimelineDisplayWidthPercent(route, exactWidthPercent);
-      const visualWidthHours = Math.max(ROUTE_DROP_SNAP_MINUTES / 60, (visualWidthPercent / 100) * maxHour);
-      const visibleWidthHours = Math.min(visualWidthHours, Math.max(ROUTE_DROP_SNAP_MINUTES / 60, maxHour - startGlobal));
-      const centerGlobal = Math.min(maxHour, startGlobal + visibleWidthHours / 2);
-      const rect = row.getBoundingClientRect();
-      const leftPx = rect.left + (boardTimelinePercentForHour(centerGlobal, "start", dateList()) / 100) * rect.width;
-      let guide = routeDragState.guide;
-      if (!guide || !guide.isConnected) {
-        guide = document.createElement("div");
-        guide.className = "route-drop-guide";
-        document.body.appendChild(guide);
-        routeDragState.guide = guide;
-      }
-      guide.style.left = `${leftPx}px`;
-      guide.style.top = `${Math.max(0, rect.top + 14)}px`;
-      guide.style.height = `${Math.max(34, rect.height - 18)}px`;
+      // V182: kafelek jest wystarczającym podglądem przesunięcia.
+      // Nie tworzymy dodatkowej niebieskiej linii pomocniczej.
+      return;
     }
 
     function startRouteDrag(event, routeId) {
@@ -77193,7 +77213,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const joined = occupied && joinExcelRoutes(route, driverId, date);
         if (occupied && !joined) { showExcelDayOccupiedMessage(); return; }
         route.driverId = driverId;
-        if (!joined) setExcelRouteToDay(route, date);
+        if (!joined) {
+          releaseExcelSplitPartner(route);
+          setExcelRouteToDay(route, date);
+        }
         const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
         route.ownerDispatcher = owner;
         if (state.user.role === "spedytor" && owner !== state.user.login) { route.approvalStatus = "pending"; route.createdBy = state.user.login; }
@@ -77251,7 +77274,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const joined = occupied && joinExcelRoutes(route, driverId, targetDate);
         if (occupied && !joined) { showExcelDayOccupiedMessage(); return; }
         route.driverId = driverId;
-        if (!joined) setExcelRouteToDay(route, targetDate);
+        if (!joined) {
+          releaseExcelSplitPartner(route);
+          setExcelRouteToDay(route, targetDate);
+        }
         const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
         route.ownerDispatcher = owner;
         if (state.user.role === "spedytor" && owner !== state.user.login) { route.approvalStatus = "pending"; route.createdBy = state.user.login; }
@@ -79698,6 +79724,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
 
+      if (route.boardSplitGroupId) releaseExcelSplitPartner(route);
       restoreProposedLoadFromRoute(route);
       state.routes = state.routes.filter(item => item.id !== routeId);
       removeLeafletMarker(routeId);
@@ -91200,7 +91227,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v181-tile-join-separate-grid">
+  <style id="targeted-v183-tile-keyboard-fast-color">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -91251,8 +91278,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v181-tile-join-separate-grid" />
-  <script src="/order-entry.js?build=v181-tile-join-separate-grid"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v183-tile-keyboard-fast-color" />
+  <script src="/order-entry.js?build=v183-tile-keyboard-fast-color"></script>
 </body>
 </html>
 
