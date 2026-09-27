@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v180-confirm-client-address-base"></script>
-  <script src="/planning-core.js?build=v180-confirm-client-address-base"></script>
-  <script src="/order-stops.js?build=v180-confirm-client-address-base"></script>
+  <script src="/xlsx-lite.js?v=v181-tile-join-separate-grid"></script>
+  <script src="/planning-core.js?build=v181-tile-join-separate-grid"></script>
+  <script src="/order-stops.js?build=v181-tile-join-separate-grid"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -73284,6 +73284,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 onclick="queueOpenRouteFromBoard(event,'${attr(route.id)}')"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
+                ondragover="if(excelBoardMode()){event.preventDefault();event.stopPropagation();}"
+                ondrop="dropExcelRouteOnTile(event,'${attr(route.id)}')"
                 ondblclick="cancelBoardRouteOpen();startQuickUnloadEdit(event, '${attr(route.id)}')"
                 ${canEditThisRoute ? `ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
@@ -73299,7 +73301,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${renderBoardRouteTitle(route, driver)}</span>
-                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) && !route.boardExcelSplit ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwa rozładunki" title="Podziel kafelek na dwa rozładunki" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'||event.key===' '){splitExcelBoardTile(event,'${attr(route.id)}')}">Podziel</span>` : ''}
+                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) ? (route.boardSplitGroupId
+                  ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Rozdziel połączone relacje" title="Rozdziel połączone relacje" onpointerdown="event.stopPropagation()" onclick="separateExcelRoutePair(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Rozdziel</span>`
+                  : `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwie relacje" title="Podziel kafelek na dwie relacje" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Podziel</span>`) : ''}
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
@@ -76428,6 +76432,65 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       setExcelRouteToDay(route, date); route.startHour = 12;
       scheduleCentralRelationsDiff(0);
       return true;
+    }
+
+    function releaseExcelSplitPartner(route) {
+      if (!route?.boardSplitGroupId) return;
+      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
+      if (partner) {
+        delete partner.boardSplitGroupId;
+        delete partner.boardSplitPart;
+        setExcelRouteToDay(partner, partner.date);
+      }
+      delete route.boardSplitGroupId;
+      delete route.boardSplitPart;
+    }
+
+    function dropExcelRouteOnTile(event, targetRouteId) {
+      if (!excelBoardMode()) return;
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const sourceRouteId = event?.dataTransfer?.getData?.("text/plain") || "";
+      const source = state.routes.find(item => String(item.id) === String(sourceRouteId));
+      const target = state.routes.find(item => String(item.id) === String(targetRouteId));
+      if (!source || !target || source.id === target.id || !canEditBoardRoute(source)) return;
+      if (target.boardSplitGroupId) {
+        showAppMessage("Dzień jest już połączony", "Najpierw rozdziel istniejącą parę relacji.");
+        return;
+      }
+      if (rejectCrossDispatcherMove(source, target.driverId)) return;
+      releaseExcelSplitPartner(source);
+      if (!joinExcelRoutes(source, target.driverId, target.date)) {
+        showExcelDayOccupiedMessage();
+        return;
+      }
+      source.ownerDispatcher = driverById(target.driverId)?.dispatcher || source.ownerDispatcher;
+      clearRouteDragState();
+      scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
+    }
+
+    function separateExcelRoutePair(event, routeId) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route?.boardSplitGroupId || !canEditBoardRoute(route)) return;
+      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
+      if (!partner) return;
+      const currentDate = route.date;
+      const nextDate = dateList().find(date => date > currentDate && !excelCellHasRoute(route.driverId, date, route.id));
+      if (!nextDate) {
+        showAppMessage("Brak pustego dnia", "Nie znaleziono kolejnej pustej kolumny, do której można przenieść rozdzielaną relację.");
+        return;
+      }
+      delete route.boardSplitGroupId;
+      delete route.boardSplitPart;
+      delete partner.boardSplitGroupId;
+      delete partner.boardSplitPart;
+      setExcelRouteToDay(partner, currentDate);
+      setExcelRouteToDay(route, nextDate);
+      scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
     }
     function showExcelDayOccupiedMessage() {
       showAppMessage("Dzień jest już zajęty", "W trybie jak w Excelu jeden dzień kierowcy może zawierać jedną relację. Użyj Podziel, aby dodać drugi rozładunek do tego samego kafelka.");
@@ -91137,7 +91200,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v180-confirm-client-address-base">
+  <style id="targeted-v181-tile-join-separate-grid">
+    /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
+       wyznacza granicę każdej kolumny daty. */
+    .board .time-grid { display:none !important; }
+    .board .time-labels span { border-left:0 !important; }
     .client-address-confirm { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--soft); }
     .client-address-confirm > div { min-width:0; }
     @media (max-width:640px) { .client-address-confirm { align-items:stretch; flex-direction:column; } }
@@ -91184,8 +91251,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v180-confirm-client-address-base" />
-  <script src="/order-entry.js?build=v180-confirm-client-address-base"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v181-tile-join-separate-grid" />
+  <script src="/order-entry.js?build=v181-tile-join-separate-grid"></script>
 </body>
 </html>
 
