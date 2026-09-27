@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v175-postal-prefix-entry"></script>
-  <script src="/planning-core.js?build=v175-postal-prefix-entry"></script>
-  <script src="/order-stops.js?build=v175-postal-prefix-entry"></script>
+  <script src="/xlsx-lite.js?v=v181-tile-join-separate-grid"></script>
+  <script src="/planning-core.js?build=v181-tile-join-separate-grid"></script>
+  <script src="/order-stops.js?build=v181-tile-join-separate-grid"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -63392,7 +63392,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeClientProximityBadge(route) {
       if (!route || isFreeDayRoute(route) || !(state.clients || []).length) return "";
-      const point = routePointFromRoute(route, "unload");
+      const point = finalUnloadPointForRoute(route);
       if (!point) return "";
       const match = nearbyClientsForCoords([Number(point.lat), Number(point.lng)], 1)[0];
       if (!match) return "";
@@ -68282,11 +68282,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div><label class="field-label" style="margin-top:0;">Główny opiekun klienta</label>${renderClientDispatcherPicker(editClient?.dispatcher || "")}</div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Dodatkowi opiekunowie klienta</label><div class="client-coowners">${queueDispatchers().map(dispatcher => `<label><input type="checkbox" name="client-co-dispatcher" value="${attr(dispatcher)}" ${editClientOwners.has(dispatcher) && dispatcher !== String(editClient?.dispatcher || "").toUpperCase() ? "checked" : ""} ${["branch_manager", "admin"].includes(String(state.user?.supabaseRole || "")) ? "" : "disabled"} onchange="enforceClientOwnerLimit(this)" /><span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span></label>`).join("")}</div></div>
               <div style="grid-column:1/-1"><label class="field-label" style="margin-top:0;">Notatka</label><input id="client-cooperation-notes" class="input" value="${attr(editClient?.cooperationNotes || "")}" placeholder="opcjonalna informacja o współpracy" /></div>
-              ${canAcceptClientAddresses() ? `<div class="client-bases-admin" style="grid-column:1/-1">
-                <div class="client-bases-admin-head"><div><b>Bazy i magazyny klienta</b><div class="small">Tylko potwierdzone tutaj lokalizacje będą wyświetlane jako bazy klienta na mapie.</div></div><span class="badge">${Array.isArray(editClient?.bases) ? editClient.bases.length : 0}</span></div>
-                ${editClient ? `<div class="client-base-list">${(editClient.bases || []).map(base => `<div class="client-base-row"><div><b>${esc(base.name || "Baza klienta")}</b><span>${esc(base.address || "")}</span></div><button type="button" class="btn-mini map-client-delete" onclick="removeClientBase('${attr(editClient.id)}','${attr(base.id)}')">Usuń</button></div>`).join("") || `<div class="small">Brak potwierdzonych baz.</div>`}</div>
-                <div class="client-base-form"><div><label class="field-label" style="margin-top:0;">Nazwa bazy</label><input id="client-base-name" class="input" placeholder="np. Magazyn Poznań" /></div><div><label class="field-label" style="margin-top:0;">Dokładny adres bazy</label><input id="client-base-address" class="input" list="locations-list" placeholder="ulica, numer, kod, miejscowość" /></div><button type="button" class="btn btn-dark" onclick="addClientBaseFromForm('${attr(editClient.id)}')">Dodaj bazę</button></div>` : `<div class="small">Najpierw zapisz klienta, a następnie otwórz jego edycję, aby dodać bazę.</div>`}
-              </div>` : ""}
+              ${editClient && String(state.user?.supabaseRole || "") === "admin" ? `<div class="client-address-confirm" style="grid-column:1/-1"><div><b>Adres klienta jako baza</b><div class="small">Potwierdź zapisany adres jednym kliknięciem, aby wyświetlać go jako bazę klienta na mapie.</div></div><button type="button" class="btn btn-dark" ${String(editClient.address || "").trim() ? "" : "disabled"} onclick="confirmClientAddressAsBase('${attr(editClient.id)}')">Potwierdź adres jako bazę</button></div>` : ""}
             </div>
             <div class="client-db-form-actions">${editClient ? `<button type="button" class="btn" onclick="cancelClientEdit()">Anuluj</button>` : ""}<button type="submit" class="btn btn-dark">${editClient ? "Zapisz zmiany" : "Dodaj klienta"}</button></div>
           </form>` : `<div class="hint" style="padding:12px 0;">Dostęp tylko do odczytu. Rozliczenia mogą wyszukiwać i przeglądać klientów, ale nie zmieniają kartoteki.</div>`}
@@ -68473,12 +68469,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       showAppMessage(existing ? "Zapisano klienta" : "Dodano klienta", ownerSummary ? `${name} · opiekunowie: ${ownerSummary}.` : `${name} został zapisany bez opiekuna.`);
     }
 
-    async function addClientBaseFromForm(clientId) {
+    async function confirmClientAddressAsBase(clientId) {
+      if (String(state.user?.supabaseRole || "") !== "admin") return;
+      const client = (state.clients || []).find(item => String(item.id) === String(clientId));
+      if (!client?.address) { showAppMessage("Brak adresu klienta", "Najpierw zapisz dokładny adres klienta.", "error"); return; }
+      await addClientBaseFromForm(clientId, "Adres klienta", client.address);
+    }
+    async function addClientBaseFromForm(clientId, providedName = "", providedAddress = "") {
       if (!canAcceptClientAddresses()) return;
       const client = (state.clients || []).find(item => String(item.id) === String(clientId));
       if (!client) return;
-      const name = String(document.getElementById("client-base-name")?.value || "Baza klienta").trim() || "Baza klienta";
-      const address = String(document.getElementById("client-base-address")?.value || "").replace(/\s+/g, " ").trim();
+      const name = String(providedName || document.getElementById("client-base-name")?.value || "Baza klienta").trim() || "Baza klienta";
+      const address = String(providedAddress || document.getElementById("client-base-address")?.value || "").replace(/\s+/g, " ").trim();
       if (!address) { showAppMessage("Uzupełnij adres bazy", "Podaj dokładny adres magazynu lub bazy klienta.", "error"); return; }
 
       let target = coordsFromSearchText(address);
@@ -69113,12 +69115,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a));
 
       const lastRoute = driverRoutes[0];
-      const lastUnloadPoint = lastRoute ? routePointFromRoute(lastRoute, "unload") : null;
+      const lastUnloadPoint = lastRoute ? finalUnloadPointForRoute(lastRoute) : null;
       let result;
       if (lastRoute && lastUnloadPoint) {
         result = {
           coords: [Number(lastUnloadPoint.lat), Number(lastUnloadPoint.lng)],
-          label: lastUnloadPoint.label || displayLocationWithPostal(lastRoute.unload),
+          label: lastUnloadPoint.label || finalUnloadLabelForRoute(lastRoute),
           route: lastRoute
         };
       } else {
@@ -72556,7 +72558,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       event.dataTransfer.effectAllowed = "move";
     }
 
-    async function distributeProposedLoadToDriver(event, proposedId, driverId, startGlobal) {
+    async function distributeProposedLoadToDriver(event, proposedId, driverId, startGlobal, excelDate = "") {
       const proposed = (state.proposedLoads || []).find(item => item.id === proposedId);
       if (!proposed || !proposedLoadCanTake(proposed)) {
         if (proposedLoadIsClaimed(proposed)) showAppMessage("Ładunek jest już pobrany", "Ten wolny ładunek został już przejęty przez innego spedytora.");
@@ -72576,11 +72578,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       await withProposedLoadClaim(proposedId, async () => {
         if (proposed.status === "taken" || state.routes.some(route => route.sourceProposedId === proposed.id)) return false;
 
+        if (excelDate && excelCellHasRoute(driverId, excelDate)) { showExcelDayOccupiedMessage(); return false; }
         const duration = Math.max(0.25, routeGlobalDuration(proposed));
-        const availableStartGlobal = firstAvailableRouteStart(driverId, startGlobal, duration);
-      if(availableStartGlobal===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return false;}
-        const startParts = globalHourToDateHour(availableStartGlobal);
-        const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
+        const availableStartGlobal = excelDate ? 0 : firstAvailableRouteStart(driverId, startGlobal, duration);
+        if (!excelDate && availableStartGlobal === null) { showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin."); return false; }
+        const startParts = excelDate ? { date:excelDate, hour:0 } : globalHourToDateHour(availableStartGlobal);
+        const endParts = excelDate ? { date:excelDate, hour:24 } : globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
         const route = {
           ...proposed,
           id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
@@ -72618,7 +72621,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return true;
     }
 
-    async function distributeFutureRouteToDriver(event, futureRouteId, driverId, startGlobal) {
+    async function distributeFutureRouteToDriver(event, futureRouteId, driverId, startGlobal, excelDate = "") {
       const futureRoute = (state.futureRoutes || []).find(item => item.id === futureRouteId);
       if (!futureRoute) return false;
 
@@ -72633,11 +72636,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const compatibility = driverLoadCompatibility(targetDriver, futureRoute);
       if (!compatibility.ok) { showAppMessage("Niezgodny pojazd", compatibility.reason || "Pojazd nie spełnia wymagań relacji."); return true; }
+      if (excelDate && excelCellHasRoute(driverId, excelDate)) { showExcelDayOccupiedMessage(); return false; }
       const duration = Math.max(0.25, routeGlobalDuration(futureRoute));
-      const availableStartGlobal = firstAvailableRouteStart(driverId, startGlobal, duration);
-      if(availableStartGlobal===null){showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin.");return false;}
-      const startParts = globalHourToDateHour(availableStartGlobal);
-      const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
+      const availableStartGlobal = excelDate ? 0 : firstAvailableRouteStart(driverId, startGlobal, duration);
+      if (!excelDate && availableStartGlobal === null) { showAppMessage("Brak wolnego miejsca", "Relacja nie mieści się w dostępnym planie. Zmień termin."); return false; }
+      const startParts = excelDate ? { date:excelDate, hour:0 } : globalHourToDateHour(availableStartGlobal);
+      const endParts = excelDate ? { date:excelDate, hour:24 } : globalHourToDateHour(Math.min(timelineMaxHour(), availableStartGlobal + duration));
       const owner = targetDriver.dispatcher || futureRoute.ownerDispatcher || futureRoute.createdBy;
 
       const route = {
@@ -73096,7 +73100,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
-              ${excelBoardMode() ? `<span class="small">Dwuklik: miejscowość · Podziel: dwa rozładunki · Prawy przycisk: szczegóły</span>` : ''}
+              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Podziel: dwa rozładunki · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
@@ -73273,13 +73277,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const canResizeThisRoute = canEditThisRoute && !excelBoardMode();
             return `
               <button
-                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${hasPauseConflict ? "pause-conflict" : ""}"
+                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${route.boardFontColor === "red" ? "route-text-red-v177" : ""} ${hasPauseConflict ? "pause-conflict" : ""}"
                 data-route-id="${attr(route.id)}"
                 data-can-resize="${canResizeThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
                 draggable="${canEditThisRoute ? "true" : "false"}"
                 onclick="queueOpenRouteFromBoard(event,'${attr(route.id)}')"
                 oncontextmenu="openRouteContextMenu(event, '${attr(route.id)}')"
+                ondragover="if(excelBoardMode()){event.preventDefault();event.stopPropagation();}"
+                ondrop="dropExcelRouteOnTile(event,'${attr(route.id)}')"
                 ondblclick="cancelBoardRouteOpen();startQuickUnloadEdit(event, '${attr(route.id)}')"
                 ${canEditThisRoute ? `ondragstart="startRouteDrag(event, '${attr(route.id)}')" ondragend="endRouteDrag(event)"` : ""}
                 title="${esc(routeUnloadBoardTitle(route))}${routeStatusHint(route) ? ' · ' + routeStatusHint(route) : ''} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły"
@@ -73295,7 +73301,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
                 ></span>` : ""}
                 <span class="time-route-title" title="${attr(routeUnloadBoardTitle(route))}">${renderBoardRouteTitle(route, driver)}</span>
-                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) && !route.boardExcelSplit ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwa rozładunki" title="Podziel kafelek na dwa rozładunki" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'||event.key===' '){splitExcelBoardTile(event,'${attr(route.id)}')}">Podziel</span>` : ''}
+                ${excelBoardMode() && canEditThisRoute && !isFreeDayRoute(route) ? (route.boardSplitGroupId
+                  ? `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Rozdziel połączone relacje" title="Rozdziel połączone relacje" onpointerdown="event.stopPropagation()" onclick="separateExcelRoutePair(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Rozdziel</span>`
+                  : `<span class="excel-split-v171" role="button" tabindex="0" aria-label="Podziel kafelek na dwie relacje" title="Podziel kafelek na dwie relacje" onpointerdown="event.stopPropagation()" onclick="splitExcelBoardTile(event,'${attr(route.id)}')" ondblclick="event.stopPropagation()">Podziel</span>`) : ''}
                 ${renderRouteLoadSub(route)}
                 ${window.renderRouteMetricValue?.(route) || ""}
                 ${renderRouteQueueMatchMarkers(route)}
@@ -73385,9 +73393,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // Wcześniej każdy pojazd mógł osobno skanować ponad 60 tys. rekordów.
       const postalLookupValues = [];
       safeRoutes.forEach(route => {
-        if (!route || isFreeDayRoute(route) || routePointFromStoredCoords(route, "unload")) return;
-        const location = String(route.unload || "").trim();
-        const address = String(route.unloadAddress || "").trim();
+        const finalUnloadField = finalUnloadFieldForRoute(route);
+        if (!route || isFreeDayRoute(route) || routePointFromStoredCoords(route, finalUnloadField)) return;
+        const location = String(route[finalUnloadField] || "").trim();
+        const address = String(route[finalUnloadField + "Address"] || "").trim();
         const combined = [address, location].filter(Boolean).join(", ");
         if (combined && !fastOperationalLocation(location) && !fastOperationalLocation(combined)) postalLookupValues.push(location || combined, combined);
       });
@@ -73397,12 +73406,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .filter(route => !isFreeDayRoute(route) && isMapDriverVisible(route.driverId))
         .map(route => {
           const driver = driverById(route.driverId);
-          const point = routePointFromRoute(route, "unload");
-          const unloadTextForGeocode = [route.unloadAddress, route.unload].filter(Boolean).join(", ");
-          if (!routePointFromStoredCoords(route, "unload") && searchTextNeedsPreciseGeocode(unloadTextForGeocode)) scheduleRoutePointGeocode(route, "unload", () => syncUnloadMapCard());
-          if (!point && (route.unload || route.unloadAddress)) scheduleRoutePointGeocode(route, "unload", () => syncUnloadMapCard());
+          const point = finalUnloadPointForRoute(route);
+          const finalUnloadField = finalUnloadFieldForRoute(route);
+          const unloadTextForGeocode = [route[finalUnloadField + "Address"], route[finalUnloadField]].filter(Boolean).join(", ");
+          if (!routePointFromStoredCoords(route, finalUnloadField) && searchTextNeedsPreciseGeocode(unloadTextForGeocode)) scheduleRoutePointGeocode(route, finalUnloadField, () => syncUnloadMapCard());
+          if (!point && (route[finalUnloadField] || route[finalUnloadField + "Address"])) scheduleRoutePointGeocode(route, finalUnloadField, () => syncUnloadMapCard());
           const coords = point ? [Number(point.lat), Number(point.lng)] : null;
-          const city = displayCity(route.unload) || cityFromText(route.unload);
+          const city = displayCity(route[finalUnloadField]) || cityFromText(route[finalUnloadField]);
           if (!coords) return { route, driver, coords: null, city };
           const [x, y] = projectPoint(coords[0], coords[1]);
           return { route, driver, coords, x, y, city };
@@ -73419,7 +73429,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         carrier: point.driver?.carrier || "",
         coords: point.coords,
         load: point.route.load || "",
-        unload: point.route.unload || "",
+        unload: finalUnloadLabelForRoute(point.route),
         unloadDate: routeEndDate(point.route),
         inTransit: routeEndDate(point.route) !== state.reportDate
       }));
@@ -73573,7 +73583,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         carrier: point.driver?.carrier || "",
         coords: point.coords,
         load: point.route.load || "",
-        unload: point.route.unload || "",
+        unload: finalUnloadLabelForRoute(point.route),
         unloadDate: routeEndDate(point.route),
         inTransit: routeEndDate(point.route) !== state.reportDate
       }));
@@ -74721,7 +74731,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function nearestClientsForRoute(route, limit = 5) {
       if (!route) return [];
-      const point = routePointFromRoute(route, "unload");
+      const point = finalUnloadPointForRoute(route);
       if (!point) return [];
       const origin = [Number(point.lat), Number(point.lng)];
       if (!origin.every(Number.isFinite)) return [];
@@ -74789,7 +74799,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function quickRequestClientCandidates(route) {
       if (!route) return [];
-      const point = routePointFromRoute(route, "unload");
+      const point = finalUnloadPointForRoute(route);
       if (!point) return [];
       const origin = [Number(point.lat), Number(point.lng)];
       if (!origin.every(Number.isFinite)) return [];
@@ -74822,7 +74832,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     async function loadTruckQuickClients(route) {
       const routeId = String(route?.id || "");
       if (!routeId) return;
-      const point = routePointFromRoute(route, "unload");
+      const point = finalUnloadPointForRoute(route);
       const origin = point ? { lat: Number(point.lat), lng: Number(point.lng) } : null;
       if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
         state.quickTruckClientSearch = { routeId, status: "error", rows: [], error: "Brak współrzędnych miejsca rozładunku." };
@@ -74989,6 +74999,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <button data-tutorial="route-details" onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
           <button data-tutorial="route-nearby-clients" onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
           ${renderOtherDispatcherContextNotice(route)}
+          <div class="route-context-title">Kolor czcionki</div>
+          <button onclick="setRouteBoardFontColor('${attr(route.id)}','red')"><span class="context-dot" style="background:#dc2626"></span>Czerwona czcionka</button>
+          <button onclick="setRouteBoardFontColor('${attr(route.id)}','')"><span class="context-dot context-dot-empty"></span>Domyślny kolor czcionki</button>
           <div class="route-context-title" data-tutorial="route-statuses">Status spedytora</div>
           <button onclick="setRouteStatus('${attr(route.id)}','dispatcherSms')"><span class="context-dot context-dot-yellow"></span>SMS wysłany / w trakcie realizacji</button>
           <button onclick="setRouteStatus('${attr(route.id)}','dispatcherDone')"><span class="context-dot context-dot-green"></span>Zakończone / rozładunek po terminie</button>
@@ -76401,34 +76414,99 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       setTimeout(() => hideSingleSuggestionButton(document.getElementById("new-client-suggestion")), 130);
     }
 
-    function addExcelBoardTileV172(event, driverId, date) {
+    function excelCellHasRoute(driverId, date, excludeRouteId = "") {
+      return activeRoutes().some(route => route.id !== excludeRouteId && route.driverId === driverId && route.approvalStatus !== "rejected" && routeOverlapsDate(route, date));
+    }
+    function setExcelRouteToDay(route, date) {
+      route.date = date; route.endDate = date; route.startHour = 0; route.endHour = 24; route.timelineWidthMode = "manual";
+      invalidateRouteSmsGeneration(route, false); return route;
+    }
+    function joinExcelRoutes(route, driverId, date) {
+      const existing = activeRoutes().filter(item => item.id !== route.id && item.driverId === driverId && item.approvalStatus !== "rejected" && routeOverlapsDate(item, date));
+      if (existing.length !== 1) return false;
+      const base = existing[0];
+      const groupId = base.boardSplitGroupId || `split-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+      base.boardSplitGroupId = groupId; base.boardSplitPart = 1;
+      setExcelRouteToDay(base, date); base.endHour = 12;
+      route.driverId = driverId; route.boardSplitGroupId = groupId; route.boardSplitPart = 2;
+      setExcelRouteToDay(route, date); route.startHour = 12;
+      scheduleCentralRelationsDiff(0);
+      return true;
+    }
+
+    function releaseExcelSplitPartner(route) {
+      if (!route?.boardSplitGroupId) return;
+      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
+      if (partner) {
+        delete partner.boardSplitGroupId;
+        delete partner.boardSplitPart;
+        setExcelRouteToDay(partner, partner.date);
+      }
+      delete route.boardSplitGroupId;
+      delete route.boardSplitPart;
+    }
+
+    function dropExcelRouteOnTile(event, targetRouteId) {
+      if (!excelBoardMode()) return;
       event?.preventDefault?.();
       event?.stopPropagation?.();
+      const sourceRouteId = event?.dataTransfer?.getData?.("text/plain") || "";
+      const source = state.routes.find(item => String(item.id) === String(sourceRouteId));
+      const target = state.routes.find(item => String(item.id) === String(targetRouteId));
+      if (!source || !target || source.id === target.id || !canEditBoardRoute(source)) return;
+      if (target.boardSplitGroupId) {
+        showAppMessage("Dzień jest już połączony", "Najpierw rozdziel istniejącą parę relacji.");
+        return;
+      }
+      if (rejectCrossDispatcherMove(source, target.driverId)) return;
+      releaseExcelSplitPartner(source);
+      if (!joinExcelRoutes(source, target.driverId, target.date)) {
+        showExcelDayOccupiedMessage();
+        return;
+      }
+      source.ownerDispatcher = driverById(target.driverId)?.dispatcher || source.ownerDispatcher;
+      clearRouteDragState();
+      scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
+    }
+
+    function separateExcelRoutePair(event, routeId) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route?.boardSplitGroupId || !canEditBoardRoute(route)) return;
+      const partner = state.routes.find(item => item.id !== route.id && item.boardSplitGroupId === route.boardSplitGroupId);
+      if (!partner) return;
+      const currentDate = route.date;
+      const nextDate = dateList().find(date => date > currentDate && !excelCellHasRoute(route.driverId, date, route.id));
+      if (!nextDate) {
+        showAppMessage("Brak pustego dnia", "Nie znaleziono kolejnej pustej kolumny, do której można przenieść rozdzielaną relację.");
+        return;
+      }
+      delete route.boardSplitGroupId;
+      delete route.boardSplitPart;
+      delete partner.boardSplitGroupId;
+      delete partner.boardSplitPart;
+      setExcelRouteToDay(partner, currentDate);
+      setExcelRouteToDay(route, nextDate);
+      scheduleCentralRelationsDiff(0);
+      syncBoardOnly();
+    }
+    function showExcelDayOccupiedMessage() {
+      showAppMessage("Dzień jest już zajęty", "W trybie jak w Excelu jeden dzień kierowcy może zawierać jedną relację. Użyj Podziel, aby dodać drugi rozładunek do tego samego kafelka.");
+    }
+    function addExcelBoardTileV172(event, driverId, date) {
+      event?.preventDefault?.(); event?.stopPropagation?.();
       if (!excelBoardMode() || event?.target?.closest?.('.time-route')) return;
-      if (Date.now() < suppressBoardRouteOpenUntil || routeResize.active) return;
-      if (document.querySelector('.quick-unload-input')) return;
+      if (Date.now() < suppressBoardRouteOpenUntil || routeResize.active || document.querySelector('.quick-unload-input')) return;
+      const cell = event?.target?.closest?.('.day-cell.time-cell');
+      if (!cell || cell.dataset.date !== date) return;
       const candidate = { driverId, ownerDispatcher:state.user?.login, createdBy:state.user?.login };
       if (!canEditBoardRoute(candidate)) return;
-      const dayStart = isoDayDifference(dateList()[0], date) * 24;
-      const dayEnd = dayStart + 24;
-      const cell = event?.target?.closest?.('.day-cell');
-      const rect = cell?.getBoundingClientRect();
-      const ratio = rect?.width && Number.isFinite(event?.clientX) ? Math.max(0, Math.min(.999, (event.clientX - rect.left) / rect.width)) : .5;
-      const point = dayStart + ratio * 24;
-      const occupied = activeRoutes().filter(route => route.driverId === driverId && route.approvalStatus !== 'rejected')
-        .map(route => ({start:routeGlobalStart(route),end:routeGlobalEnd(route)}));
-      if (occupied.some(item => item.start <= point && point < item.end)) return;
-      const start = Math.max(dayStart, ...occupied.filter(item => item.end <= point).map(item => item.end));
-      const end = Math.min(dayEnd, ...occupied.filter(item => item.start > point).map(item => item.start));
-      if (end - start < .25) return;
+      if (excelCellHasRoute(driverId, date)) { showExcelDayOccupiedMessage(); return; }
       const quickId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const route = { ...candidate, id:`quick-${quickId}`, date, endDate:date,
-        startHour:start-dayStart, endHour:end-dayStart, load:'', unload:'', secondUnload:'',
-        loadAddress:'', unloadAddress:'', rate:0, cost:0, loadedKm:0, approachKm:0, baseKm:0,
-        approvalStatus:'approved', timelineWidthMode:'manual', quickEntryDraftV172:true };
-      stampRouteAdded(route);
-      state.routes.push(route);
-      syncBoardOnly();
+      const route = { ...candidate, id:`quick-${quickId}`, date, endDate:date, startHour:0, endHour:24, load:'', unload:'', secondUnload:'', loadAddress:'', unloadAddress:'', rate:0, cost:0, loadedKm:0, approachKm:0, baseKm:0, approvalStatus:'approved', timelineWidthMode:'manual', quickEntryDraftV172:true };
+      stampRouteAdded(route); state.routes.push(route); syncBoardOnly();
       const tile = routeButtonElement(route.id);
       startQuickUnloadEdit({preventDefault(){},stopPropagation(){},currentTarget:tile,target:tile},route.id);
     }
@@ -76438,23 +76516,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function splitExcelBoardTile(event, routeId) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      cancelBoardRouteOpen();
+      event?.preventDefault?.(); event?.stopPropagation?.(); cancelBoardRouteOpen();
       const route = state.routes.find(item => item.id === routeId);
-      if (!excelBoardMode() || !route || !canEditBoardRoute(route) || isFreeDayRoute(route) || route.boardExcelSplit) return;
-      if ((route.orderStops || []).filter(point => point.type === 'delivery').length > 2) {
-        showAppMessage('Więcej niż dwa rozładunki', 'Ta relacja ma więcej punktów. Edytuj je w szczegółach pod prawym przyciskiem myszy.');
-        return;
-      }
-      route.boardExcelSplit = true;
-      if (route.secondUnload) scheduleCentralRelationsDiff(0);
-      const tile = routeButtonElement(routeId);
-      const title = tile?.querySelector('.time-route-title');
-      if (title) title.innerHTML = renderBoardRouteTitle(route, driverById(route.driverId));
-      startQuickUnloadEdit({preventDefault(){}, stopPropagation(){}, currentTarget:tile, target:tile?.querySelector('[data-excel-stop="secondUnload"]')}, routeId);
+      if (!excelBoardMode() || !route || !canEditBoardRoute(route) || isFreeDayRoute(route)) return;
+      const sameDay = activeRoutes().filter(item => item.id !== route.id && item.driverId === route.driverId && routeOverlapsDate(item, route.date));
+      if (sameDay.length) { showAppMessage("Dzień jest już podzielony", "W tym dniu są już dwie niezależne relacje. Każda ma własny status i własne menu pod prawym przyciskiem myszy."); return; }
+      const splitId = `split-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      const firstUnload = route.unload;
+      const secondRoute = { ...route, id:`r${Date.now()}${Math.random().toString(36).slice(2,7)}`, unload:'', unloadAddress:'', unloadPostalCode:'', secondUnload:'', secondUnloadPostalCode:'', boardExcelSplit:false, boardSplitGroupId:splitId, boardSplitPart:2, dispatcherStatus:'', accountingCheck:false, accountingFinal:false, accountingStatus:'Nowe', quickEntryDraftV172:true };
+      route.boardSplitGroupId = splitId; route.boardSplitPart = 1;
+      delete route.boardExcelSplit; delete route.secondUnload; delete route.secondUnloadPostalCode;
+      setExcelRouteToDay(route, route.date);
+      const dayStart = isoDayDifference(dateList()[0], route.date) * 24;
+      route.endHour = 12; secondRoute.startHour = 12; secondRoute.endHour = 24; secondRoute.date = route.date; secondRoute.endDate = route.date;
+      if (!firstUnload) route.unload = '';
+      stampRouteAdded(secondRoute); state.routes.push(secondRoute);
+      syncBoardOnly();
+      const tile = routeButtonElement(secondRoute.id);
+      startQuickUnloadEdit({preventDefault(){}, stopPropagation(){}, currentTarget:tile, target:tile}, secondRoute.id);
     }
-
     function startQuickUnloadEdit(event, routeId) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -76678,6 +76758,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
 
+    function setRouteBoardFontColor(routeId, color = "") {
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route || !canEditBoardRoute(route)) return;
+      if (color === "red") route.boardFontColor = "red"; else delete route.boardFontColor;
+      scheduleCentralRelationsDiff(0);
+      state.contextMenu = null;
+      syncBoardOnly();
+    }
     function setRouteStatus(routeId, status) {
       const route = state.routes.find(item => item.id === routeId);
       if (!route) return;
@@ -77084,12 +77172,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const queued = queueDragPayload(event);
       if (queued?.kind === "future") {
         const startGlobal = snapGlobalHourFromCell(event, event.currentTarget);
-        distributeFutureRouteToDriver(event, queued.id, driverId, startGlobal);
+        distributeFutureRouteToDriver(event, queued.id, driverId, startGlobal, excelBoardMode() ? date : '');
         return;
       }
       if (queued?.kind === "proposed") {
         const startGlobal = snapGlobalHourFromCell(event, event.currentTarget);
-        distributeProposedLoadToDriver(event, queued.id, driverId, startGlobal);
+        distributeProposedLoadToDriver(event, queued.id, driverId, startGlobal, excelBoardMode() ? date : '');
         return;
       }
       const route = state.routes.find(item => item.id === routeId);
@@ -77099,6 +77187,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
       if (rejectCrossDispatcherMove(route, driverId)) return;
+
+      if (excelBoardMode()) {
+        const occupied = excelCellHasRoute(driverId, date, route.id);
+        const joined = occupied && joinExcelRoutes(route, driverId, date);
+        if (occupied && !joined) { showExcelDayOccupiedMessage(); return; }
+        route.driverId = driverId;
+        if (!joined) setExcelRouteToDay(route, date);
+        const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
+        route.ownerDispatcher = owner;
+        if (state.user.role === "spedytor" && owner !== state.user.login) { route.approvalStatus = "pending"; route.createdBy = state.user.login; }
+        clearRouteDragState(); applyRouteMoveDomPreview(route); window.resetQueueRouteAlertV154?.(route.id);
+        scheduleUiSync({ unload: true, details: state.detailsOpen }); scheduleRouteMoveBoardReconcile(); return;
+      }
 
       const duration = routeGlobalDuration(route);
       const startGlobal = routeDropStartFromPointer(rawGlobalHourFromDriverTimeline(event, driverId, event.currentTarget), route);
@@ -77127,12 +77228,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const queued = queueDragPayload(event);
       if (queued?.kind === "future") {
         const startGlobal = snapGlobalHourFromTimeline(event, event.currentTarget);
-        distributeFutureRouteToDriver(event, queued.id, driverId, startGlobal);
+        distributeFutureRouteToDriver(event, queued.id, driverId, startGlobal, excelBoardMode() ? dateFromIndex(Math.floor(startGlobal / 24)) : '');
         return;
       }
       if (queued?.kind === "proposed") {
         const startGlobal = snapGlobalHourFromTimeline(event, event.currentTarget);
-        distributeProposedLoadToDriver(event, queued.id, driverId, startGlobal);
+        distributeProposedLoadToDriver(event, queued.id, driverId, startGlobal, excelBoardMode() ? dateFromIndex(Math.floor(startGlobal / 24)) : '');
         return;
       }
       const route = state.routes.find(item => item.id === routeId);
@@ -77143,8 +77244,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       if (rejectCrossDispatcherMove(route, driverId)) return;
 
+      const rawTargetHour = rawGlobalHourFromDriverTimeline(event, driverId, event.currentTarget);
+      if (excelBoardMode()) {
+        const targetDate = dateFromIndex(Math.floor(rawTargetHour / 24));
+        const occupied = excelCellHasRoute(driverId, targetDate, route.id);
+        const joined = occupied && joinExcelRoutes(route, driverId, targetDate);
+        if (occupied && !joined) { showExcelDayOccupiedMessage(); return; }
+        route.driverId = driverId;
+        if (!joined) setExcelRouteToDay(route, targetDate);
+        const owner = driverById(driverId)?.dispatcher || route.ownerDispatcher;
+        route.ownerDispatcher = owner;
+        if (state.user.role === "spedytor" && owner !== state.user.login) { route.approvalStatus = "pending"; route.createdBy = state.user.login; }
+        clearRouteDragState(); applyRouteMoveDomPreview(route); window.resetQueueRouteAlertV154?.(route.id);
+        scheduleUiSync({ unload: true, details: state.detailsOpen }); scheduleRouteMoveBoardReconcile(); return;
+      }
+
       const duration = routeGlobalDuration(route);
-      const startGlobal = routeDropStartFromPointer(rawGlobalHourFromDriverTimeline(event, driverId, event.currentTarget), route);
+      const startGlobal = routeDropStartFromPointer(rawTargetHour, route);
 
       route.driverId = driverId;
       setRouteGlobalStartFromDrop(route, startGlobal);
@@ -77817,9 +77933,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function previousRouteBeforeRoute(targetRoute) {
       if (!targetRoute?.driverId) return null;
-      const targetStart = routeGlobalStart(targetRoute);
+      const requiredDate = addDaysToIso(String(targetRoute.date || '').slice(0, 10), -1);
       return activeRoutes()
-        .filter(route => route.id !== targetRoute.id && route.driverId === targetRoute.driverId && routeGlobalEnd(route) <= targetStart)
+        .filter(route => route.id !== targetRoute.id && route.driverId === targetRoute.driverId && String(routeEndDate(route) || '').slice(0, 10) === requiredDate)
         .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
     }
 
@@ -77853,6 +77969,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       input.value = JSON.stringify({ lat: Number(point.lat), lng: Number(point.lng), label: point.label || "" });
     }
 
+    function finalUnloadFieldForRoute(route) {
+      return String(route?.secondUnload || '').trim() ? 'secondUnload' : 'unload';
+    }
+
+    function finalUnloadPointForRoute(route) {
+      return route ? routePointFromRoute(route, finalUnloadFieldForRoute(route)) : null;
+    }
+
+    function finalUnloadLabelForRoute(route) {
+      const field = finalUnloadFieldForRoute(route);
+      return displayLocationWithPostal(route?.[field]) || route?.[field] || '';
+    }
     function routeUsesDriverBaseApproach(route) {
       return routeUsesApproach(route);
     }
@@ -77862,7 +77990,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const stored = storedSpecialRoutePoint(route?.routeApproachCoords, "Punkt dolotu");
       if (stored) return stored;
       const previous = previousRouteBeforeRoute(route);
-      return previous ? routePointFromRoute(previous, "unload") : null;
+      return previous ? finalUnloadPointForRoute(previous) : null;
     }
 
     function basePointForRoute(route) {
@@ -89407,10 +89535,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function routeNavigationPoints3L66(route) {
         if (!route) return [];
         const previous = previousRouteBeforeRoute(route);
-        const previousUnload = previous ? routeExternalPoint3L67(previous, 'unload') : null;
+        const previousUnload = previous ? routeExternalPoint3L67(previous, finalUnloadFieldForRoute(previous)) : null;
         const load = routeExternalPoint3L67(route, 'load');
+        const secondLoad = routeExternalPoint3L67(route, 'secondLoad');
         const unload = routeExternalPoint3L67(route, 'unload');
-        return dedupeExternalPoints3L67([previousUnload, load, unload]);
+        const secondUnload = routeExternalPoint3L67(route, 'secondUnload');
+        return dedupeExternalPoints3L67([previousUnload, load, secondLoad, unload, secondUnload]);
       }
 
       function impargoStopValue3L66(point) {
@@ -91070,7 +91200,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app.dark-mode .quick-unload-edit-wrap::after { background:#111827; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v175-postal-prefix-entry">
+  <style id="targeted-v181-tile-join-separate-grid">
+    /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
+       wyznacza granicę każdej kolumny daty. */
+    .board .time-grid { display:none !important; }
+    .board .time-labels span { border-left:0 !important; }
+    .client-address-confirm { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--soft); }
+    .client-address-confirm > div { min-width:0; }
+    @media (max-width:640px) { .client-address-confirm { align-items:stretch; flex-direction:column; } }
+    .details-finance-grid .route-rate-currency-row { grid-template-columns:minmax(0,1fr) 48px !important; gap:3px !important; }
+    .details-finance-grid .route-rate-currency-row .input,
+    .details-finance-grid .route-currency-select { font-size:11px !important; padding-left:5px !important; padding-right:4px !important; }
+    .details-finance-grid .route-currency-select { min-width:48px !important; width:48px !important; }
+    .board .time-route.route-text-red-v177,
+    .board .time-route.route-text-red-v177 .route-unload-label,
+    .board .time-route.route-text-red-v177 .time-route-title { color:#dc2626 !important; }
     /* Nazwy mają docelowy rozmiar już w pierwszej klatce. Nie uruchamiamy
        pomiaru tekstu po renderze, więc etykiety nie zmieniają wielkości. */
     .board .time-route .route-unload-label {
@@ -91107,8 +91251,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v175-postal-prefix-entry" />
-  <script src="/order-entry.js?build=v175-postal-prefix-entry"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v181-tile-join-separate-grid" />
+  <script src="/order-entry.js?build=v181-tile-join-separate-grid"></script>
 </body>
 </html>
 
