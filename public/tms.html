@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v187-location-suggestions-stable-board"></script>
-  <script src="/planning-core.js?build=v187-location-suggestions-stable-board"></script>
-  <script src="/order-stops.js?build=v187-location-suggestions-stable-board"></script>
+  <script src="/xlsx-lite.js?v=v188-stable-initial-board"></script>
+  <script src="/planning-core.js?build=v188-stable-initial-board"></script>
+  <script src="/order-stops.js?build=v188-stable-initial-board"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -65580,7 +65580,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${renderCommercialIntelligence()}
               ${renderNearestVehicleSearch()}
               <section class="layout ${state.unloadPanelCollapsed ? "layout-full" : ""}" data-unload-panel="${state.unloadPanelCollapsed ? "hidden" : "visible"}">
-                ${renderBoard(visibleDrivers)}
+                ${state.boardStartupV188?.active ? renderBoardStartupV188() : renderBoard(visibleDrivers)}
                 ${state.unloadPanelCollapsed ? renderUnloadPanelPlaceholder() : renderUnloadMapCard(routesForDay)}
               </section>
             `}
@@ -75936,6 +75936,63 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return "spedytor";
     }
 
+    const BOARD_STARTUP_RECEIVED_V188 = { users:false, fleet:false, relations:false };
+
+    function renderBoardStartupV188() {
+      return `<section class="board-wrap board-startup-v188" id="board-wrap" aria-live="polite"><div class="board-startup-card-v188"><span class="board-startup-spinner-v188" aria-hidden="true"></span><div><b>Przygotowywanie planu kierowców</b><small>Ładowanie floty, relacji i rozliczeń…</small></div></div></section>`;
+    }
+
+    function beginBoardStartupV188() {
+      clearTimeout(state.boardStartupV188?.timeout);
+      state.boardStartupV188 = {
+        active:Boolean(EMBEDDED_MODE),
+        usersReady:Boolean(BOARD_STARTUP_RECEIVED_V188.users),
+        fleetReady:Boolean(BOARD_STARTUP_RECEIVED_V188.fleet),
+        relationsReady:Boolean(BOARD_STARTUP_RECEIVED_V188.relations),
+        weeklyRequested:false,
+        weeklyReady:false,
+        timeout:null
+      };
+      if (!state.boardStartupV188.active) return;
+      state.boardStartupV188.timeout = setTimeout(() => finishBoardStartupV188(true), 3500);
+    }
+
+    function markBoardStartupReadyV188(part) {
+      BOARD_STARTUP_RECEIVED_V188[part] = true;
+      const startup = state.boardStartupV188;
+      if (!startup?.active) return;
+      if (part === "users") startup.usersReady = true;
+      if (part === "fleet") startup.fleetReady = true;
+      if (part === "relations") startup.relationsReady = true;
+      finishBoardStartupV188(false);
+    }
+
+    function finishBoardStartupV188(force = false) {
+      const startup = state.boardStartupV188;
+      if (!startup?.active) return false;
+      const coreReady = startup.usersReady && startup.fleetReady && startup.relationsReady;
+      if (!force && !coreReady) return false;
+      if (!force && !startup.weeklyReady) {
+        if (!startup.weeklyRequested) {
+          startup.weeklyRequested = true;
+          const request = window.requestBoardWeeklySettlements?.(dateList(), false);
+          Promise.resolve(request).finally(() => {
+            if (!state.boardStartupV188?.active) return;
+            state.boardStartupV188.weeklyReady = true;
+            finishBoardStartupV188(false);
+          });
+        }
+        return false;
+      }
+      clearTimeout(startup.timeout);
+      startup.timeout = null;
+      startup.active = false;
+      boardRenderCache = null;
+      cachedPlanMainFragment = null;
+      render();
+      return true;
+    }
+
     function applyAuthenticatedUser(user) {
       if (!user) return;
       const role = internalRoleFromSupabase(String(user.role || ""));
@@ -75955,6 +76012,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         email: String(user.email || ""),
         uiColor: String(user.uiColor || '#E2E8F0')
       };
+      beginBoardStartupV188();
       state.detailsOpen = false;
       state.addOpen = false;
       state.unloadPanelCollapsed = true;
@@ -81008,11 +81066,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const afterFingerprint = centralRelationsSetFingerprint(merged);
       state.routes = merged;
       CENTRAL_RELATIONS_READY = true;
+      markBoardStartupReadyV188("relations");
 
       // Supabase Realtime odsyła również zmianę wykonaną przez tę samą kartę.
       // Jeśli stan po stronie serwera jest identyczny z lokalnym, nie przebudowujemy
       // całej tablicy. To usuwa krótkie przycięcie po każdym przesunięciu kafelka.
-      if (beforeFingerprint !== afterFingerprint) {
+      if (beforeFingerprint !== afterFingerprint && !state.boardStartupV188?.active) {
         boardRenderCache = null;
         invalidateCombinedClientHistoryCache();
         renderKeepingScroll();
@@ -81590,6 +81649,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         USERS.splice(0, USERS.length, ...mappedUsers);
         syncDispatcherColorStyles?.();
+        markBoardStartupReadyV188("users");
 
         if (state.user?.supabaseRole === "admin" && !USERS.some(user => user.supabaseId === state.user.supabaseId)) {
           USERS.push({
@@ -81607,7 +81667,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         if (window.__topDragonLastFleetRows && typeof window.applySupabaseFleetRows === "function") {
           window.applySupabaseFleetRows(window.__topDragonLastFleetRows);
-        } else if (state.user) {
+        } else if (state.user && !state.boardStartupV188?.active) {
           render();
         }
       } else if (message.type === "top-dragon-fleet-data") {
@@ -81650,6 +81710,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       } else if (message.type === "top-dragon-relation-usage-result") {
         window.handleRelationUsageResult?.(message);
       } else if (message.type === "top-dragon-signout") {
+        clearTimeout(state.boardStartupV188?.timeout);
+        state.boardStartupV188 = null;
+        BOARD_STARTUP_RECEIVED_V188.users = false;
+        BOARD_STARTUP_RECEIVED_V188.fleet = false;
+        BOARD_STARTUP_RECEIVED_V188.relations = false;
         state.user = null;
         USERS.splice(0, USERS.length);
         window.__topDragonLastFleetRows = [];
@@ -83556,10 +83621,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.routes = ensureSeptemberRelationsV167(state.routes || [], DRIVERS);
         applyStoredDriverAssignments();
         invalidateFleetCaches();
+        markBoardStartupReadyV188("fleet");
 
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
-        if (state.user) {
+        if (state.user && !state.boardStartupV188?.active) {
           syncBoardOnly();
           syncUnloadMapCard();
         }
@@ -86129,7 +86195,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           (message.weeks||[]).forEach(week=>{ if(week?.weekStart) state.boardWeeklySettlements[week.weekStart]=week; });
           const pending=BOARD_WEEK_REQUESTS.get(String(message.requestId||''));
           if(pending){ clearTimeout(pending.timer); BOARD_WEEK_REQUESTS.delete(String(message.requestId||'')); pending.resolve(); }
-          if(state.appView==='plan') syncBoardOnly();
+          if(state.appView==='plan' && !state.boardStartupV188?.active) syncBoardOnly();
         } else if(message.type==='top-dragon-weekly-settlement-invalidated') {
           state.boardWeeklySettlements={};
           requestBoardWeeklySettlements3L36(dateList(),true);
@@ -86424,7 +86490,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           carrierAdjustments:Array.isArray(message.carrierAdjustments)?message.carrierAdjustments:[],
           transfers:Array.isArray(message.transfers)?message.transfers:[]
         };
-        if (state.appView === 'plan') {
+        if (state.appView === 'plan' && !state.boardStartupV188?.active) {
           clearTimeout(boardFinanceSyncTimerV187);
           boardFinanceSyncTimerV187 = setTimeout(() => {
             boardFinanceSyncTimerV187 = null;
@@ -91395,7 +91461,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v187-location-suggestions-stable-board">
+  <style id="targeted-v188-stable-initial-board">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -91441,6 +91507,33 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* Stała rezerwa na pasek przewijania zapobiega poziomemu przesunięciu
        całego planu, gdy po starcie dołączą dane z synchronizacji. */
     html { scrollbar-gutter:stable; }
+    .board-startup-v188 {
+      min-height:clamp(420px,68vh,760px);
+      display:grid;
+      place-items:center;
+      overflow:hidden;
+      contain:layout paint;
+    }
+    .board-startup-card-v188 {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:16px 20px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--card);
+      box-shadow:0 12px 30px rgba(15,23,42,.08);
+    }
+    .board-startup-card-v188 b,
+    .board-startup-card-v188 small { display:block; }
+    .board-startup-card-v188 small { margin-top:3px;color:var(--muted); }
+    .board-startup-spinner-v188 {
+      width:22px;height:22px;border-radius:50%;
+      border:3px solid #cbd5e1;border-top-color:#2563eb;
+      animation:board-startup-spin-v188 .75s linear infinite;
+    }
+    @keyframes board-startup-spin-v188 { to { transform:rotate(360deg); } }
+    @media(prefers-reduced-motion:reduce) { .board-startup-spinner-v188 { animation:none; } }
 
     /* Przy gęstej tablicy przeglądarka pomija układ i malowanie komórek poza
        widokiem. W czasie przewijania wyłączamy tylko kosztowne efekty. */
@@ -91468,8 +91561,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v187-location-suggestions-stable-board" />
-  <script src="/order-entry.js?build=v187-location-suggestions-stable-board"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v188-stable-initial-board" />
+  <script src="/order-entry.js?build=v188-stable-initial-board"></script>
 </body>
 </html>
 
