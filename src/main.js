@@ -2242,11 +2242,18 @@ async function loadCentralLoadQueue() {
   // Fetch every page. A truncated snapshot must never remove valid local entries.
   if (isBranchScopedRole() && !currentBranchId()) return { rows: [], expiredProposedStats: [] }
   const branch=currentBranchId(), scoped=isBranchScopedRole();
-  const {data,error}=await readAllPagesV154(()=>{
-    let query=supabase.from('tms_load_queue').select('branch_id, queue_type, load_ref, payload, updated_at').eq('active',true).order('branch_id').order('queue_type').order('load_ref');
+  const {data:activeData,error}=await readAllPagesV154(()=>{
+    let query=supabase.from('tms_load_queue').select('branch_id, queue_type, load_ref, payload, updated_at, active').eq('active',true).order('branch_id').order('queue_type').order('load_ref');
     return scoped?query.eq('branch_id',branch):query;
   });
   if(error)throw new Error('Nie udało się pobrać kolejki: '+error.message);
+  // Archiwum jest tylko do odczytu, ale dostępne w obu kolejkach dla każdego
+  // pracownika. RLS Supabase nadal ogranicza dane do zakresu konta.
+  const {data:archivedData,error:archiveReadError}=await readAllPagesV154(()=>
+    supabase.from('tms_load_queue').select('branch_id, queue_type, load_ref, payload, updated_at, active').eq('active',false).order('branch_id').order('queue_type').order('load_ref')
+  );
+  if(archiveReadError) console.warn('Nie udało się pobrać archiwum kolejki:',archiveReadError.message);
+  const data=[...(activeData||[]),...(archivedData||[])];
   const statsResult = hasRole('admin') ? await supabase.rpc('tms_expired_proposed_load_stats') : { data: [] }
 
   const activeRows = []
@@ -2256,7 +2263,7 @@ async function loadCentralLoadQueue() {
     // V141: wygasły Wolny ładunek nie może wracać do aktywnej listy.
     // Archiwizujemy wyłącznie kolejkę `proposed`; Planowane relacje (`future`)
     // pozostają aktywne niezależnie od terminu.
-    if (row.queue_type === 'proposed' && isExpiredProposedLoadPayload(row.payload)) {
+    if (row.active !== false && row.queue_type === 'proposed' && isExpiredProposedLoadPayload(row.payload)) {
       const owner = String(row.payload?.createdBy || row.payload?.ownerDispatcher || '').trim()
       const canArchive = hasRole('admin', 'branch_manager') || (hasRole('dispatcher') && sameName(owner, currentActorLogin()))
       if (canArchive) {
@@ -2284,6 +2291,7 @@ async function loadCentralLoadQueue() {
     branchId: String(row.branch_id || ''),
     queueType: String(row.queue_type || ''),
     payload: row.payload,
+    archived: row.active === false,
     updatedAt: String(row.updated_at || ''),
   }))
 
@@ -4423,7 +4431,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v188-stable-initial-board"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v191-stable-board-entry"
         title="Top Dragon TMS"
       ></iframe>
     </main>
