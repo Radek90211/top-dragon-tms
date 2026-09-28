@@ -60087,9 +60087,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v188-stable-initial-board"></script>
-  <script src="/planning-core.js?build=v188-stable-initial-board"></script>
-  <script src="/order-stops.js?build=v188-stable-initial-board"></script>
+  <script src="/xlsx-lite.js?v=v191-stable-board-entry"></script>
+  <script src="/planning-core.js?build=v191-stable-board-entry"></script>
+  <script src="/order-stops.js?build=v191-stable-board-entry"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -60442,6 +60442,7 @@
 
     const POSTAL_FAST_RESULT_CACHE = new Map();
     const POSTAL_DIRECT_LOOKUP_CACHE = new Map();
+    const LOCATION_SEARCH_FALLBACK_CODES_V189 = { "Żagań":"68-100" };
 
     function postalPackedRowFromLine(line, applyCorrections = true) {
       const parts = String(line || "").split("|");
@@ -60470,11 +60471,29 @@
       return String(value || "").normalize("NFC").replace(/\s+/g, " ").trim().toLocaleLowerCase("pl-PL");
     }
 
+    function supplementalCanonicalLocationRowsV189(existingRows = []) {
+      const existing = new Set((existingRows || []).map(row => removePolishChars(row?.city)));
+      const centerCodes = typeof CITY_CENTER_POSTAL_CODES === "object" ? CITY_CENTER_POSTAL_CODES : {};
+      return Object.entries(LOCATION_COORDS).flatMap(([city, coords]) => {
+        if (existing.has(removePolishChars(city)) || !Array.isArray(coords) || coords.length < 2) return [];
+        const code = String(LOCATION_SEARCH_FALLBACK_CODES_V189[city] || centerCodes[city] || "");
+        return [{
+          code,
+          city,
+          lat:Number(coords[0]), lng:Number(coords[1]), coords:[Number(coords[0]),Number(coords[1])],
+          label:code ? `${city} ${code}` : city,
+          digits:code.replace(/\D/g,""), normCity:removePolishChars(city),
+          normLabel:removePolishChars(`${city} ${code}`.trim()), exact:false, canonicalFallback:true
+        }];
+      });
+    }
+
     function locationSearchRows(query, maxResults = 80) {
       const raw = String(query || "").trim();
       if (!raw || maxResults <= 0) return [];
       if (!locationSearchRows.rows) {
         locationSearchRows.rows = postalGeoPackedText().split(/\r?\n/).map(line => postalPackedRowFromLine(line, false)).filter(Boolean);
+        locationSearchRows.rows.push(...supplementalCanonicalLocationRowsV189(locationSearchRows.rows));
         locationSearchRows.byPostal = new Map();
         for (const row of locationSearchRows.rows) {
           if (!locationSearchRows.byPostal.has(row.code)) locationSearchRows.byPostal.set(row.code, []);
@@ -60624,6 +60643,7 @@
     function postalGeoIndex() {
       if (POSTAL_GEO_INDEX_CACHE) return POSTAL_GEO_INDEX_CACHE;
       const rows = postalGeoPackedText().split(/\r?\n/).map(line => postalPackedRowFromLine(line)).filter(Boolean);
+      rows.push(...supplementalCanonicalLocationRowsV189(rows));
       const byKey = new Map(), byPostal = new Map(), byCity = new Map();
       for (const row of rows) {
         byKey.set(`${locationSearchIdentity(row.city)}|${row.code}`,row);
@@ -63766,7 +63786,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function visibleFutureRoutes() {
       const routes = state.futureRoutes || [];
       if (!state.user) return [];
-      return routes.filter(route => plannedRouteVisible(route) && queueEntryVisibleToUser(route, "branch"));
+      return routes.filter(route => !route?.archived && plannedRouteVisible(route) && queueEntryVisibleToUser(route, "branch"));
+    }
+
+    function archivedQueueRoutesV189(kind) {
+      const routes = kind === "future" ? state.futureRoutes : state.proposedLoads;
+      return (routes || [])
+        .filter(route => Boolean(route?.archived))
+        .sort((a, b) => String(b?.updatedAt || b?.archivedAt || b?.date || "").localeCompare(String(a?.updatedAt || a?.archivedAt || a?.date || "")));
+    }
+
+    function queueBoardStatusV189(route, kind) {
+      const sourceKey = kind === "future" ? "sourceFutureId" : "sourceProposedId";
+      const boardRoute = (state.routes || []).find(item => String(item?.[sourceKey] || "") === String(route?.id || ""));
+      const added = Boolean(boardRoute || route?.takenRouteId || route?.addedToBoardAt || route?.status === "taken");
+      const driver = boardRoute ? driverById(boardRoute.driverId) : null;
+      const detail = added && driver?.driver ? ` · ${esc(driver.driver)}` : "";
+      return `<div class="queue-board-status-v189 ${added ? "is-added" : "is-not-added"}">Tablica: ${added ? `dodano${detail}` : "nie dodano"}</div>`;
     }
 
     function futureRouteGlobalStart(route) {
@@ -63836,30 +63872,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function scrollBoardToCurrentTimeOnEntry() {
-      if (!state.boardInitialCurrentTimeScrollPending) return false;
-      const info = currentTimeLineInfo();
-      const viewport = document.querySelector(".board-scroll");
-      if (!info || !viewport) return false;
-
-      const dayCell = viewport.querySelector(`.day-cell.time-cell[data-date="${CSS.escape(info.date)}"]`);
-      const line = dayCell?.querySelector('[data-current-time-line="1"]');
-      if (!dayCell || !line) return false;
-
-      const viewportRect = viewport.getBoundingClientRect();
-      const stickyRight = Array.from(viewport.querySelectorAll(".board .top.sticky-a, .board .top.sticky-b, .board .top.sticky-c, .board .top.sticky-d"))
-        .filter(element => getComputedStyle(element).display !== "none")
-        .reduce((right, element) => Math.max(right, element.getBoundingClientRect().right), viewportRect.left);
-      const oneColumnGap = dayCell.getBoundingClientRect().width;
-      const targetViewportLeft = Math.min(viewportRect.right - 16, stickyRight + oneColumnGap);
-      const maxScrollLeft = viewport.scrollWidth - viewport.clientWidth;
-      viewport.scrollLeft = boardScrollLeftForCurrentTime(
-        viewport.scrollLeft,
-        line.getBoundingClientRect().left,
-        targetViewportLeft,
-        maxScrollLeft
-      );
+      // Bieżąca godzina jest oznaczona, ale po pierwszym renderze nie wolno
+      // automatycznie przesuwać całej tablicy ani położenia kafelków.
       state.boardInitialCurrentTimeScrollPending = false;
-      return true;
+      return false;
     }
 
     function futureRoutesForDispatcherDate(dispatcher, date) {
@@ -65580,7 +65596,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${renderCommercialIntelligence()}
               ${renderNearestVehicleSearch()}
               <section class="layout ${state.unloadPanelCollapsed ? "layout-full" : ""}" data-unload-panel="${state.unloadPanelCollapsed ? "hidden" : "visible"}">
-                ${state.boardStartupV188?.active ? renderBoardStartupV188() : renderBoard(visibleDrivers)}
+                ${renderBoard(visibleDrivers)}
                 ${state.unloadPanelCollapsed ? renderUnloadPanelPlaceholder() : renderUnloadMapCard(routesForDay)}
               </section>
             `}
@@ -69510,7 +69526,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function visibleProposedLoadsForPanel() {
       return (state.proposedLoads || [])
-        .filter(route => queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
+        .filter(route => !route?.archived && queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.startHour ?? 8) - Number(b.startHour ?? 8));
     }
 
@@ -70139,17 +70155,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ${renderExpiredProposedLoadStats3L44()}
             <div class="queue-drop-zone" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Upuść tutaj wolny ładunek, aby przenieść go do Planowanych relacji">Przenieś do Planowane relacje</div>
             ${loads.length ? loads.map(renderProposedLoadCard).join("") : `<div class="hint">Brak wolnych ładunków.</div>`}
+            ${archivedQueueRoutesV189("proposed").length ? `<details class="queue-archive-section-v189"><summary>Archiwalne relacje (${archivedQueueRoutesV189("proposed").length})</summary><div class="queue-archive-list-v189">${archivedQueueRoutesV189("proposed").map(renderProposedLoadCard).join("")}</div></details>` : ""}
           </div>
         </aside>
       `;
     }
 
     function proposedLoadCanModify(route) {
-      return Boolean(state.user?.role === "spedytor" && route.createdBy === state.user.login);
+      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.createdBy === state.user.login);
     }
 
     function proposedLoadCanTake(route) {
-      return Boolean(state.user?.role === "spedytor" && route.status !== "taken" && !proposedLoadIsClaimed(route));
+      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.status !== "taken" && !proposedLoadIsClaimed(route));
     }
 
     function proposedLoadCanReturn(route) {
@@ -70193,6 +70210,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
                 <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
               </div>
+              ${queueBoardStatusV189(route, "proposed")}
               ${detailsHidden ? "" : `
                 <div class="proposed-load-meta future-card-meta">${esc(routeKmLabel)}</div>
                 ${(loadGeoCorrection || unloadGeoCorrection) ? `<div class="proposed-load-meta" style="color:#b45309;font-weight:800;">Skorygowano lokalizację: ${loadGeoCorrection ? `${esc(loadGeoCorrection.requestedPostal)} → ${esc(loadGeoCorrection.label)}` : ""}${loadGeoCorrection && unloadGeoCorrection ? " · " : ""}${unloadGeoCorrection ? `${esc(unloadGeoCorrection.requestedPostal)} → ${esc(unloadGeoCorrection.label)}` : ""}</div>` : ""}
@@ -70561,7 +70579,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function futureCardCanDrag(route) {
-      return Boolean(state.user?.role === "spedytor" && route.createdBy === state.user.login);
+      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.createdBy === state.user.login);
     }
 
 
@@ -72403,13 +72421,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ${renderQueueAddControl("future")}
             <div class="queue-drop-zone" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Upuść tutaj planowaną relację, aby przenieść ją do Wolnych ładunków">Przenieś do Wolne ładunki</div>
             ${groups.length ? groups.map(renderFutureGroupBlock).join("") : `<div class="hint" style="padding:10px;">Brak planowanych relacji.</div>`}
+            ${archivedQueueRoutesV189("future").length ? `<details class="queue-archive-section-v189"><summary>Archiwalne relacje (${archivedQueueRoutesV189("future").length})</summary><div class="queue-archive-list-v189">${archivedQueueRoutesV189("future").map(renderFutureRouteCard).join("")}</div></details>` : ""}
           </div>
         </aside>
       `;
     }
 
     function futureRouteCanDelete(route) {
-      return Boolean(state.user?.role === "spedytor" && route?.createdBy === state.user.login);
+      return Boolean(!route?.archived && state.user?.role === "spedytor" && route?.createdBy === state.user.login);
     }
 
     function renderFutureRouteCard(route) {
@@ -72439,6 +72458,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 ${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayLocationWithPostal(route.load) || "-")} → ${esc(displayLocationWithPostal(route.unload) || "-")}
               </div>
               ${orderStopsSummary(route)}
+              ${queueBoardStatusV189(route, "future")}
               ${detailsHidden ? "" : `
                 <div class="future-card-meta">Data relacji: <b>${esc(formatDateForInput(route.date))}</b> · ${hourLabel(Number(route.startHour ?? 8))} · ${totalKm(route)} km · ${money(profit(route))}</div>
                 <div class="future-card-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'branch')}</div>
@@ -75938,23 +75958,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const BOARD_STARTUP_RECEIVED_V188 = { users:false, fleet:false, relations:false };
 
-    function renderBoardStartupV188() {
-      return `<section class="board-wrap board-startup-v188" id="board-wrap" aria-live="polite"><div class="board-startup-card-v188"><span class="board-startup-spinner-v188" aria-hidden="true"></span><div><b>Przygotowywanie planu kierowców</b><small>Ładowanie floty, relacji i rozliczeń…</small></div></div></section>`;
-    }
-
     function beginBoardStartupV188() {
       clearTimeout(state.boardStartupV188?.timeout);
-      state.boardStartupV188 = {
-        active:Boolean(EMBEDDED_MODE),
-        usersReady:Boolean(BOARD_STARTUP_RECEIVED_V188.users),
-        fleetReady:Boolean(BOARD_STARTUP_RECEIVED_V188.fleet),
-        relationsReady:Boolean(BOARD_STARTUP_RECEIVED_V188.relations),
-        weeklyRequested:false,
-        weeklyReady:false,
-        timeout:null
-      };
-      if (!state.boardStartupV188.active) return;
-      state.boardStartupV188.timeout = setTimeout(() => finishBoardStartupV188(true), 3500);
+      // Plan jest widoczny od razu; dane dochodzą w tle bez osobnego ekranu.
+      state.boardStartupV188 = null;
     }
 
     function markBoardStartupReadyV188(part) {
@@ -76017,7 +76024,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.addOpen = false;
       state.unloadPanelCollapsed = true;
       state.appView = "plan";
-      state.boardInitialCurrentTimeScrollPending = true;
+      state.boardInitialCurrentTimeScrollPending = false;
       state.reportDate = addDaysToIso(currentAppDate(), -1);
       state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
       dateListMemo = { signature: "", dates: null, indexMap: null };
@@ -76309,6 +76316,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function copySelectedBoardRouteV183(cut = false) {
       const route = selectedBoardRouteV183();
       if (!route || !canEditBoardRoute(route)) return false;
+      if (cut && isAdminUser?.()) {
+        showAppMessage("Kopia administratora", "Administrator może kopiować kafelki dowolnych spedytorów. Wycinanie relacji pozostaje dostępne wyłącznie dla jej właściciela.");
+        return false;
+      }
       boardRouteClipboardV183 = boardRouteSnapshotV186(route);
       try {
         localStorage.setItem(BOARD_ROUTE_CLIPBOARD_KEY_V186, JSON.stringify({ version:186, copiedAt:new Date().toISOString(), route:boardRouteClipboardV183 }));
@@ -76353,8 +76364,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       const targetDriver = driverById(target.driverId);
       const candidate = { driverId:target.driverId, ownerDispatcher:targetDriver?.dispatcher || "", createdBy:state.user?.login || "" };
-      if (!targetDriver || state.user?.role !== "spedytor") {
-        showAppMessage("Brak uprawnień", "Kopię relacji może umieścić na tablicy spedytor.");
+      const administrator = Boolean(isAdminUser?.());
+      if (!targetDriver || (state.user?.role !== "spedytor" && !administrator)) {
+        showAppMessage("Brak uprawnień", "Kopię relacji może umieścić na tablicy spedytor lub administrator.");
         return false;
       }
       const occupied = activeRoutes().filter(item => item.driverId === target.driverId && item.approvalStatus !== "rejected" && routeOverlapsDate(item, target.date));
@@ -76369,7 +76381,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       copy.createdBy = state.user.login;
       copy.createdAt = new Date().toISOString();
       copy.updatedAt = copy.createdAt;
-      copy.approvalStatus = targetDriver.dispatcher === state.user.login ? "approved" : "pending";
+      copy.approvalStatus = administrator || targetDriver.dispatcher === state.user.login ? "approved" : "pending";
       copy.dispatcherStatus = "";
       copy.accountingCheck = false;
       copy.accountingFinal = false;
@@ -76378,6 +76390,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       delete copy.boardSplitPart;
       delete copy.supabaseRelation;
       Object.keys(copy).filter(key => key.startsWith("_central")).forEach(key => delete copy[key]);
+      if (targetDriver.branchId) {
+        try { Object.defineProperty(copy, "_centralBranchId", { value:String(targetDriver.branchId), writable:true, configurable:true, enumerable:false }); }
+        catch (error) { copy._centralBranchId = String(targetDriver.branchId); }
+      }
       setExcelRouteToDay(copy, target.date);
       stampRouteAdded(copy);
       state.routes.push(copy);
@@ -81283,6 +81299,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         payload.id = loadId;
         payload.futureQueue = kind === "future";
         payload.proposedLoad = kind === "proposed";
+        payload.archived = Boolean(row?.archived);
         const key = centralLoadQueueKey(branchId, kind, loadId);
         remoteKeys.add(key);
         if (CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
@@ -84237,19 +84254,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return scope === "all" || (queueVisibilityBranch(route) && queueVisibilityBranch(route) === state.user.branch);
       };
       proposedLoadCanModify = function(route) {
-        if (!route || !state.user) return false;
+        if (!route || route.archived || !state.user) return false;
         if (state.user.supabaseRole === "admin") return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
       futureRouteCanDelete = function(route) {
-        if (!route || !state.user) return false;
+        if (!route || route.archived || !state.user) return false;
         if (state.user.supabaseRole === "admin") return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
       futureCardCanDrag = function(route) {
-        if (!route || !state.user) return false;
+        if (!route || route.archived || !state.user) return false;
         if (state.user.supabaseRole === "admin") return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
@@ -91461,7 +91478,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v188-stable-initial-board">
+  <style id="targeted-v191-stable-board-entry">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -91535,6 +91552,38 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @keyframes board-startup-spin-v188 { to { transform:rotate(360deg); } }
     @media(prefers-reduced-motion:reduce) { .board-startup-spinner-v188 { animation:none; } }
 
+    .queue-board-status-v189 {
+      display:inline-flex;
+      align-items:center;
+      margin-top:5px;
+      padding:3px 7px;
+      border-radius:999px;
+      font-size:10px;
+      font-weight:800;
+      line-height:1.2;
+    }
+    .queue-board-status-v189.is-added { color:#166534; background:#dcfce7; }
+    .queue-board-status-v189.is-not-added { color:#475569; background:#e2e8f0; }
+    .queue-archive-section-v189 {
+      margin-top:14px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      overflow:hidden;
+      background:var(--soft);
+    }
+    .queue-archive-section-v189 > summary {
+      padding:10px 12px;
+      cursor:pointer;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+      list-style-position:inside;
+    }
+    .queue-archive-list-v189 { display:grid; gap:8px; padding:0 8px 8px; }
+    .queue-archive-list-v189 .future-card { opacity:.86; filter:saturate(.72); }
+    .app.dark-mode .queue-board-status-v189.is-added { color:#bbf7d0; background:#14532d; }
+    .app.dark-mode .queue-board-status-v189.is-not-added { color:#cbd5e1; background:#334155; }
+
     /* Przy gęstej tablicy przeglądarka pomija układ i malowanie komórek poza
        widokiem. W czasie przewijania wyłączamy tylko kosztowne efekty. */
     .board-scroll.board-dense-v170 {
@@ -91561,8 +91610,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v188-stable-initial-board" />
-  <script src="/order-entry.js?build=v188-stable-initial-board"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v191-stable-board-entry" />
+  <script src="/order-entry.js?build=v191-stable-board-entry"></script>
 </body>
 </html>
 
