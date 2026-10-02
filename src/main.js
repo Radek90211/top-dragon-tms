@@ -4431,7 +4431,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v196-smooth-map-top-timeline"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v200-mobile-workspace"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4479,6 +4479,7 @@ async function renderDashboard(user) {
 
   if (loadQueueHousekeepingTimer) clearInterval(loadQueueHousekeepingTimer)
   loadQueueHousekeepingTimer = setInterval(() => {
+    if (document.hidden || !activeTmsFrame || !currentProfile) return
     syncCentralLoadQueueToTms().catch((error) => {
       console.warn('Nie udało się wykonać okresowego porządkowania Wolnych ładunków:', error)
     })
