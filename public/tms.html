@@ -1875,8 +1875,7 @@
 
     .time-route.quick-editing .time-route-sub,
     .time-route.quick-editing .time-resize,
-    .time-route.quick-editing .time-overlap-warning,
-    .time-route.quick-editing .pause-conflict-badge {
+    .time-route.quick-editing .time-overlap-warning {
       display: none !important;
     }
 
@@ -4787,46 +4786,6 @@
       color: #fbbf24;
     }
 
-
-    .time-pause {
-      position: absolute;
-      top: 18px;
-      height: 28px;
-      border-radius: 8px;
-      background: rgba(148, 163, 184, 0.28);
-      border: 1px solid rgba(100,116,139,.26);
-      color: rgba(51,65,85,.88);
-      font-size: 8px;
-      font-weight: 950;
-      line-height: 28px;
-      text-align: center;
-      overflow: hidden;
-      white-space: nowrap;
-      pointer-events: none;
-      z-index: 6;
-    }
-
-    .time-route.pause-conflict {
-      box-shadow: 0 0 0 2px rgba(245,158,11,.22), 0 3px 9px rgba(15,23,42,.10);
-    }
-
-    .pause-conflict-badge {
-      position: absolute;
-      right: 17px;
-      bottom: 3px;
-      width: 15px;
-      height: 15px;
-      display: inline-grid;
-      place-items: center;
-      font-size: 10px;
-      font-weight: 950;
-      color: #92400e;
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      border-radius: 999px;
-      z-index: 12;
-    }
-
     .app.dark-mode .flag-toggle span {
       background: #ffffff;
       border-color: #cbd5e1;
@@ -4837,16 +4796,6 @@
       background: #020617;
       border-color: #020617;
       color: #ffffff;
-    }
-
-    .app.dark-mode .time-pause {
-      color: rgba(226,232,240,.90);
-      border-color: rgba(148,163,184,.32);
-      background: rgba(148, 163, 184, 0.30);
-    }
-
-    .app.dark-mode .time-route.pause-conflict {
-      box-shadow: 0 0 0 2px rgba(251,191,36,.30), 0 3px 9px rgba(0,0,0,.25);
     }
 
     .app.dark-mode .compatibility-box,
@@ -4921,20 +4870,6 @@
       min-width: 0 !important;
       padding-left: 9px !important;
       padding-right: 8px !important;
-    }
-
-    .time-pause {
-      background: rgba(226, 232, 240, 0.58) !important;
-      border-color: rgba(148, 163, 184, 0.30) !important;
-      color: rgba(71, 85, 105, 0.58) !important;
-      box-shadow: none !important;
-      font-weight: 800 !important;
-    }
-
-    .app.dark-mode .time-pause {
-      background: rgba(71, 85, 105, 0.34) !important;
-      border-color: rgba(100, 116, 139, 0.32) !important;
-      color: rgba(203, 213, 225, 0.46) !important;
     }
 
     .future-tab,
@@ -5293,13 +5228,6 @@
     }
 
   
-    /* Przerwy na tablicy są wyłączone wizualnie. */
-    .time-pause,
-    .pause-conflict-badge {
-      display: none !important;
-    }
-
-
     /* PDF_IMPORT_MODULE: ikona i modal importu zlecenia */
     /* Przycisk jest odsunięty od prawej krawędzi, żeby nie zasłaniał bocznych zakładek, m.in. Statystyki. */
     .pdf-import-tab {
@@ -90190,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v196-smooth-map-top-timeline"></script>
-  <script src="/planning-core.js?build=v196-smooth-map-top-timeline"></script>
-  <script src="/order-stops.js?build=v196-smooth-map-top-timeline"></script>
+  <script src="/xlsx-lite.js?v=v200-mobile-workspace"></script>
+  <script src="/planning-core.js?build=v200-mobile-workspace"></script>
+  <script src="/order-stops.js?build=v200-mobile-workspace"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -92172,11 +92100,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
 
-    function scheduleSharedDbAutoSync() {
-      // Synchronizacja zostanie podłączona do docelowego źródła danych online.
-      // Wersja standalone nie wykonuje żadnych żądań sieciowych po logowaniu.
-    }
-
     function clientLookupIndex() {
       const source = state.clients || [];
       if (CLIENT_LOOKUP_CACHE.source === source && CLIENT_LOOKUP_CACHE.length === source.length) return CLIENT_LOOKUP_CACHE;
@@ -92546,6 +92469,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       prefill: null,
       reportDate: currentAppDate(),
       boardWindowStart: addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS),
+      mobileBoardWindowTouched: false,
       onlyMine: false,
       copiedRouteId: null,
       mapZoom: 1.25,
@@ -92570,12 +92494,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       unloadRoutePreviewRouteIds: [],
       unloadRoutePreviewDismissStage: 0,
       unloadRoutePreviewBusy: false,
-      unloadPanelCollapsed: false,
+      unloadPanelCollapsed: window.matchMedia?.("(max-width: 720px)")?.matches || false,
       expandedCells: {},
       darkMode: false,
       appView: "plan",
       tutorialOpen: false,
-      boardInitialCurrentTimeScrollPending: false,
       // Kolejność jest zapamiętywana na czas otwartej sesji. Aktualizacja
       // danych spedytora nie może przestawić już widocznych wierszy planu.
       boardDriverOrderV192: [],
@@ -92967,11 +92890,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="route-commercial-warning" title="${attr(label)}" aria-label="${attr(label)}">!</span>`;
     }
 
-    function routeBaseKm(route) {
-      return Number(route?.baseKm || 0);
-    }
-
-
     function routeSmsKm(value) {
       const km = Number(value || 0);
       if (!Number.isFinite(km) || km <= 0) return "0";
@@ -93266,7 +93184,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 60000)) : 99999;
     }
     function routeFreshClass(route) { return routeFreshMinutes(route) < 20 ? "route-recent" : ""; }
-    function routeFreshBadge() { return ""; }
     function routeHasCompleteFreightRating(route) {
       return normalizeFreightStarRating(route?.loadDelayRating) != null
         && normalizeFreightStarRating(route?.unloadDelayRating) != null;
@@ -93274,7 +93191,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeNeedsFreightRating(route) {
       return Boolean(route && routeCompletedForClientHistory(route) && !routeHasCompleteFreightRating(route));
     }
-    function routeRatingMissingBadge() { return ""; }
 
     const FAST_OPERATIONAL_LOCATION_CACHE = new Map();
     const OPERATIONAL_ROUTE_POINT_CACHE = new Map();
@@ -93387,10 +93303,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .sort((a, b) => a.distanceKm - b.distanceKm || Number(routeEndHour(a.route)) - Number(routeEndHour(b.route)));
     }
 
-    // Nie pokazujemy historycznych znaczników na kafelkach. Alert pojawia się tylko przy zdobyciu/dodaniu ładunku.
-    function routeNearbyDispatcherBadge() { return ""; }
-    function renderOtherDispatcherContextNotice() { return ""; }
-
     const nearbyDispatcherNoticeSignatures = new Map();
     function notifyNearbyDispatcherVehicles(route, attempt = 0) {
       if (!route || state.user?.role !== "spedytor") return;
@@ -93431,19 +93343,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // Automatyczne komunikaty „Auto szuka ładunku przy Twoim kliencie” zostały usunięte.
     // Zamiast nich spedytor sam wysyła czytelne zapytanie w zakładce „Zapytania o ładunek”.
-    function queueClientOwnerLoadAlertsForRoute() {}
-    function deliverPendingClientOwnerAlerts() {}
-
-    let nearbyBadgeSyncToken = 0;
-
-    function scheduleNearbyDispatcherBadgeSync() {
-      // Celowo puste: nie oznaczamy historycznie wolnych aut na tablicy.
-      nearbyBadgeSyncToken += 1;
-    }
-
     function syncRecentRouteBadges() {
+      const routesById = new Map((state.routes || []).map(route => [String(route?.id || ""), route]));
       document.querySelectorAll('.time-route[data-route-id]').forEach(element => {
-        const route = state.routes.find(item => item.id === element.dataset.routeId);
+        const route = routesById.get(String(element.dataset.routeId || ""));
         if (!route) return;
         element.classList.toggle('route-recent', routeFreshMinutes(route) < 20);
         const title = element.querySelector('.time-route-title');
@@ -93453,8 +93356,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const indicators = title.querySelector('.route-title-indicators') || title;
         if (warningBadge) indicators.insertAdjacentHTML('beforeend', warningBadge);
       });
-      scheduleRouteTileLabelFit();
-      scheduleNearbyDispatcherBadgeSync();
     }
 
     function routeStatusClasses(route) {
@@ -93632,7 +93533,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
 
       restoreScrollState(scrollState);
-      scheduleRouteTileLabelFit();
       if (state.statsPanelOpen) scheduleStatsPanelSync();
       return true;
     }
@@ -93911,11 +93811,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .sort((a, b) => futureRouteGlobalStart(a) - futureRouteGlobalStart(b));
     }
 
-    function dispatcherUpcomingMarker(dispatcher) {
-      // 3L.31: usunięto powiadomienie „zbliża się” z Planowanych relacji.
-      return "";
-    }
-
 
     function localIsoDateFromDate(date = new Date()) {
       const year = date.getFullYear();
@@ -93931,13 +93826,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const left = Math.max(0, Math.min(100, (minutesFromMidnight / (24 * 60)) * 100));
       const label = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       return { date, left, label };
-    }
-
-    function renderCurrentTimeLine(date) {
-      // Linia jest renderowana w .timeline-row, czyli w tej samej warstwie co kafelki.
-      // Wstawienie jej do pojedynczej komórki dnia nie pozwalało jej wyjść ponad
-      // nadrzędny kontekst układania kafelków.
-      return "";
     }
 
     function renderTimelineCurrentTimeLine() {
@@ -93956,18 +93844,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const source = template.content.firstElementChild;
       if (!source) return;
       document.querySelectorAll(".timeline-row").forEach(row => row.appendChild(source.cloneNode(true)));
-    }
-
-    function boardScrollLeftForCurrentTime(currentScrollLeft, lineViewportLeft, targetViewportLeft, maxScrollLeft) {
-      const desired = Number(currentScrollLeft) + Number(lineViewportLeft) - Number(targetViewportLeft);
-      return Math.max(0, Math.min(Math.max(0, Number(maxScrollLeft) || 0), desired));
-    }
-
-    function scrollBoardToCurrentTimeOnEntry() {
-      // Bieżąca godzina jest oznaczona, ale po pierwszym renderze nie wolno
-      // automatycznie przesuwać całej tablicy ani położenia kafelków.
-      state.boardInitialCurrentTimeScrollPending = false;
-      return false;
     }
 
     function futureRoutesForDispatcherDate(dispatcher, date) {
@@ -94003,7 +93879,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderBoardRouteTitle(route, fallbackDriver = null) {
-      const indicators = `${routeDispatcherChip(route, fallbackDriver)}${routeOrderTileIcon(route)}${routeFreshBadge(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}`;
+      const indicators = `${routeDispatcherChip(route, fallbackDriver)}${routeOrderTileIcon(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}`;
       if (excelBoardMode() && route.boardExcelSplit) {
         return `<span class="route-title-indicators">${indicators}</span><span class="excel-stops-v171"><span class="route-unload-label" data-excel-stop="unload" title="Pierwszy rozładunek — dwuklik, aby edytować">${esc(displayCity(route.unload) || route.unload || 'Pierwszy rozładunek')}</span><span class="route-unload-label" data-excel-stop="secondUnload" title="Drugi rozładunek — dwuklik, aby edytować">${esc(displayCity(route.secondUnload) || route.secondUnload || 'Drugi rozładunek')}</span></span>`;
       }
@@ -94071,6 +93947,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const BOARD_ARCHIVE_DAYS = 183;
     const BOARD_WINDOW_DAYS = BOARD_PAST_DAYS + BOARD_FUTURE_DAYS + 1;
+    const MOBILE_BOARD_PAST_DAYS = 1;
+    const MOBILE_BOARD_FUTURE_DAYS = 2;
+
+    function mobileViewportActive() {
+      return Boolean(window.matchMedia?.("(max-width: 720px)")?.matches);
+    }
+
+    function activeBoardWindowDays() {
+      return mobileViewportActive() ? MOBILE_BOARD_PAST_DAYS + MOBILE_BOARD_FUTURE_DAYS + 1 : BOARD_WINDOW_DAYS;
+    }
+
+    function activeBoardPastDays() {
+      return mobileViewportActive() ? MOBILE_BOARD_PAST_DAYS : BOARD_PAST_DAYS;
+    }
 
     function isoDayDifference(fromDate, toDate) {
       const from = new Date(`${fromDate}T00:00:00Z`).getTime();
@@ -94082,14 +93972,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function normalizedBoardWindowStart(value = appState?.boardWindowStart) {
       const today = currentAppDate();
       const earliest = addDaysToIso(today, -BOARD_ARCHIVE_DAYS);
-      const latest = addDaysToIso(today, -BOARD_PAST_DAYS);
+      const latest = addDaysToIso(today, -activeBoardPastDays());
+      if (mobileViewportActive() && !state.mobileBoardWindowTouched) return latest;
       const candidate = isIsoDateValue(value) ? value : latest;
       return candidate < earliest ? earliest : candidate > latest ? latest : candidate;
     }
 
     function workingWindowBounds() {
       const start = normalizedBoardWindowStart();
-      return { start, end: addDaysToIso(start, BOARD_WINDOW_DAYS - 1) };
+      return { start, end: addDaysToIso(start, activeBoardWindowDays() - 1) };
     }
 
     function shiftBoardWindow(days) {
@@ -94097,13 +93988,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const next = normalizedBoardWindowStart(addDaysToIso(current, Number(days || 0)));
       if (next === current) return;
       state.boardWindowStart = next;
+      if (mobileViewportActive()) state.mobileBoardWindowTouched = true;
       dateListMemo = { signature: "", dates: null, indexMap: null };
       boardRenderCache = null;
       syncBoardOnly();
     }
 
     function resetBoardWindow() {
-      state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
+      state.boardWindowStart = addDaysToIso(currentAppDate(), -activeBoardPastDays());
+      state.mobileBoardWindowTouched = false;
       dateListMemo = { signature: "", dates: null, indexMap: null };
       boardRenderCache = null;
       syncBoardOnly();
@@ -94119,7 +94012,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function baseDateList() {
       const bounds = workingWindowBounds();
-      return Array.from({ length: BOARD_WINDOW_DAYS }, (_, index) => addDaysToIso(bounds.start, index));
+      return Array.from({ length: activeBoardWindowDays() }, (_, index) => addDaysToIso(bounds.start, index));
     }
 
     function isIsoDateValue(value) {
@@ -94313,13 +94206,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       restoreScrollState(scrollState);
     }
 
-    function scheduleRouteTileLabelFit() {
-      // Rozmiar nazw jest stały od pierwszej klatki. Pomiar każdej etykiety po
-      // renderze powodował zmianę czcionki na oczach użytkownika oraz kosztowny
-      // reflow całej tablicy przy większej liczbie kafelków.
-      return;
-    }
-
     function render() {
       const app = document.getElementById("app");
       const preservedMap = detachLeafletMapForRender();
@@ -94347,15 +94233,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       setTimeout(() => syncTutorialSpotlight(), 0);
       setTimeout(() => {
         syncCurrentTimeLines();
-        scrollBoardToCurrentTimeOnEntry();
       }, 0);
-      setTimeout(() => scheduleNearbyDispatcherBadgeSync(), 0);
-      setTimeout(() => scheduleRouteTileLabelFit(), 0);
       if (state.detailsOpen && state.selectedRouteId) {
         setTimeout(() => initDetailsRoutePlanner(state.selectedRouteId), 0);
       }
       setTimeout(() => notifyProposedLoadsIfNeeded(), 0);
-      preloadLeafletRuntime();
+      if (!state.unloadPanelCollapsed) preloadLeafletRuntime();
     }
 
     let locationsDatalistReady = false;
@@ -94676,8 +94559,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (next) board.replaceWith(next);
       syncIdentityColumnsButton();
       syncCurrentTimeLines();
-      setTimeout(() => scheduleNearbyDispatcherBadgeSync(), 0);
-      setTimeout(() => scheduleRouteTileLabelFit(), 0);
       restoreScrollState(scrollState);
       if (state.statsPanelOpen) scheduleStatsPanelSync();
     }
@@ -94864,17 +94745,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncAppMessage();
     }
 
-    function syncRouteRatingBadge(routeId) {
-      const route = state.routes.find(item => item.id === routeId);
-      const title = document.querySelector(`.time-route[data-route-id="${routeId}"] .time-route-title`);
-      if (!route || !title) return;
-      title.querySelectorAll('.route-rating-icon').forEach(item => item.remove());
-      const badge = routeRatingMissingBadge(route);
-      const indicators = title.querySelector('.route-title-indicators') || title;
-      if (badge) indicators.insertAdjacentHTML('beforeend', badge);
-      scheduleRouteTileLabelFit();
-    }
-
     function saveFreightRating(routeId) {
       const route = state.routes.find(item => item.id === routeId);
       if (!route || state.appMessage?.type !== "freight-rating") return;
@@ -94884,7 +94754,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (unloadRating != null) route.unloadDelayRating = unloadRating;
       recordClientRouteHistory(route);
       closeAppMessage();
-      syncRouteRatingBadge(routeId);
       if (state.commercialView === "quality") syncCommercialIntelligenceSection();
     }
 
@@ -95289,7 +95158,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const canCreateRelation = ["spedytor", "kierownik", "admin"].includes(role) || ["dispatcher", "branch_manager", "admin"].includes(String(state.user?.supabaseRole || ""));
       if (canCreateRelation) {
         steps.push(
-          { key: "relation-add", title: "Utwórz relację", text: "Kliknij znak „+” przy wybranym kierowcy i dniu, aby otworzyć formularz nowej relacji.", selector: 'button[title="Dodaj relację"]', targetMode: "current-day-plus", clickAdvance: true, allowDemoOpen: true },
+          { key: "relation-add", title: "Utwórz relację", text: "Kliknij dwukrotnie komórkę wybranego kierowcy i dnia, aby rozpocząć szybkie wprowadzanie relacji.", selector: '.day-cell.time-cell', clickAdvance: false, allowDemoOpen: true },
           { key: "relation-load", title: "Załadunek - miejscowość", text: "Wpisz miejscowość lub kod pocztowy załadunku. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-load', advanceOnInput: "text" },
           { key: "relation-unload", title: "Rozładunek - miejscowość", text: "Wpisz miejsce rozładunku. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-unload', advanceOnInput: "text" },
           { key: "relation-client", title: "Klient", text: "Wybierz klienta z podpowiedzi albo wpisz nazwę. Po uzupełnieniu pola samouczek przejdzie dalej.", selector: '#new-client', advanceOnInput: "text" },
@@ -95318,11 +95187,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             && style?.display !== "none"
             && style?.visibility !== "hidden";
         });
-        if (step.targetMode === "current-day-plus") {
-          const uncovered = usable.filter(element => !element.closest(".route-add-covered"));
-          const visible = uncovered.filter(element => { const r = element.getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; });
-          return visible.find(element => element.closest(`[data-date="${currentAppDate()}"]`)) || visible[0] || uncovered[0] || null;
-        }
         return usable[0] || null;
       } catch (error) {
         return null;
@@ -95723,8 +95587,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${renderTutorialMenu()}
           ${renderTutorialModal()}
           ${state.adminDataTransferOpen ? (window.renderAdminDataTransferModal?.() || "") : ""}
+          ${renderMobileNavigationV200()}
         </div>
       `;
+    }
+
+    function renderMobileNavigationV200() {
+      if (!state.user) return "";
+      return `<nav class="mobile-nav-v200" aria-label="Nawigacja mobilna">
+        <button type="button" class="mobile-nav-item-v200 active" onclick="mobilePlanHomeV200()">${sideToolIcon("settings")}<span>Plan</span></button>
+        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenQueueV200('proposed')">${sideToolIcon("proposed")}<span>Wolne</span></button>
+        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenQueueV200('future')">${sideToolIcon("future")}<span>Planowane</span></button>
+        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenMapV200()">${sideToolIcon("map")}<span>Mapa</span></button>
+        <button type="button" class="mobile-nav-item-v200" onclick="openMobileMoreV200()">${sideToolIcon("assistant")}<span>Więcej</span></button>
+      </nav>`;
     }
 
 
@@ -96929,10 +96805,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function sharedDbStatusClass() {
       return state.sharedDbStatusLevel === "online" ? "online" : state.sharedDbStatusLevel === "error" ? "error" : "";
-    }
-
-    function renderSharedDbPanel() {
-      return "";
     }
 
     let COMBINED_CLIENT_HISTORY_CACHE = { routes: null, routeLength: -1, history: null, historyLength: -1, value: null };
@@ -100357,7 +100229,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="proposed-load-actions">
               ${canTake && currentDrivers.length ? `
                 <select class="select" id="proposed-driver-${attr(route.id)}">
-                  ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(driverBusyOptionPrefix(item.driver.id, route.date || state.reportDate || START_DATE))}${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distancePending ? "*" : ""}</option>`).join("")}
+                  ${takeOptions.map(item => `<option value="${attr(item.driver.id)}">${esc(item.driver.driver)} · ${esc(item.driver.carrier)} · ${Math.round(item.distanceKm)} km${item.distancePending ? "*" : ""}</option>`).join("")}
                 </select>
                 <button class="btn-mini" type="button" onclick="takeProposedLoad(event, '${attr(route.id)}')">Pobierz na moją tablicę</button>
               ` : canTake ? `<span class="proposed-distance-empty">Brak potwierdzonego przez TomTom kompatybilnego pojazdu Twojego spedytora spełniającego regułę planu.</span>` : ""}
@@ -100439,14 +100311,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function driverHasRouteOnDate(driverId, date, excludeRouteId = "") {
       return driverRoutesOnDate(driverId, date, excludeRouteId).length > 0;
     }
-
-    function driverBusyLabel(driverId, date) {
-      return "";
-    }
-
-    function driverBusyOptionPrefix(driverId, date) { return ""; }
-
-    function renderDriverBusyWarning(driverId, date) { return ""; }
 
     function showDriverBusyNotice(driver, route) {
       if (!driver || !route) return false;
@@ -100544,7 +100408,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         stampRouteAdded(route);
         state.routes.push(route);
-        queueClientOwnerLoadAlertsForRoute(route);
         state.selectedRouteId = null;
         state.detailsOpen = false;
         showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał ładunek ${formatDateForInput(route.date)}.`);
@@ -102190,14 +102053,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       requestAnimationFrame(syncQueueTabOffsets);
     }
 
-    function statsMedal(index) {
-      return "";
-    }
-
-    function statsMedalPrefix(index) {
-      return "";
-    }
-
     function renderStatsMetricGrid(stats) {
       return `
         <div class="stats-grid">
@@ -102222,10 +102077,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="stats-focus-card"><b>${stats.lowRate.length}</b><span>Relacje poniżej kosztowej stawki przewoźnika</span></div>
         </div>
       `;
-    }
-
-    function statsMetricMedals(rows, metric, direction = "desc") {
-      return new Map();
     }
 
     function statsRateValue(row) {
@@ -102584,7 +102435,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="proposed-distance-list">
             ${allDistances.length ? allDistances.map(item => `
               <div class="proposed-distance-row ${eligibleDriverIds.has(item.driver?.id) ? "near" : ""}">
-                <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "-")} ${renderCompatibilityMini(item.driver, route)} ${renderDriverBusyWarning(item.driver.id, route.date || state.reportDate || START_DATE)}</span>
+                <span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.driver.dispatcher)}">${esc(item.driver.dispatcher)}</span> ${esc(item.driver.driver)} · ${esc(item.position.label || "-")} ${renderCompatibilityMini(item.driver, route)}</span>
                 <b>${Math.round(item.distanceKm)} km</b>
               </div>
             `).join("") : `<div class="proposed-distance-empty">Brak pozycji pojazdów do wyliczenia odległości.</div>`}
@@ -102593,7 +102444,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="proposed-load-actions">
               ${eligibleDrivers.length ? `
                 <select class="select" id="future-driver-${attr(route.id)}">
-                  ${eligibleDrivers.map(driver => `<option value="${attr(driver.id)}">${esc(driverBusyOptionPrefix(driver.id, route.date || state.reportDate || START_DATE))}${esc(driver.dispatcher)} · ${esc(driver.driver)} · ${esc(driver.carrier)}</option>`).join("")}
+                  ${eligibleDrivers.map(driver => `<option value="${attr(driver.id)}">${esc(driver.dispatcher)} · ${esc(driver.driver)} · ${esc(driver.carrier)}</option>`).join("")}
                 </select>
                 <button class="btn-mini" type="button" onclick="takeFutureRoute(event, '${attr(route.id)}')">Pobierz na tablicę</button>
               ` : `<span class="proposed-distance-empty">Pobranie będzie dostępne po potwierdzeniu trasy, zgodności pojazdu i możliwości wykonania relacji.</span>`}
@@ -102749,7 +102600,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         proposed.takenRouteId = route.id;
         stampRouteAdded(route);
         state.routes.push(route);
-        queueClientOwnerLoadAlertsForRoute(route);
         state.selectedRouteId = null;
         state.detailsOpen = false;
         showAppMessage("Pobrano na tablicę", `${driver.driver} otrzymał wolny ładunek ${formatDateForInput(route.date)}.`);
@@ -102806,7 +102656,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       stampRouteAdded(route);
       state.routes.push(route);
       if (!isCurrentDispatcherDriver(targetDriver)) notifyNearbyDispatcherVehicles(route);
-      queueClientOwnerLoadAlertsForRoute(route);
       showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
       state.futurePanelOpen = false;
       state.proposedPanelOpen = false;
@@ -102871,7 +102720,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       stampRouteAdded(route);
       state.routes.push(route);
       if (!isCurrentDispatcherDriver(targetDriver)) notifyNearbyDispatcherVehicles(route);
-      queueClientOwnerLoadAlertsForRoute(route);
       showAppMessage("Pobrano na tablicę", `${targetDriver.driver} otrzymał planowaną relację ${formatDateForInput(route.date)}.`);
       state.reportDate = route.date || state.reportDate || START_DATE;
       state.futurePanelOpen = true;
@@ -103209,7 +103057,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <div class="head-cell top sticky-b carrier-col" style="grid-column:2;grid-row:1;">Przewoźnik</div>
         <div class="head-cell top sticky-c driver-col" style="grid-column:3;grid-row:1;">Kierowca</div>
         <div class="head-cell top sticky-d params-col" style="grid-column:4;grid-row:1;">Naczepa / PL<br>/ Baza</div>
-        ${dates.map((date, index) => `<div class="head-cell top ${isWeekendIso(date) ? "weekend-column" : ""}" style="grid-column:${boardDayGridColumn(index, dates)};grid-row:1;">${esc(dayLabel(date))}</div>`).join("")}
+        ${dates.map((date, index) => `<div class="head-cell top ${isWeekendIso(date) ? "weekend-column" : ""} ${date === currentAppDate() ? "current-day-v200" : ""}" data-date="${attr(date)}" style="grid-column:${boardDayGridColumn(index, dates)};grid-row:1;">${esc(dayLabel(date))}</div>`).join("")}
         ${boardWeekSettlementBoundaries(dates).map(boundary => `<div class="week-settlement-head-3l50 top" style="grid-column:${boundary.gridColumn};grid-row:1;" title="Rozliczenia tygodnia ${attr(formatDateForInput(boundary.weekStart))}-${attr(formatDateForInput(addDaysToIso(boundary.weekStart, 6)))}"><span>Rozl.</span></div>`).join("")}
       `;
 
@@ -103219,6 +103067,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         ? boardDrivers.map(driver => boardRowHeightForDriver(driver)).join(" ")
         : "92px";
 
+      const currentTimeLineHtml = renderTimelineCurrentTimeLine();
       const rows = withBoardRenderCache(dates, () => boardDrivers.map((driver, index) => {
         const row = index + 2;
         const week = weeklySummary(driver.id);
@@ -103226,7 +103075,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `
           ${groupStart ? `<div class="dispatcher-group-separator ${boardDriverVisibilityClass(driver)}" style="grid-column:1 / -1;grid-row:${row};--dispatcher-group-color:${attr(dispatcherUserColor(driver.dispatcher))};" aria-hidden="true"></div>` : ""}
           <div class="left-cell dispatcher-cell sticky-a driver-row-cell ${dispatcherBadgeClass(driver.dispatcher)} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:1;grid-row:${row};">
-            <span class="dispatcher-plan-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span>${dispatcherUpcomingMarker(driver.dispatcher)}
+            <span class="dispatcher-plan-badge ${dispatcherBadgeClass(driver.dispatcher)}">${esc(driver.dispatcher)}</span>
             <button type="button" class="load-line-toggle ${loadLineVisibleForDispatcher(driver.dispatcher) ? "active" : ""}" data-dispatcher="${attr(driver.dispatcher)}" title="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" aria-label="${loadLineVisibleForDispatcher(driver.dispatcher) ? "Ukryj miejscowości załadunków" : "Pokaż miejscowości załadunków"}" onclick="event.stopPropagation(); toggleDispatcherLoadLines('${attr(driver.dispatcher)}')"><span class="load-line-icon" aria-hidden="true">${loadLineVisibleForDispatcher(driver.dispatcher) ? "▲" : "▼"}</span></button>
           </div>
           <div class="left-cell sticky-b driver-row-cell carrier-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:2;grid-row:${row};">${esc(driver.carrier)}</div>
@@ -103244,7 +103093,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           ${dates.map((date, dayColumnIndex) => renderDayCell(driver, date, dayColumnIndex, row)).join("")}
           ${window.renderWeekSettlementGridCells3L50?.(driver, row, dates) || ""}
-          ${renderTimelineOverlay(driver, row)}
+          ${renderTimelineOverlay(driver, row, currentTimeLineHtml)}
         `;
       }).join(""));
 
@@ -103264,13 +103113,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
               <button class="btn ${!state.hideParamsColumn ? "btn-dark" : ""}" data-action="params-column" onclick="toggleParamsColumn()">${state.hideParamsColumn ? "Pokaż naczepę / PL / Bazę" : "Ukryj naczepę / PL / Bazę"}</button>
               <button class="btn ${!state.hideTimeAxis ? "btn-dark" : ""}" data-action="time-axis" onclick="toggleTimeAxis()">${state.hideTimeAxis ? "Pokaż oś czasu" : "Ukryj oś czasu"}</button>
-              <span class="board-range-nav"><button class="btn" type="button" onclick="shiftBoardWindow(-14)" title="Pokaż wcześniejsze 14 dni">‹ 14 dni</button><button class="btn" type="button" onclick="resetBoardWindow()">Dzisiaj</button><button class="btn" type="button" onclick="shiftBoardWindow(14)" title="Pokaż kolejne 14 dni">14 dni ›</button><span class="board-range-label">${formatDateForInput(dates[0])}-${formatDateForInput(dates[dates.length - 1])}</span></span>
+              <span class="board-range-nav"><button class="btn" type="button" onclick="shiftBoardWindow(${mobileViewportActive() ? -4 : -14})" title="Pokaż wcześniejsze dni">‹ ${mobileViewportActive() ? "4 dni" : "14 dni"}</button><button class="btn" type="button" onclick="resetBoardWindow()">Dzisiaj</button><button class="btn" type="button" onclick="shiftBoardWindow(${mobileViewportActive() ? 4 : 14})" title="Pokaż kolejne dni">${mobileViewportActive() ? "4 dni" : "14 dni"} ›</button><span class="board-range-label">${formatDateForInput(dates[0])}-${formatDateForInput(dates[dates.length - 1])}</span></span>
               <button class="btn" type="button" onclick="exportDriverPlan()">Eksport planu</button>
 
             </div>
           </div>
           <div class="board-scroll ${denseBoard ? "board-dense-v170" : ""}">
-            <div class="board ${state.hideCarrierColumn ? "carrier-hidden" : ""} ${state.hideDriverColumn ? "driver-hidden" : ""} ${state.hideParamsColumn ? "params-hidden" : ""} ${state.hideTimeAxis ? "time-axis-hidden" : ""}" style="zoom:${currentBoardScale()};--route-font-boost:${currentBoardRouteFontBoost()};grid-template-rows:38px ${rowHeights};grid-template-columns:var(--col-a) var(--col-b) var(--col-c) var(--col-d) ${boardDateTrackTemplate(dates)};min-width:${boardDateTrackMinWidth(dates)};">
+            <div class="board ${mobileViewportActive() ? "mobile-compact-v200" : ""} ${state.hideCarrierColumn ? "carrier-hidden" : ""} ${state.hideDriverColumn ? "driver-hidden" : ""} ${state.hideParamsColumn ? "params-hidden" : ""} ${state.hideTimeAxis ? "time-axis-hidden" : ""}" style="zoom:${currentBoardScale()};--route-font-boost:${currentBoardRouteFontBoost()};grid-template-rows:38px ${rowHeights};grid-template-columns:var(--col-a) var(--col-b) var(--col-c) var(--col-d) ${boardDateTrackTemplate(dates)};min-width:${boardDateTrackMinWidth(dates)};">
               ${header}
               ${boardContent}
             </div>
@@ -103305,7 +103154,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="time-grid">
             ${HOUR_GRID_HTML}
           </div>
-          ${renderCurrentTimeLine(date)}
 
           ${renderFutureDayMarker(driver, date)}
         </div>
@@ -103324,38 +103172,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function requiredPauseHoursAfterRoute(route) {
       return requiredPauseAfterRoute(route);
-    }
-
-    function pauseLabel(hours) {
-      if (!hours) return "";
-      if (hours >= 1) return `Przerwa ${String(hours).replace(".", ",")} h`;
-      return `Przerwa ${Math.round(hours * 60)} min`;
-    }
-
-    function pauseMetricsAfterRoute(route) {
-      const pauseHours = requiredPauseAfterRoute(route);
-      if (!pauseHours) return null;
-      const start = Math.max(0, Math.min(timelineMaxHour(), routeGlobalEnd(route)));
-      const end = Math.max(start, Math.min(timelineMaxHour(), start + pauseHours));
-      if (end <= start) return null;
-      const left = (start / timelineMaxHour()) * 100;
-      const width = Math.max(0.6, ((end - start) / timelineMaxHour()) * 100);
-      return { start, end, left, width: Math.min(width, 100 - left), hours: pauseHours, label: pauseLabel(pauseHours) };
-    }
-
-    function renderRoutePauseBlock(route) {
-      // Przerwy nie są już wyświetlane na tablicy planu kierowców.
-      // Obliczenia pauz pozostają dostępne dla logiki najbliższego pojazdu i mapy.
-      return "";
-    }
-
-    function routeStartsDuringRequiredPause(route, allRoutes) {
-      const start = routeGlobalStart(route);
-      return allRoutes.some(previous => {
-        if (previous.id === route.id) return false;
-        const pause = pauseMetricsAfterRoute(previous);
-        return Boolean(pause && routeGlobalEnd(previous) <= start && start < pause.end);
-      });
     }
 
     function queueMatchMarkerMap() {
@@ -103398,10 +103214,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="time-route-match-markers" aria-hidden="true">${match.proposed ? `<span class="time-route-match-dot proposed"></span>` : ""}${match.future ? `<span class="time-route-match-dot future"></span>` : ""}</span>`;
     }
 
-    function renderTimelineOverlay(driver, row) {
+    function renderTimelineOverlay(driver, row, currentTimeLineHtml = renderTimelineCurrentTimeLine()) {
       const source = boardRenderCache?.routesByDriver?.get(driver.id) || activeRoutes().filter(route => route.driverId === driver.id);
       const maxHour = timelineMaxHour();
       const routes = source.filter(route => route.approvalStatus !== "rejected" && routeGlobalEnd(route) > 0 && routeGlobalStart(route) < maxHour);
+      // Ostrzeżenie o kolizji obliczamy raz dla par relacji. Poprzednia wersja
+      // wykonywała pełne wyszukanie dla każdego kafelka osobno.
+      const overlapRouteIds = new Set();
+      for (let leftIndex = 0; leftIndex < routes.length; leftIndex += 1) {
+        const leftRoute = routes[leftIndex];
+        for (let rightIndex = leftIndex + 1; rightIndex < routes.length; rightIndex += 1) {
+          const rightRoute = routes[rightIndex];
+          if (!routesActuallyOverlap(leftRoute, rightRoute)) continue;
+          overlapRouteIds.add(String(leftRoute.id || ""));
+          overlapRouteIds.add(String(rightRoute.id || ""));
+        }
+      }
 
       return `
         <div
@@ -103411,7 +103239,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ondragover="allowRouteDrop(event)"
           ondrop="dropRouteOnTimeline(event, '${attr(driver.id)}')"
         >
-          ${renderTimelineCurrentTimeLine()}
+          ${currentTimeLineHtml}
           ${routes.map(route => {
             const rawStart = routeGlobalStart(route);
             const rawEnd = routeGlobalEnd(route);
@@ -103427,14 +103255,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const displayWidth = routeTimelineDisplayWidthPercent(route, exactWidth);
             const renderedWidth = Math.min(displayWidth, 100 - left);
             const compactContent = renderedWidth <= 4.5;
-            const hasOverlap = routes.some(other => routesActuallyOverlap(route, other));
-            const hasPauseConflict = false;
+            const hasOverlap = overlapRouteIds.has(String(route.id || ""));
 
             const canEditThisRoute = canEditBoardRoute(route);
             const canResizeThisRoute = canEditThisRoute && !excelBoardMode();
             return `
               <button
-                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${route.boardFontColor === "red" ? "route-text-red-v177" : ""} ${hasPauseConflict ? "pause-conflict" : ""}"
+                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${route.boardFontColor === "red" ? "route-text-red-v177" : ""}"
                 data-route-id="${attr(route.id)}"
                 data-can-resize="${canResizeThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
@@ -103471,9 +103298,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
                 ></span>` : ""}
                 ${hasOverlap ? `<span class="time-overlap-warning" style="right:16px;bottom:3px;" title="Kierowca ma już ładunek w tym terminie" aria-label="Kierowca ma już ładunek w tym terminie"></span>` : ""}
-                ${hasPauseConflict ? `<span class="pause-conflict-badge" title="Relacja nachodzi na minimalną przerwę kierowcy">!</span>` : ""}
               </button>
-              ${renderRoutePauseBlock(route)}
             `;
           }).join("")}
         </div>
@@ -103749,32 +103574,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div id="leaflet-map"></div>
         </div>
       `;
-    }
-
-    function mapDependencySignature(points = []) {
-      const driverIds = new Set((points || []).map(point => point.id || point.driverId).filter(Boolean));
-      const routesSignature = (state.routes || [])
-        .filter(route => driverIds.has(route.driverId))
-        .map(route => [
-          route.id,
-          route.driverId,
-          route.date,
-          route.startHour,
-          route.endDate || route.date,
-          route.endHour,
-          route.load || "",
-          route.unload || "",
-          route.approvalStatus || ""
-        ].join(":"))
-        .join("|");
-      const clientsVisible = state.showClientsOnMap || state.showUnassignedClientsOnMap;
-      const clientsSignature = clientsVisible
-        ? clientMapPoints().map(point => [point.id, point.client.name, point.client.mapBaseName || "", point.client.address, point.coords[0], point.coords[1], clientOwnerLogins(point.client).join(","), point.client.orderCount || 0].join(":")).join("|")
-        : "";
-      const basesSignature = state.showDriverBasesOnMap
-        ? driverBaseMapPoints().map(point => [point.id, point.base, point.coords[0], point.coords[1], point.drivers.map(driver => driver.id).join(",")].join(":")).join("|")
-        : "";
-      return `${state.reportDate || ""}:${routesSignature}::assigned=${state.showClientsOnMap ? "1" : "0"}:candidates=${state.showUnassignedClientsOnMap ? "1" : "0"}:bases=${state.showDriverBasesOnMap ? "1" : "0"}:historyDays=${currentClientMapHistoryDays()}:${clientsSignature}:${basesSignature}`;
     }
 
     function scheduleLeafletMapSync(points) {
@@ -104082,10 +103881,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.leafletMap.options.maxZoom = POLAND_MAP_MAX_ZOOM;
         }
 
-        pruneLeafletMarkers(points);
+        // Statusy i grupy pojazdów są potrzebne do czyszczenia markerów,
+        // ich aktualizacji oraz dopasowania widoku. Budujemy je tylko raz.
+        const vehicleGroups = groupedLeafletPoints(points);
+        pruneLeafletMarkers(vehicleGroups);
 
         if (state.leafletDataSignature !== signature) {
-          updateLeafletMarkers(points);
+          updateLeafletMarkers(vehicleGroups);
           state.leafletDataSignature = signature;
         }
 
@@ -104108,7 +103910,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         const basePoints = state.showDriverBasesOnMap ? driverBaseMapPoints() : [];
         const fitPoints = [...points, ...clientDisplayGroups.map(group => ({ coords: group.coords })), ...basePoints.map(point => ({ coords: point.coords }))];
-        const fitSignature = `${leafletFitSignature(points)}|clients:${state.leafletClientRevision || 0}|bases:${state.leafletBaseRevision || 0}`;
+        const fitSignature = `${leafletFitSignature(vehicleGroups)}|clients:${state.leafletClientRevision || 0}|bases:${state.leafletBaseRevision || 0}`;
 
         if (state.leafletFitSignature !== fitSignature) {
           fitLeafletMapToPoints(fitPoints, fitSignature);
@@ -104141,20 +103943,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return mapVehicleStatusKey(routeId) === "has-next";
     }
 
-    function mapVehicleStatusText(routeId) {
-      const status = nextRouteStatusForRoute(routeId);
-      if (status.statusKey === "waiting") return `Oczekiwanie - nie minęły jeszcze ${NEXT_LOAD_GRACE_HOURS} h od zakończenia relacji`;
-      if (status.statusKey === "no-next") {
-        if (status.next && Number.isFinite(Number(status.gapHours))) {
-          return `Pojazd bez ładunku - odstęp do kolejnej relacji wynosi ok. ${formatGapHours(status.gapHours)} (limit ${NEXT_LOAD_MAX_GAP_HOURS} h)`;
-        }
-        return `Brak następnego ładunku - ponad ${NEXT_LOAD_GRACE_HOURS} h po zakończeniu relacji`;
-      }
-      return Number.isFinite(Number(status.gapHours))
-        ? `Ma następny ładunek za ok. ${formatGapHours(status.gapHours)} (maks. ${NEXT_LOAD_MAX_GAP_HOURS} h)`
-        : "Ma następny zaplanowany ładunek";
-    }
-
     function vehicleCountLabel(count) {
       if (count === 1) return "1 pojazd";
       if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) return `${count} pojazdy`;
@@ -104163,6 +103951,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function groupedLeafletPoints(points) {
       const groups = new Map();
+      const routeStatuses = new Map();
+      const statusForRoute = routeId => {
+        const key = markerRouteKey(routeId);
+        if (!routeStatuses.has(key)) routeStatuses.set(key, nextRouteStatusForRoute(routeId));
+        return routeStatuses.get(key);
+      };
 
       points.forEach(point => {
         if (!point.coords) return;
@@ -104178,11 +103972,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           });
         }
 
+        const status = statusForRoute(point.routeId);
         groups.get(groupKey).points.push({
           ...point,
           routeKey: markerRouteKey(point.routeId),
-          hasNext: mapVehicleHasNext(point.routeId),
-          statusKey: mapVehicleStatusKey(point.routeId)
+          hasNext: String(status?.statusKey || "") === "has-next",
+          statusKey: String(status?.statusKey || "no-next")
         });
       });
 
@@ -104197,8 +103992,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .sort((a, b) => String(a.city || "").localeCompare(String(b.city || ""), "pl"));
     }
 
-    function leafletFitSignature(points) {
-      return groupedLeafletPoints(points)
+    function leafletFitSignature(groups) {
+      return (Array.isArray(groups) ? groups : [])
         .map(group => `${group.key}:${group.coords[0]},${group.coords[1]}`)
         .join("|");
     }
@@ -104275,10 +104070,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Array.isArray(marker?._routeIds) && marker._routeIds.includes(routeKey);
     }
 
-    function pruneLeafletMarkers(points) {
+    function pruneLeafletMarkers(groups) {
       if (!state.leafletMarkers) return;
 
-      const activeGroupIds = new Set(groupedLeafletPoints(points).map(group => group.key));
+      const activeGroupIds = new Set((Array.isArray(groups) ? groups : []).map(group => group.key));
 
       Array.from(state.leafletMarkers.entries()).forEach(([groupKey, marker]) => {
         if (!activeGroupIds.has(groupKey)) {
@@ -104388,13 +104183,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       showUnloadRouteVisualizations([routeId]);
     }
 
-    function updateLeafletMarkers(points) {
+    function updateLeafletMarkers(groups) {
       if (!state.leafletMap || !state.leafletLayer) return;
 
-      const groups = groupedLeafletPoints(points);
+      const safeGroups = Array.isArray(groups) ? groups : [];
       const activeGroupIds = new Set();
 
-      groups.forEach(group => {
+      safeGroups.forEach(group => {
         activeGroupIds.add(group.key);
 
         const icon = L.divIcon({
@@ -105229,7 +105024,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
             <button data-tutorial="route-details" onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Pokaż szczegóły</button>
             <button data-tutorial="route-nearby-clients" onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
-            ${renderOtherDispatcherContextNotice(route)}
             <div class="route-context-title" data-tutorial="route-statuses">Status rozliczeń</div>
             <button onclick="setRouteStatus('${attr(route.id)}','accountingCheck')"><span class="context-dot context-dot-yellow"></span>Do weryfikacji / niezgodność</button>
             <button onclick="setRouteStatus('${attr(route.id)}','accountingFinal')"><span class="context-dot context-dot-green"></span>Wprowadzone / rozliczone</button>
@@ -105243,7 +105037,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
           <button data-tutorial="route-details" onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Edytuj szczegóły</button>
           <button data-tutorial="route-nearby-clients" onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
-          ${renderOtherDispatcherContextNotice(route)}
           <div class="route-context-title">Kolor czcionki</div>
           <button onclick="setRouteBoardFontColor('${attr(route.id)}','red')"><span class="context-dot" style="background:#dc2626"></span>Czerwona czcionka</button>
           <button onclick="setRouteBoardFontColor('${attr(route.id)}','')"><span class="context-dot context-dot-empty"></span>Domyślny kolor czcionki</button>
@@ -106222,7 +106015,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.addOpen = false;
       state.unloadPanelCollapsed = true;
       state.appView = "plan";
-      state.boardInitialCurrentTimeScrollPending = false;
       state.reportDate = addDaysToIso(currentAppDate(), -1);
       state.boardWindowStart = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
       dateListMemo = { signature: "", dates: null, indexMap: null };
@@ -106249,7 +106041,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
-      setTimeout(deliverPendingClientOwnerAlerts, 160);
       // W trybie produkcyjnym czekamy na autorytatywny snapshot z Supabase.
       // Nie powiadamiamy na podstawie potencjalnie starej kopii localStorage.
       if (!EMBEDDED_MODE) setTimeout(notifyUnreadClientLoadRequests, 220);
@@ -106670,20 +106461,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     // MODUŁ: szybka edycja wyłącznie miejscowości/kodu rozładunku z tablicy.
     let quickUnloadSuggestionTimer = null;
     const QUICK_LOCATION_SUGGESTION_CACHE = new Map();
-
-    function quickOperationalLocationOptions() {
-      const values = [
-        ...Object.entries(LOCATION_POSTAL_CODES).map(([city, code]) => `${city} ${code}`),
-        ...importantRouteLocationsForDatalist()
-      ];
-      const seen = new Set();
-      return values.filter(value => {
-        const key = removePolishChars(value || "");
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    }
 
     function singleQuickUnloadSuggestion(query) {
       const options = locationSearchOptions(query, 2);
@@ -107150,7 +106927,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           button.setAttribute("draggable", canEditBoardRoute(route) ? "true" : "false");
           title.innerHTML = renderBoardRouteTitle(route, driverById(route.driverId));
           title.setAttribute("title", routeUnloadBoardTitle(route));
-          scheduleRouteTileLabelFit();
           button.setAttribute("title", `${routeUnloadBoardTitle(route)}${routeStatusHint(route) ? " · " + routeStatusHint(route) : ""} · Dwuklik: zmień rozładunek · Prawy przycisk: status lub szczegóły`);
           button.blur?.();
           if (document.activeElement === input) input.blur();
@@ -107171,7 +106947,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           button.classList.remove("quick-editing");
           button.setAttribute("draggable", canEditBoardRoute(route) ? "true" : "false");
           title.innerHTML = renderBoardRouteTitle(route, driverById(route.driverId));
-          scheduleRouteTileLabelFit();
           button.blur?.();
         }
         if (pendingSplit && !route.boardExcelSplit) syncBoardOnly();
@@ -107311,7 +107086,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncRouteContextMenu();
       updateRouteButtonStatus(route.id);
       if (state.selectedRouteId === route.id && state.detailsOpen) syncDetailsPanel();
-      syncRouteRatingBadge(route.id);
     }
 
 
@@ -107387,28 +107161,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.newRouteBaseKm = 0;
       state.prefill = {
         driverId: finalDriverId,
-        date: startParts.date,
-        startHour: startParts.hour,
-        endDate: addDaysToIso(startParts.date, 1),
-        endHour: endParts.hour
-      };
-
-      state.addOpen = true;
-      syncAddModal();
-    }
-
-    function openAddAt(event, driverId, date) {
-      if (excelBoardMode()) { addExcelBoardTileV172(event, driverId, date); return; }
-      if (state.user && state.user.role === "rozliczenia") return;
-      if (event) event.stopPropagation();
-
-      const startGlobal = defaultNewRouteStart(driverId, date, null);
-      const startParts = globalHourToDateHour(startGlobal);
-      const endParts = globalHourToDateHour(Math.min(timelineMaxHour(), startGlobal + 12));
-
-      state.newRouteBaseKm = 0;
-      state.prefill = {
-        driverId,
         date: startParts.date,
         startHour: startParts.hour,
         endDate: addDaysToIso(startParts.date, 1),
@@ -107842,13 +107594,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (title) title.insertAdjacentHTML("afterend", renderRouteLoadSub(route, true));
         }
       }
-      scheduleRouteTileLabelFit();
       if (state.statsPanelOpen) scheduleStatsPanelSync();
       if (scrollState) restoreScrollState(scrollState);
-    }
-
-    function updateRoutePausePreview(route) {
-      // Przerwy nie są już renderowane na tablicy, więc podgląd nie wymaga aktualizacji.
     }
 
     function routeResizeGlobalFromClientX(clientX) {
@@ -109935,7 +109682,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       stampRouteAdded(route);
       state.routes.push(route);
       notifyNearbyDispatcherVehicles(route);
-      queueClientOwnerLoadAlertsForRoute(route);
       scheduleSavedRoutePointGeocodes(route);
       disposeNewRoutePlanner();
       state.selectedRouteId = null;
@@ -110104,7 +109850,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       route[field] = normalizeFreightStarRating(value);
       recordClientRouteHistory(route);
-      syncRouteRatingBadge(routeId);
       if (state.commercialView === "quality") syncCommercialIntelligenceSection();
     }
 
@@ -110594,7 +110339,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       stampRouteAdded(route);
       state.routes.push(route);
       notifyNearbyDispatcherVehicles(route);
-      queueClientOwnerLoadAlertsForRoute(route);
       recordClientRouteHistory(route);
       disposeNewRoutePlanner();
       state.selectedRouteId = null;
@@ -111117,7 +110861,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralClientsTicker = setInterval(() => {
         if (document.hidden || !state.user) return;
         syncCentralClientsDiff();
-      }, 800);
+      }, 5000);
     }
 
     function centralRouteBranchId(route) {
@@ -111401,7 +111145,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralRelationsTicker = setInterval(() => {
         if (document.hidden || !state.user) return;
         syncCentralRelationsDiff();
-      }, 800);
+      }, 5000);
     }
 
 
@@ -111667,7 +111411,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralLoadQueueTicker = setInterval(() => {
         if (document.hidden || !state.user) return;
         syncCentralLoadQueueDiff();
-      }, 800);
+      }, 5000);
     }
 
     function centralLoadRequestFingerprint(item) {
@@ -111812,7 +111556,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.__topDragonCentralLoadRequestsTicker = setInterval(() => {
         if (document.hidden || !state.user) return;
         syncCentralLoadRequestsDiff();
-      }, 800);
+      }, 5000);
     }
     // 3L.14: co minutę prosimy parent o świeży snapshot. Parent przed odczytem
     // archiwizuje czerwone/zielone odpowiedzi starsze niż 2 godziny.
@@ -111984,7 +111728,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           document.addEventListener("input", handleLocationDatalistInput, true);
         }
         if (!window.__tmsCurrentTimeTicker) {
-          window.__tmsCurrentTimeTicker = setInterval(() => { syncCurrentTimeLines(); syncRecentRouteBadges(); }, 60000);
+          window.__tmsCurrentTimeTicker = setInterval(() => {
+            if (document.hidden || !state.user) return;
+            syncCurrentTimeLines();
+            syncRecentRouteBadges();
+          }, 60000);
         }
         document.body.dataset.tests = "not-run-startup-safe";
       } catch (error) {
@@ -113754,13 +113502,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         window.__topDragonRelationUsageTicker = setInterval(() => {
           if (document.hidden || !state.user) return;
           syncCentralRelationUsage();
-        }, 1800);
+        }, 8000);
       }
 
       try { localStorage.removeItem(CUSTOM_FLEET_STORAGE_KEY); } catch (error) {}
-
-      function loadCustomFleet() { return []; }
-      function saveCustomFleet() {}
 
       function invalidateFleetCaches() {
         DRIVER_BY_ID_CACHE = null;
@@ -114010,10 +113755,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return rows.filter(driver => driver?.supabaseFleet && driver?.dbAssignmentId && selected[String(driver.dbAssignmentId)]);
       }
 
-      function renderAdminFleetReassign(rows) {
-        return "";
-      }
-
       window.toggleAdminFleetAssignment = function(assignmentId, checked) {
         if (!isAdminUser()) return;
         state.fleetAdminSelectedAssignments = { ...(state.fleetAdminSelectedAssignments || {}), [String(assignmentId || "")]: Boolean(checked) };
@@ -114085,7 +113826,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </div>
           <div class="fleet-form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:9px;"><b>Flota (${rows.length})</b><span class="small">${isAdminUser() ? "Wszystkie przypisania" : isBranchManagerUser() ? `Oddział ${esc(state.user.branch || "")}` : `Spedytor ${esc(state.user.login)}`}</span></div>
-            ${renderAdminFleetReassign(rows)}
             <div class="fleet-list">${rows.length ? rows.map(driver => {
               const hasRelationHistory = driverHasRelationHistory(driver.id);
               const deleteControl = driver.supabaseFleet && isAdminUser()
@@ -115388,7 +115128,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
   <style id="targeted-3l21-stats-timeline-transfer-fixes">
-    /* 3L.21 - prywatny kolor wiersza nie może zasłaniać siatki czasu ani przycisków +. */
+    /* 3L.21 - prywatny kolor wiersza nie może zasłaniać siatki czasu. */
     .timeline-row.driver-private-color-yellow,
     .timeline-row.driver-private-color-green,
     .timeline-row.driver-private-color-blue,
@@ -116444,8 +116184,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .timeline-row .time-route { z-index: 30 !important; backdrop-filter:none !important; }
     .timeline-row .time-resize,
     .timeline-row .time-route-match-markers,
-    .timeline-row .time-overlap-warning,
-    .timeline-row .pause-conflict-badge { z-index: 34 !important; }
+    .timeline-row .time-overlap-warning { z-index: 34 !important; }
 
     /* Zwykły kafelek jest nieprzezroczysty i zawsze zachowuje WŁASNY status/kolor.
        Prywatny kolor kierowcy dotyczy wyłącznie pola wiersza znajdującego się pod kafelkiem. */
@@ -117360,28 +117099,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           event.preventDefault(); event.stopPropagation();
         }
       }, true);
-
-      /* ---------- Statystyki: wheel na tabeli przewija panel ---------- */
-      document.addEventListener('wheel', event => {
-        const drawer=event.target?.closest?.('.stats-drawer');
-        if (!drawer) return;
-        const tableWrap=event.target?.closest?.('.stats-table-wrap,.stats-company-table-wrap,.weekly-settlement-table-wrap');
-        if (!tableWrap) return;
-        const dx=Number(event.deltaX || 0), dy=Number(event.deltaY || 0);
-        if (event.shiftKey || Math.abs(dx) > Math.abs(dy)) {
-          if (dy && event.shiftKey) {
-            event.preventDefault();
-            tableWrap.scrollLeft += dy;
-          }
-          return;
-        }
-        if (!dy) return;
-        const body=drawer.querySelector('.stats-drawer-body');
-        if (!body) return;
-        event.preventDefault();
-        event.stopPropagation();
-        body.scrollTop += dy;
-      }, {capture:true, passive:false});
 
       /* ---------- Statystyki: pewne zamknięcie ---------- */
       window.forceCloseStats3L43 = function() {
@@ -119868,7 +119585,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         root?.querySelectorAll?.("button")?.forEach(decorateActionButton3L54);
       }
       decorateActions3L54(document);
-      const observer3L54 = new MutationObserver(mutations => mutations.forEach(mutation => mutation.addedNodes.forEach(node => { if (node.nodeType === 1) decorateActions3L54(node); })));
+      // Render tablicy dodaje wiele elementów naraz. Grupujemy dekorowanie ikon
+      // w jedną klatkę, zamiast uruchamiać pełne wyszukanie przy każdym wpisie
+      // obserwatora DOM.
+      const pendingActionRoots3L54 = new Set();
+      let actionIconFrame3L54 = 0;
+      const scheduleActionDecoration3L54 = root => {
+        if (root?.nodeType === 1) pendingActionRoots3L54.add(root);
+        if (actionIconFrame3L54) return;
+        actionIconFrame3L54 = requestAnimationFrame(() => {
+          actionIconFrame3L54 = 0;
+          pendingActionRoots3L54.forEach(decorateActions3L54);
+          pendingActionRoots3L54.clear();
+        });
+      };
+      const observer3L54 = new MutationObserver(mutations => mutations.forEach(mutation => mutation.addedNodes.forEach(scheduleActionDecoration3L54)));
       observer3L54.observe(document.body, { childList:true, subtree:true });
       window.__topDragonActionIconObserver3L54 = observer3L54;
 
@@ -121005,22 +120736,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return routes.find(route => String(route?.id || '') === loadId) || null;
       }
 
-      function queueRouteMatchesCurrentDispatcherV135(route) {
-        if (!route || !['spedytor','kierownik'].includes(state.user?.role)) return false;
-        const date = route.date || state.reportDate || START_DATE;
-        const login = String(state.user?.login || '').trim().toUpperCase();
-        try {
-          return preferredQueueMatchRows(proposedDistancesForRoute(route, date, {
-            currentDispatcherOnly:true
-          })).some(item => {
-            const dispatcher = String(item?.driver?.dispatcher || '').trim().toUpperCase();
-            return !dispatcher || dispatcher === login;
-          });
-        } catch (error) {
-          return false;
-        }
-      }
-
       function refreshQueueMatchCandidatesV135() {
         const store = ensureQueueAttentionStoreV135();
         let changed = false;
@@ -121257,7 +120972,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         persistQueueAttentionStoreV135();
         syncQueueAttentionDomV147();
       };
-      setInterval(syncQueueAttentionDomV147, 1000);
+      // Zmiany lokalne i snapshoty uruchamiają odświeżenie od razu. Rzadsza
+      // kontrola awaryjna nie skanuje zakładek co sekundę w tle.
+      setInterval(syncQueueAttentionDomV147, 3000);
       ensureQueueAttentionStoreV135();
       requestAnimationFrame(() => {
         if (!state.user) return;
@@ -121493,7 +121210,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (Date.now() < boardScrollBusyUntilV152) return;
         else if (Object.keys(current.pending || {}).length) refreshMatches();
         else applyToBoard();
-      }, 2400);
+      }, 5000);
       requestAnimationFrame(() => { ensureStore(); refreshMatches(); });
     })();
   </script>
@@ -121680,7 +121397,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v196-smooth-map-top-timeline">
+  <style id="targeted-v200-mobile-workspace-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121819,8 +121536,161 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v196-smooth-map-top-timeline" />
-  <script src="/order-entry.js?build=v196-smooth-map-top-timeline"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v200-mobile-workspace" />
+  <script src="/order-entry.js?build=v200-mobile-workspace"></script>
+  <style id="targeted-v200-mobile-workspace">
+    .mobile-nav-v200 { display:none; }
+    .mobile-more-backdrop-v200 { display:none; }
+
+    @media (max-width:720px) {
+      html { -webkit-text-size-adjust:100%; }
+      body { padding-bottom:calc(72px + env(safe-area-inset-bottom)); overscroll-behavior-y:none; }
+      .app { min-height:100dvh; padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+      .header { position:sticky; top:0; z-index:1500; }
+      .header-inner { min-height:52px; padding:6px 10px; }
+      .brand-logo-header { max-height:32px; }
+      .header-account-actions { gap:5px; }
+      .header-account-actions .badge > span:last-child,
+      .header-account-actions .tutorial-launch-button { display:none; }
+      .header-account-actions .btn { min-height:38px; padding:7px 9px; font-size:11px; }
+      .main { padding:8px; }
+
+      .workspace-tool-tabs,
+      .map-toggle-tab,
+      .future-tab,
+      .proposed-tab,
+      .stats-tab,
+      .pdf-import-tab { display:none !important; }
+
+      .mobile-nav-v200 {
+        position:fixed; inset:auto 0 0; z-index:2500; min-height:calc(64px + env(safe-area-inset-bottom));
+        display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:stretch;
+        padding:5px 6px calc(5px + env(safe-area-inset-bottom)); background:color-mix(in srgb,var(--card,#fff) 96%,transparent);
+        border-top:1px solid var(--border); box-shadow:0 -8px 22px rgba(15,23,42,.10); backdrop-filter:blur(12px);
+      }
+      .mobile-nav-item-v200 { min-width:44px; min-height:50px; border:0; border-radius:10px; background:transparent; color:var(--muted); display:grid; place-items:center; gap:2px; font:800 10px/1.1 Inter,ui-sans-serif,system-ui; }
+      .mobile-nav-item-v200 .side-tool-icon { width:21px; height:21px; display:grid; place-items:center; }
+      .mobile-nav-item-v200 .side-tool-icon svg { width:20px; height:20px; }
+      .mobile-nav-item-v200:active, .mobile-nav-item-v200:focus-visible { background:var(--soft,#f1f5f9); color:var(--dark); outline:none; }
+
+      .board-title { gap:7px; align-items:flex-start; }
+      .board-title h2 { font-size:16px; }
+      .board-controls { width:100%; gap:6px; }
+      .board-controls > .btn:not(.board-range-nav .btn),
+      .board-controls > .ui-scale-control,
+      .board-controls > .small { display:none; }
+      .board-range-nav { width:100%; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+      .board-range-nav .btn { min-height:44px; padding:8px 6px; font-size:11px; }
+      .board-range-label { grid-column:1/-1; text-align:center; font-size:10px; }
+      .board-scroll { max-height:calc(100dvh - 204px); min-height:360px; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scroll-snap-type:x proximity; touch-action:pan-x pan-y; scrollbar-width:thin; }
+      .board.mobile-compact-v200 { --col-a:0px; --col-b:0px; --col-c:126px; --col-d:0px; }
+      .board.mobile-compact-v200 .sticky-a,
+      .board.mobile-compact-v200 .carrier-col,
+      .board.mobile-compact-v200 .params-col { display:none !important; }
+      .board.mobile-compact-v200 .driver-col { min-width:126px; }
+      .board.mobile-compact-v200 .driver-cell { padding:6px; }
+      .board.mobile-compact-v200 .driver-week { display:none; }
+      .board .head-cell.current-day-v200 { background:#0f766e !important; box-shadow:inset 0 -3px 0 #facc15; }
+      .board .day-cell { scroll-snap-align:start; }
+      .board .time-route { min-height:36px; font-size:11px; line-height:1.15; }
+      .board .time-route .route-title-indicators { min-width:18px; }
+      .board .time-route button, .board .time-route [role="button"] { min-width:32px; min-height:32px; }
+
+      .app .side-panel,
+      .app .future-drawer,
+      .app .proposed-drawer,
+      .app .stats-drawer {
+        inset:auto 0 calc(64px + env(safe-area-inset-bottom)) 0 !important; width:100vw !important; max-width:none !important;
+        height:min(82dvh,760px); border:1px solid var(--border); border-bottom:0; border-radius:18px 18px 0 0;
+        transform:translateY(calc(100% + 72px)) !important; transition:transform .2s ease !important; box-shadow:0 -18px 44px rgba(15,23,42,.20);
+      }
+      .app .side-panel.open,
+      .app .future-drawer.open,
+      .app .proposed-drawer.open,
+      .app .stats-drawer.open { transform:translateY(0) !important; }
+      .panel-head, .future-drawer-head, .proposed-drawer-head, .stats-drawer-head { min-height:56px; padding:10px 14px; }
+      .panel-head .btn, .future-drawer-head .btn, .proposed-drawer-head .btn, .stats-drawer-head .btn { min-height:40px; }
+
+      .queue-chat-backdrop-3l52 { align-items:flex-end; padding:0; }
+      .queue-chat-modal-3l52 { width:100vw; max-height:calc(100dvh - env(safe-area-inset-bottom)); border-radius:18px 18px 0 0; grid-template-rows:auto auto minmax(120px,1fr) auto; }
+      .queue-chat-compose-3l52 { position:sticky; bottom:0; padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
+      .queue-chat-compose-3l52 textarea { min-height:48px; }
+      .queue-chat-compose-3l52 .btn { min-width:44px; min-height:44px; }
+
+      .nearest-suggestions-portal-v187 { z-index:2147483646 !important; max-width:calc(100vw - 16px); }
+      .custom-suggestion { min-height:44px; padding:11px 13px; font-size:14px; }
+      .input, .select, .textarea, .btn { min-height:44px; }
+      .map-viewport { touch-action:pan-x pan-y; }
+
+      .mobile-more-backdrop-v200 { position:fixed; inset:0; z-index:2600; display:flex; align-items:flex-end; background:rgba(15,23,42,.42); }
+      .mobile-more-sheet-v200 { width:100%; padding:14px 14px calc(16px + env(safe-area-inset-bottom)); border-radius:18px 18px 0 0; background:var(--card); box-shadow:0 -18px 44px rgba(15,23,42,.22); }
+      .mobile-more-sheet-v200 h2 { margin:0 0 10px; font-size:16px; }
+      .mobile-more-actions-v200 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .mobile-more-actions-v200 .btn { min-height:48px; text-align:left; }
+    }
+  </style>
+  <script id="targeted-v200-mobile-workspace-script">
+    (() => {
+      let mobileViewportFrameV200 = 0;
+
+      function closeMobileMoreV200() {
+        document.querySelector('.mobile-more-backdrop-v200')?.remove();
+      }
+
+      function positionMobileBoardV200() {
+        mobileViewportFrameV200 = 0;
+        if (!mobileViewportActive()) return;
+        const viewport = document.querySelector('.board-scroll');
+        const todayCell = viewport?.querySelector(`.head-cell[data-date="${currentAppDate()}"]`);
+        if (!viewport || !todayCell) return;
+        const key = `${state.boardWindowStart || ''}|${currentAppDate()}`;
+        if (viewport.dataset.mobileBoardPositionV200 === key) return;
+        viewport.dataset.mobileBoardPositionV200 = key;
+        viewport.scrollLeft = Math.max(0, todayCell.offsetLeft - viewport.clientWidth * .48 + todayCell.offsetWidth * .5);
+      }
+
+      function scheduleMobileBoardV200() {
+        if (mobileViewportFrameV200) cancelAnimationFrame(mobileViewportFrameV200);
+        mobileViewportFrameV200 = requestAnimationFrame(positionMobileBoardV200);
+      }
+
+      window.mobilePlanHomeV200 = function() {
+        closeMobileMoreV200();
+        setAppView('plan');
+        toggleProposedPanel(false);
+        toggleFuturePanel(false);
+        window.toggleStatsPanel?.(false);
+        if (mobileViewportActive()) resetBoardWindow();
+        else scheduleMobileBoardV200();
+      };
+      window.mobileOpenQueueV200 = function(type) {
+        closeMobileMoreV200();
+        setAppView('plan');
+        if (type === 'future') toggleFuturePanel(true);
+        else toggleProposedPanel(true);
+      };
+      window.mobileOpenMapV200 = function() {
+        closeMobileMoreV200();
+        setAppView('plan');
+        if (state.unloadPanelCollapsed) toggleUnloadPanel();
+      };
+      window.openMobileMoreV200 = function() {
+        closeMobileMoreV200();
+        document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">Baza klientów</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">Najbliższy pojazd</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">Ustawienia planu</button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">Statystyki</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">Asystent</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">Tryb jasny / ciemny</button></div><button class="btn" type="button" style="width:100%;margin-top:8px" onclick="closeMobileMoreV200()">Zamknij</button></section></div>`);
+      };
+      window.closeMobileMoreV200 = closeMobileMoreV200;
+
+      const syncBoardOnlyBeforeV200 = syncBoardOnly;
+      syncBoardOnly = function(...args) {
+        const result = syncBoardOnlyBeforeV200.apply(this, args);
+        scheduleMobileBoardV200();
+        return result;
+      };
+      window.addEventListener('resize', scheduleMobileBoardV200, { passive:true });
+      window.addEventListener('orientationchange', () => setTimeout(scheduleMobileBoardV200, 80), { passive:true });
+      requestAnimationFrame(scheduleMobileBoardV200);
+    })();
+  </script>
 </body>
 </html>
 
