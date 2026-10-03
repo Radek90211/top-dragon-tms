@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v211-mobile-visible-toggle"></script>
-  <script src="/planning-core.js?build=v211-mobile-visible-toggle"></script>
-  <script src="/order-stops.js?build=v211-mobile-visible-toggle"></script>
+  <script src="/xlsx-lite.js?v=v212-mobile-brave-map"></script>
+  <script src="/planning-core.js?build=v212-mobile-brave-map"></script>
+  <script src="/order-stops.js?build=v212-mobile-brave-map"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -100161,7 +100161,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <h2 style="font-size:18px;">Wolne ładunki</h2>
               <div class="hint">${availableCount} wolnych ładunków</div>
             </div>
-            <button class="btn" type="button" onclick="toggleProposedPanel(false)">Zamknij</button>
           </div>
           <div class="proposed-drawer-body">
             ${renderQueueAddControl("proposed")}
@@ -102404,7 +102403,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <h2>Planowane relacje</h2>
               <div class="hint">Relacje planowane dla oddziału</div>
             </div>
-            <button class="btn" type="button" onclick="toggleFuturePanel(false)">Zamknij</button>
           </div>
           <div class="future-drawer-body">
             ${renderQueueAddControl("future")}
@@ -121425,7 +121423,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v211-mobile-visible-toggle-cache">
+  <style id="targeted-v212-mobile-brave-map-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121564,9 +121562,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v211-mobile-visible-toggle" />
-  <script src="/order-entry.js?build=v211-mobile-visible-toggle"></script>
-  <style id="targeted-v211-mobile-visible-toggle">
+  <link rel="stylesheet" href="/order-entry.css?build=v212-mobile-brave-map" />
+  <script src="/order-entry.js?build=v212-mobile-brave-map"></script>
+  <style id="targeted-v212-mobile-brave-map">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121589,6 +121587,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .header.mobile-header-collapsed-v209 .brand-head { display:none !important; }
       .header.mobile-header-collapsed-v209 .header-inner { min-height:52px; grid-template-columns:1fr auto; }
       .header.mobile-header-collapsed-v209 .mobile-header-tabs-v204 { grid-column:2; }
+      .header.mobile-header-collapsed-v209 { background:transparent !important; border-color:transparent !important; box-shadow:none !important; pointer-events:none; }
+      .header.mobile-header-collapsed-v209 .header-inner { background:transparent !important; pointer-events:none; }
+      .header.mobile-header-collapsed-v209 .mobile-header-tabs-v204 { pointer-events:auto; }
       .header-account-actions { gap:5px; }
       .header-account-actions .badge > span:last-child,
       .header-account-actions .tutorial-launch-button { display:none; }
@@ -121603,16 +121604,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .pdf-import-tab { display:none !important; }
 
       .mobile-nav-v200 {
-        position:fixed !important; inset:auto 0 0 !important; z-index:10000; min-height:calc(64px + env(safe-area-inset-bottom));
+        position:fixed !important; inset:auto 0 0 !important; z-index:10020; min-height:calc(64px + env(safe-area-inset-bottom));
         display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:stretch;
         padding:5px 6px calc(5px + env(safe-area-inset-bottom)); background:color-mix(in srgb,var(--card,#fff) 96%,transparent);
         border-top:1px solid var(--border); box-shadow:0 -8px 22px rgba(15,23,42,.10); backdrop-filter:blur(12px);
         transition:transform .2s ease;
       }
-      .mobile-nav-toggle-v205 { position:fixed !important; right:10px; bottom:calc(70px + env(safe-area-inset-bottom)); z-index:2147483000 !important; width:44px; height:32px; padding:0; display:grid !important; visibility:visible !important; opacity:1 !important; place-items:center; border:1px solid var(--border); border-radius:11px 11px 0 0; background:var(--card); color:var(--text); box-shadow:0 -4px 12px rgba(15,23,42,.16); }
+      .mobile-nav-toggle-v205 { position:fixed !important; left:50% !important; right:auto !important; bottom:70px; z-index:2147483000 !important; width:52px; height:34px; padding:0; display:grid !important; visibility:visible !important; opacity:1 !important; place-items:center; transform:translateX(-50%); -webkit-appearance:none; appearance:none; touch-action:manipulation; border:2px solid #0f172a; border-radius:12px 12px 0 0; background:#fff; color:#0f172a; box-shadow:0 -4px 14px rgba(15,23,42,.22); }
       .mobile-nav-toggle-v205 svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transform:rotate(180deg); transition:transform .2s ease; }
       .app.mobile-navigation-collapsed-v205 .mobile-nav-v200 { transform:translateY(calc(100% + 8px)); pointer-events:none; }
-      .mobile-nav-toggle-v205.is-collapsed-v211 { bottom:calc(12px + env(safe-area-inset-bottom)); border-radius:11px; }
+      .mobile-nav-toggle-v205.is-collapsed-v211 { bottom:12px; border-radius:12px; }
       .mobile-nav-toggle-v205.is-collapsed-v211 svg { transform:none; }
       .mobile-nav-item-v200 { min-width:44px; min-height:50px; border:0; border-radius:10px; background:transparent; color:var(--muted); display:grid; place-items:center; gap:2px; font:800 10px/1.1 Inter,ui-sans-serif,system-ui; }
       .mobile-nav-item-v200.active { background:color-mix(in srgb,var(--dark) 10%,transparent); color:var(--dark); }
@@ -121677,6 +121678,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .custom-suggestion { min-height:44px; padding:11px 13px; font-size:14px; }
       .input, .select, .textarea, .btn { min-height:44px; }
       .map-viewport { touch-action:pan-x pan-y; }
+      .layout[data-unload-panel="visible"] .map-card { position:fixed !important; inset:0 !important; z-index:10010; width:100vw !important; max-width:none !important; height:100dvh !important; max-height:none !important; margin:0 !important; border:0 !important; border-radius:0 !important; }
+      .layout[data-unload-panel="visible"] .map-card .map-body { height:100dvh !important; max-height:none !important; padding:0 !important; }
+      .layout[data-unload-panel="visible"] .map-card .map-viewport { height:100dvh !important; border-radius:0 !important; }
 
       .mobile-more-backdrop-v200 { position:fixed; inset:0; z-index:2600; display:flex; align-items:flex-end; background:rgba(15,23,42,.42); }
       .mobile-more-sheet-v200 { width:100%; padding:14px 14px calc(16px + env(safe-area-inset-bottom)); border-radius:18px 18px 0 0; background:var(--card); box-shadow:0 -18px 44px rgba(15,23,42,.22); }
@@ -121687,7 +121691,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v211-mobile-visible-toggle-script">
+  <script id="targeted-v212-mobile-brave-map-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -121789,6 +121793,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         closeMobileMoreV200();
+        toggleProposedPanel(false);
+        toggleFuturePanel(false);
         setMobileNavActiveV202('map');
         setAppView('plan');
         if (state.unloadPanelCollapsed) toggleUnloadPanel();
@@ -121802,6 +121808,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
         closeMobileMoreV200();
+        toggleProposedPanel(false);
+        toggleFuturePanel(false);
+        if (!state.unloadPanelCollapsed) toggleUnloadPanel();
         setMobileNavActiveV202('more');
         document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">${sideToolIcon('settings')}<span>Baza klientów</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">${sideToolIcon('nearest')}<span>Najbliższy pojazd</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">${sideToolIcon('settings')}<span>Ustawienia planu</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">${sideToolIcon('stats')}<span>Statystyki</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">${sideToolIcon('assistant')}<span>Asystent</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">${sideToolIcon('map')}<span>Tryb jasny / ciemny</span></button></div><button class="btn" type="button" style="width:100%;margin-top:8px" onclick="closeMobileMoreV200()">Zamknij</button></section></div>`);
       };
