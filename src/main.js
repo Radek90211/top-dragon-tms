@@ -4424,14 +4424,14 @@ async function renderDashboard(user) {
 
   app.innerHTML = `
     <main class="workspace">
-      <div id="tms-loading" class="tms-loading" aria-live="polite">
-        <img src="/top-dragon-logo.jpg" alt="Top Dragon" />
+      <div id="tms-loading" class="tms-loading" aria-live="polite" style="position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#fff;text-align:center;">
+        <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
         <span>Uruchamianie panelu…</span>
       </div>
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v203-mobile-full-range"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v205-mobile-layout-controls"
         title="Top Dragon TMS"
       ></iframe>
     </main>
