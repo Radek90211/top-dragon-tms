@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v208-mobile-no-spacers"></script>
-  <script src="/planning-core.js?build=v208-mobile-no-spacers"></script>
-  <script src="/order-stops.js?build=v208-mobile-no-spacers"></script>
+  <script src="/xlsx-lite.js?v=v209-mobile-fast-toggle"></script>
+  <script src="/planning-core.js?build=v209-mobile-fast-toggle"></script>
+  <script src="/order-stops.js?build=v209-mobile-fast-toggle"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -95545,8 +95545,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const routesForDay = mapRoutesForReportDate();
 
       return `
-        <div class="app ${state.user.role === "rozliczenia" ? "role-accounting" : state.user.role === "admin" ? "role-admin" : state.user.role === "kierownik" ? "role-manager" : "role-dispatcher"} ${state.darkMode ? "dark-mode" : ""} ${state.appView === "clients" ? "app-view-clients" : "app-view-plan"} ${state.mobileHeaderCollapsedV205 ? "mobile-header-collapsed-v205" : ""} ${state.mobileNavigationCollapsedV205 ? "mobile-navigation-collapsed-v205" : ""}" onclick="handleAppSurfaceClick(event)">
-          <header class="header">
+        <div class="app ${state.user.role === "rozliczenia" ? "role-accounting" : state.user.role === "admin" ? "role-admin" : state.user.role === "kierownik" ? "role-manager" : "role-dispatcher"} ${state.darkMode ? "dark-mode" : ""} ${state.appView === "clients" ? "app-view-clients" : "app-view-plan"} ${state.mobileNavigationCollapsedV205 ? "mobile-navigation-collapsed-v205" : ""}" onclick="handleAppSurfaceClick(event)">
+          <header class="header ${state.mobileHeaderCollapsedV205 ? "mobile-header-collapsed-v209" : ""}">
             <div class="header-inner">
               <div class="brand-head">
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
@@ -121420,7 +121420,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v208-mobile-no-spacers-cache">
+  <style id="targeted-v209-mobile-fast-toggle-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121559,9 +121559,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v208-mobile-no-spacers" />
-  <script src="/order-entry.js?build=v208-mobile-no-spacers"></script>
-  <style id="targeted-v208-mobile-no-spacers">
+  <link rel="stylesheet" href="/order-entry.css?build=v209-mobile-fast-toggle" />
+  <script src="/order-entry.js?build=v209-mobile-fast-toggle"></script>
+  <style id="targeted-v209-mobile-fast-toggle">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121577,19 +121577,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-header-tabs-v204 { display:flex; position:relative; align-items:center; justify-content:flex-end; z-index:1601; }
       .mobile-header-tabs-toggle-v204 { width:44px; height:44px; min-width:44px; padding:0; display:grid; place-items:center; border:1px solid var(--border); border-radius:11px; background:var(--card); color:var(--text); }
       .mobile-header-tabs-toggle-v204 svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:transform .18s ease; }
-      .app.mobile-header-collapsed-v205 .mobile-header-tabs-toggle-v204 svg { transform:rotate(180deg); }
+      .header.mobile-header-collapsed-v209 .mobile-header-tabs-toggle-v204 svg { transform:rotate(180deg); }
       .header-actions { display:flex; grid-column:1/-1; width:100%; margin-top:5px; }
       .header-account-actions { width:100%; gap:5px; justify-content:flex-end; flex-wrap:wrap; }
-      .app.mobile-header-collapsed-v205 .header-actions { display:none; }
-      .app.mobile-header-collapsed-v205 .brand-head { display:none !important; }
-      .app.mobile-header-collapsed-v205 .header-inner { min-height:52px; grid-template-columns:1fr auto; }
-      .app.mobile-header-collapsed-v205 .mobile-header-tabs-v204 { grid-column:2; }
+      .header.mobile-header-collapsed-v209 .header-actions { display:none !important; }
+      .header.mobile-header-collapsed-v209 .brand-head { display:none !important; }
+      .header.mobile-header-collapsed-v209 .header-inner { min-height:52px; grid-template-columns:1fr auto; }
+      .header.mobile-header-collapsed-v209 .mobile-header-tabs-v204 { grid-column:2; }
       .header-account-actions { gap:5px; }
       .header-account-actions .badge > span:last-child,
       .header-account-actions .tutorial-launch-button { display:none; }
       .header-account-actions .btn { min-height:38px; padding:7px 9px; font-size:11px; }
-      .main,
-      .app.mobile-header-collapsed-v205 .main { margin:0 !important; padding:58px 8px 8px !important; }
+      .main { margin:0 !important; padding:58px 8px 8px !important; }
 
       .workspace-tool-tabs,
       .map-toggle-tab,
@@ -121683,7 +121682,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v208-mobile-no-spacers-script">
+  <script id="targeted-v209-mobile-fast-toggle-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -121725,8 +121724,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         event?.preventDefault?.();
         event?.stopPropagation?.();
         state.mobileHeaderCollapsedV205 = !state.mobileHeaderCollapsedV205;
-        const app = document.querySelector('.app');
-        app?.classList.toggle('mobile-header-collapsed-v205', state.mobileHeaderCollapsedV205);
+        const header = document.querySelector('.header');
+        header?.classList.toggle('mobile-header-collapsed-v209', state.mobileHeaderCollapsedV205);
         document.querySelector('.mobile-header-tabs-toggle-v204')?.setAttribute('aria-expanded', String(!state.mobileHeaderCollapsedV205));
       };
 
@@ -121740,8 +121739,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       window.mobilePlanHomeV200 = function() {
+        const planAlreadyActive = lastMobileTabV202 === 'plan' && !state.proposedPanelOpen && !state.futurePanelOpen;
         closeMobileMoreV200();
         setMobileNavActiveV202('plan');
+        if (planAlreadyActive) return;
         setAppView('plan');
         toggleProposedPanel(false);
         toggleFuturePanel(false);
@@ -121753,19 +121754,37 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         else scheduleMobileBoardV200();
       };
       window.mobileOpenQueueV200 = function(type) {
+        const tab = type === 'future' ? 'future' : 'proposed';
+        const alreadyOpen = tab === 'future' ? state.futurePanelOpen : state.proposedPanelOpen;
+        if (lastMobileTabV202 === tab && alreadyOpen) {
+          if (tab === 'future') toggleFuturePanel(false);
+          else toggleProposedPanel(false);
+          setMobileNavActiveV202('plan');
+          return;
+        }
         closeMobileMoreV200();
-        setMobileNavActiveV202(type === 'future' ? 'future' : 'proposed');
+        setMobileNavActiveV202(tab);
         setAppView('plan');
         if (type === 'future') toggleFuturePanel(true);
         else toggleProposedPanel(true);
       };
       window.mobileOpenMapV200 = function() {
+        if (lastMobileTabV202 === 'map' && !state.unloadPanelCollapsed) {
+          toggleUnloadPanel();
+          setMobileNavActiveV202('plan');
+          return;
+        }
         closeMobileMoreV200();
         setMobileNavActiveV202('map');
         setAppView('plan');
         if (state.unloadPanelCollapsed) toggleUnloadPanel();
       };
       window.openMobileMoreV200 = function() {
+        if (document.querySelector('.mobile-more-backdrop-v200')) {
+          closeMobileMoreV200();
+          setMobileNavActiveV202('plan');
+          return;
+        }
         closeMobileMoreV200();
         setMobileNavActiveV202('more');
         document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">${sideToolIcon('settings')}<span>Baza klientów</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">${sideToolIcon('nearest')}<span>Najbliższy pojazd</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">${sideToolIcon('settings')}<span>Ustawienia planu</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">${sideToolIcon('stats')}<span>Statystyki</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">${sideToolIcon('assistant')}<span>Asystent</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">${sideToolIcon('map')}<span>Tryb jasny / ciemny</span></button></div><button class="btn" type="button" style="width:100%;margin-top:8px" onclick="closeMobileMoreV200()">Zamknij</button></section></div>`);
