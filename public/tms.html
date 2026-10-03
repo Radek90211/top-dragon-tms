@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v207-mobile-plan-focus"></script>
-  <script src="/planning-core.js?build=v207-mobile-plan-focus"></script>
-  <script src="/order-stops.js?build=v207-mobile-plan-focus"></script>
+  <script src="/xlsx-lite.js?v=v208-mobile-no-spacers"></script>
+  <script src="/planning-core.js?build=v208-mobile-no-spacers"></script>
+  <script src="/order-stops.js?build=v208-mobile-no-spacers"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -121420,7 +121420,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v207-mobile-plan-focus-cache">
+  <style id="targeted-v208-mobile-no-spacers-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121559,17 +121559,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v207-mobile-plan-focus" />
-  <script src="/order-entry.js?build=v207-mobile-plan-focus"></script>
-  <style id="targeted-v207-mobile-plan-focus">
+  <link rel="stylesheet" href="/order-entry.css?build=v208-mobile-no-spacers" />
+  <script src="/order-entry.js?build=v208-mobile-no-spacers"></script>
+  <style id="targeted-v208-mobile-no-spacers">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
 
     @media (max-width:720px) {
       html { -webkit-text-size-adjust:100%; }
-      body { padding-bottom:calc(72px + env(safe-area-inset-bottom)); overscroll-behavior-y:auto; }
-      .app { min-height:100dvh; padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+      body { padding-bottom:0 !important; overscroll-behavior-y:auto; }
+      .app { min-height:100dvh; padding-bottom:0 !important; }
       .header { position:fixed !important; inset:0 0 auto 0; width:100%; z-index:10000; }
       .header-inner { min-height:52px; padding:6px 10px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
       .brand-head { width:auto !important; justify-content:flex-start !important; }
@@ -121588,8 +121588,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .header-account-actions .badge > span:last-child,
       .header-account-actions .tutorial-launch-button { display:none; }
       .header-account-actions .btn { min-height:38px; padding:7px 9px; font-size:11px; }
-      .main { margin-top:118px; padding:8px; }
-      .app.mobile-header-collapsed-v205 .main { margin-top:58px; }
+      .main,
+      .app.mobile-header-collapsed-v205 .main { margin:0 !important; padding:58px 8px 8px !important; }
 
       .workspace-tool-tabs,
       .map-toggle-tab,
@@ -121683,7 +121683,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v207-mobile-plan-focus-script">
+  <script id="targeted-v208-mobile-no-spacers-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
