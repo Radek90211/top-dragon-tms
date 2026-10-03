@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v209-mobile-fast-toggle"></script>
-  <script src="/planning-core.js?build=v209-mobile-fast-toggle"></script>
-  <script src="/order-stops.js?build=v209-mobile-fast-toggle"></script>
+  <script src="/xlsx-lite.js?v=v210-mobile-panel-events"></script>
+  <script src="/planning-core.js?build=v210-mobile-panel-events"></script>
+  <script src="/order-stops.js?build=v210-mobile-panel-events"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -95610,11 +95610,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderMobileNavigationV200() {
       if (!state.user) return "";
       return `<button type="button" class="mobile-nav-toggle-v205" aria-label="${state.mobileNavigationCollapsedV205 ? "Pokaż zakładki" : "Ukryj zakładki"}" aria-expanded="${!state.mobileNavigationCollapsedV205}" onclick="mobileToggleNavigationV205(event)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button><nav class="mobile-nav-v200" aria-label="Nawigacja mobilna">
-        <button type="button" class="mobile-nav-item-v200 active" data-mobile-tab-v202="plan" onclick="mobilePlanHomeV200()">${sideToolIcon("settings")}<span>Plan</span></button>
-        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="proposed" onclick="mobileOpenQueueV200('proposed')">${sideToolIcon("proposed")}<span>Wolne</span></button>
-        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="future" onclick="mobileOpenQueueV200('future')">${sideToolIcon("future")}<span>Planowane</span></button>
-        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="map" onclick="mobileOpenMapV200()">${sideToolIcon("map")}<span>Mapa</span></button>
-        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="more" onclick="openMobileMoreV200()">${sideToolIcon("assistant")}<span>Więcej</span></button>
+        <button type="button" class="mobile-nav-item-v200 active" data-mobile-tab-v202="plan" onclick="mobilePlanHomeV200(event)">${sideToolIcon("settings")}<span>Plan</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="proposed" onclick="mobileOpenQueueV200('proposed', event)">${sideToolIcon("proposed")}<span>Wolne</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="future" onclick="mobileOpenQueueV200('future', event)">${sideToolIcon("future")}<span>Planowane</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="map" onclick="mobileOpenMapV200(event)">${sideToolIcon("map")}<span>Mapa</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="more" onclick="openMobileMoreV200(event)">${sideToolIcon("assistant")}<span>Więcej</span></button>
       </nav>`;
     }
 
@@ -121420,7 +121420,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v209-mobile-fast-toggle-cache">
+  <style id="targeted-v210-mobile-panel-events-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121559,9 +121559,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v209-mobile-fast-toggle" />
-  <script src="/order-entry.js?build=v209-mobile-fast-toggle"></script>
-  <style id="targeted-v209-mobile-fast-toggle">
+  <link rel="stylesheet" href="/order-entry.css?build=v210-mobile-panel-events" />
+  <script src="/order-entry.js?build=v210-mobile-panel-events"></script>
+  <style id="targeted-v210-mobile-panel-events">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121682,7 +121682,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v209-mobile-fast-toggle-script">
+  <script id="targeted-v210-mobile-panel-events-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -121738,7 +121738,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         document.querySelector('.mobile-nav-toggle-v205')?.setAttribute('aria-expanded', String(!state.mobileNavigationCollapsedV205));
       };
 
-      window.mobilePlanHomeV200 = function() {
+      window.mobilePlanHomeV200 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         const planAlreadyActive = lastMobileTabV202 === 'plan' && !state.proposedPanelOpen && !state.futurePanelOpen;
         closeMobileMoreV200();
         setMobileNavActiveV202('plan');
@@ -121753,7 +121755,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         else scheduleMobileBoardV200();
       };
-      window.mobileOpenQueueV200 = function(type) {
+      window.mobileOpenQueueV200 = function(type, event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         const tab = type === 'future' ? 'future' : 'proposed';
         const alreadyOpen = tab === 'future' ? state.futurePanelOpen : state.proposedPanelOpen;
         if (lastMobileTabV202 === tab && alreadyOpen) {
@@ -121768,7 +121772,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (type === 'future') toggleFuturePanel(true);
         else toggleProposedPanel(true);
       };
-      window.mobileOpenMapV200 = function() {
+      window.mobileOpenMapV200 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         if (lastMobileTabV202 === 'map' && !state.unloadPanelCollapsed) {
           toggleUnloadPanel();
           setMobileNavActiveV202('plan');
@@ -121779,7 +121785,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         setAppView('plan');
         if (state.unloadPanelCollapsed) toggleUnloadPanel();
       };
-      window.openMobileMoreV200 = function() {
+      window.openMobileMoreV200 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         if (document.querySelector('.mobile-more-backdrop-v200')) {
           closeMobileMoreV200();
           setMobileNavActiveV202('plan');
