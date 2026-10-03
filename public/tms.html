@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v201-mobile-scroll-fix"></script>
-  <script src="/planning-core.js?build=v201-mobile-scroll-fix"></script>
-  <script src="/order-stops.js?build=v201-mobile-scroll-fix"></script>
+  <script src="/xlsx-lite.js?v=v203-mobile-full-range"></script>
+  <script src="/planning-core.js?build=v203-mobile-full-range"></script>
+  <script src="/order-stops.js?build=v203-mobile-full-range"></script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -92470,6 +92470,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       reportDate: currentAppDate(),
       boardWindowStart: addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS),
       mobileBoardWindowTouched: false,
+      mobileFullRangeV203: false,
       onlyMine: false,
       copiedRouteId: null,
       mapZoom: 1.25,
@@ -93955,11 +93956,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function activeBoardWindowDays() {
-      return mobileViewportActive() ? MOBILE_BOARD_PAST_DAYS + MOBILE_BOARD_FUTURE_DAYS + 1 : BOARD_WINDOW_DAYS;
+      return mobileViewportActive() && !state.mobileFullRangeV203 ? MOBILE_BOARD_PAST_DAYS + MOBILE_BOARD_FUTURE_DAYS + 1 : BOARD_WINDOW_DAYS;
     }
 
     function activeBoardPastDays() {
-      return mobileViewportActive() ? MOBILE_BOARD_PAST_DAYS : BOARD_PAST_DAYS;
+      return mobileViewportActive() && !state.mobileFullRangeV203 ? MOBILE_BOARD_PAST_DAYS : BOARD_PAST_DAYS;
     }
 
     function isoDayDifference(fromDate, toDate) {
@@ -93997,6 +93998,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function resetBoardWindow() {
       state.boardWindowStart = addDaysToIso(currentAppDate(), -activeBoardPastDays());
       state.mobileBoardWindowTouched = false;
+      dateListMemo = { signature: "", dates: null, indexMap: null };
+      boardRenderCache = null;
+      syncBoardOnly();
+    }
+
+    function toggleMobileFullRangeV203() {
+      if (!mobileViewportActive()) return;
+      state.mobileFullRangeV203 = !state.mobileFullRangeV203;
+      state.mobileBoardWindowTouched = false;
+      state.boardWindowStart = addDaysToIso(currentAppDate(), -activeBoardPastDays());
       dateListMemo = { signature: "", dates: null, indexMap: null };
       boardRenderCache = null;
       syncBoardOnly();
@@ -95595,11 +95606,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderMobileNavigationV200() {
       if (!state.user) return "";
       return `<nav class="mobile-nav-v200" aria-label="Nawigacja mobilna">
-        <button type="button" class="mobile-nav-item-v200 active" onclick="mobilePlanHomeV200()">${sideToolIcon("settings")}<span>Plan</span></button>
-        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenQueueV200('proposed')">${sideToolIcon("proposed")}<span>Wolne</span></button>
-        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenQueueV200('future')">${sideToolIcon("future")}<span>Planowane</span></button>
-        <button type="button" class="mobile-nav-item-v200" onclick="mobileOpenMapV200()">${sideToolIcon("map")}<span>Mapa</span></button>
-        <button type="button" class="mobile-nav-item-v200" onclick="openMobileMoreV200()">${sideToolIcon("assistant")}<span>Więcej</span></button>
+        <button type="button" class="mobile-nav-item-v200 active" data-mobile-tab-v202="plan" onclick="mobilePlanHomeV200()">${sideToolIcon("settings")}<span>Plan</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="proposed" onclick="mobileOpenQueueV200('proposed')">${sideToolIcon("proposed")}<span>Wolne</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="future" onclick="mobileOpenQueueV200('future')">${sideToolIcon("future")}<span>Planowane</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="map" onclick="mobileOpenMapV200()">${sideToolIcon("map")}<span>Mapa</span></button>
+        <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="more" onclick="openMobileMoreV200()">${sideToolIcon("assistant")}<span>Więcej</span></button>
       </nav>`;
     }
 
@@ -103107,6 +103118,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
+              ${mobileViewportActive() ? `<button class="btn mobile-range-toggle-v203" type="button" onclick="toggleMobileFullRangeV203()">${state.mobileFullRangeV203 ? "Widok 4 dni" : "Pełny zakres: 13 dni"}</button>` : ""}
               ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz maks. 3 · Ctrl+C, wybierz dzień, Ctrl+V: kopiuj · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
@@ -121397,7 +121409,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v201-mobile-scroll-fix-cache">
+  <style id="targeted-v203-mobile-full-range-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121536,9 +121548,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v201-mobile-scroll-fix" />
-  <script src="/order-entry.js?build=v201-mobile-scroll-fix"></script>
-  <style id="targeted-v201-mobile-scroll-fix">
+  <link rel="stylesheet" href="/order-entry.css?build=v203-mobile-full-range" />
+  <script src="/order-entry.js?build=v203-mobile-full-range"></script>
+  <style id="targeted-v203-mobile-full-range">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
 
@@ -121569,16 +121581,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         border-top:1px solid var(--border); box-shadow:0 -8px 22px rgba(15,23,42,.10); backdrop-filter:blur(12px);
       }
       .mobile-nav-item-v200 { min-width:44px; min-height:50px; border:0; border-radius:10px; background:transparent; color:var(--muted); display:grid; place-items:center; gap:2px; font:800 10px/1.1 Inter,ui-sans-serif,system-ui; }
-      .mobile-nav-item-v200 .side-tool-icon { width:21px; height:21px; display:grid; place-items:center; }
-      .mobile-nav-item-v200 .side-tool-icon svg { width:20px; height:20px; }
+      .mobile-nav-item-v200.active { background:color-mix(in srgb,var(--dark) 10%,transparent); color:var(--dark); }
+      .mobile-nav-item-v200 .side-tool-icon { width:23px; height:23px; display:grid; place-items:center; color:currentColor !important; opacity:1 !important; }
+      .mobile-nav-item-v200 .side-tool-icon svg { display:block; width:22px; height:22px; fill:none !important; stroke:currentColor !important; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
       .mobile-nav-item-v200:active, .mobile-nav-item-v200:focus-visible { background:var(--soft,#f1f5f9); color:var(--dark); outline:none; }
 
       .board-title { gap:7px; align-items:flex-start; }
       .board-title h2 { font-size:16px; }
       .board-controls { width:100%; gap:6px; }
-      .board-controls > .btn:not(.board-range-nav .btn),
-      .board-controls > .ui-scale-control,
+      .board-controls > .btn:not(.board-range-nav .btn):not(.mobile-range-toggle-v203),
       .board-controls > .small { display:none; }
+      .board-controls > .ui-scale-control { display:inline-flex; align-items:center; justify-content:center; gap:4px; min-height:44px; padding:3px 5px; border:1px solid var(--border); border-radius:10px; background:var(--soft); }
+      .board-controls > .ui-scale-control .btn-mini { width:38px; min-width:38px; min-height:38px; padding:0; font-size:20px; line-height:1; }
+      .board-controls > .ui-scale-control b { min-width:43px; text-align:center; font-size:12px; }
+      .board-controls > .mobile-range-toggle-v203 { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px 10px; font-size:11px; }
       .board-range-nav { width:100%; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
       .board-range-nav .btn { min-height:44px; padding:8px 6px; font-size:11px; }
       .board-range-label { grid-column:1/-1; text-align:center; font-size:10px; }
@@ -121591,8 +121607,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .board.mobile-compact-v200 .driver-cell { padding:6px; }
       .board.mobile-compact-v200 .driver-week { display:none; }
       .board .head-cell.current-day-v200 { background:#0f766e !important; box-shadow:inset 0 -3px 0 #facc15; }
-      .board .day-cell { scroll-snap-align:start; }
-      .board .time-route { min-height:36px; font-size:11px; line-height:1.15; touch-action:pan-y; }
+      .board .day-cell { scroll-snap-align:start; touch-action:pan-x pan-y; }
+      .board .time-route { min-height:36px; font-size:11px; line-height:1.15; touch-action:pan-x pan-y; }
       .board .time-route .route-title-indicators { min-width:18px; }
       .board .time-route button, .board .time-route [role="button"] { min-width:32px; min-height:32px; }
 
@@ -121630,16 +121646,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-sheet-v200 { width:100%; padding:14px 14px calc(16px + env(safe-area-inset-bottom)); border-radius:18px 18px 0 0; background:var(--card); box-shadow:0 -18px 44px rgba(15,23,42,.22); }
       .mobile-more-sheet-v200 h2 { margin:0 0 10px; font-size:16px; }
       .mobile-more-actions-v200 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      .mobile-more-actions-v200 .btn { min-height:48px; text-align:left; }
+      .mobile-more-actions-v200 .btn { min-height:48px; text-align:left; display:flex; align-items:center; gap:9px; }
+      .mobile-more-actions-v200 .side-tool-icon { width:22px; height:22px; color:currentColor; flex:0 0 22px; }
+      .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v201-mobile-scroll-fix-script">
+  <script id="targeted-v203-mobile-full-range-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
+      let lastMobileTabV202 = 'plan';
 
       function closeMobileMoreV200() {
         document.querySelector('.mobile-more-backdrop-v200')?.remove();
+        setMobileNavActiveV202(lastMobileTabV202);
+      }
+
+      function setMobileNavActiveV202(name) {
+        if (name !== 'more') lastMobileTabV202 = name;
+        document.querySelectorAll('[data-mobile-tab-v202]').forEach(button => {
+          button.classList.toggle('active', button.dataset.mobileTabV202 === name);
+        });
       }
 
       function positionMobileBoardV200() {
@@ -121664,6 +121691,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.mobilePlanHomeV200 = function() {
         closeMobileMoreV200();
+        setMobileNavActiveV202('plan');
         setAppView('plan');
         toggleProposedPanel(false);
         toggleFuturePanel(false);
@@ -121676,18 +121704,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
       window.mobileOpenQueueV200 = function(type) {
         closeMobileMoreV200();
+        setMobileNavActiveV202(type === 'future' ? 'future' : 'proposed');
         setAppView('plan');
         if (type === 'future') toggleFuturePanel(true);
         else toggleProposedPanel(true);
       };
       window.mobileOpenMapV200 = function() {
         closeMobileMoreV200();
+        setMobileNavActiveV202('map');
         setAppView('plan');
         if (state.unloadPanelCollapsed) toggleUnloadPanel();
       };
       window.openMobileMoreV200 = function() {
         closeMobileMoreV200();
-        document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">Baza klientów</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">Najbliższy pojazd</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">Ustawienia planu</button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">Statystyki</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">Asystent</button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">Tryb jasny / ciemny</button></div><button class="btn" type="button" style="width:100%;margin-top:8px" onclick="closeMobileMoreV200()">Zamknij</button></section></div>`);
+        setMobileNavActiveV202('more');
+        document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">${sideToolIcon('settings')}<span>Baza klientów</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">${sideToolIcon('nearest')}<span>Najbliższy pojazd</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">${sideToolIcon('settings')}<span>Ustawienia planu</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">${sideToolIcon('stats')}<span>Statystyki</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">${sideToolIcon('assistant')}<span>Asystent</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">${sideToolIcon('map')}<span>Tryb jasny / ciemny</span></button></div><button class="btn" type="button" style="width:100%;margin-top:8px" onclick="closeMobileMoreV200()">Zamknij</button></section></div>`);
       };
       window.closeMobileMoreV200 = closeMobileMoreV200;
 
