@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v224-remove-ui-hints"></script>
-  <script src="/planning-core.js?build=v224-remove-ui-hints"></script>
-  <script src="/order-stops.js?build=v224-remove-ui-hints"></script>
+  <script src="/xlsx-lite.js?v=v226-live-queue-matches"></script>
+  <script src="/planning-core.js?build=v226-live-queue-matches"></script>
+  <script src="/order-stops.js?build=v226-live-queue-matches"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94198,6 +94198,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       route.date = nextDate;
       route.endDate = endParts.date;
       route.endHour = endParts.hour;
+      window.refreshQueueRouteMatchesV226?.();
       syncBoardOnly();
       syncUnloadMapCard();
       syncDetailsPanel();
@@ -94806,7 +94807,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function addAdditionalLoadsToProposed(routeId) {
       const source = state.routes.find(item => item.id === routeId);
-      if (!source || state.user?.role !== "spedytor") return;
+      if (!source || !(state.user?.role === "spedytor" || isAdminUser())) return;
       const count = Math.max(1, Math.min(50, Math.floor(Number(state.appMessage?.bulkCount) || 1)));
       if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
       const base = {
@@ -100222,15 +100223,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function proposedLoadCanModify(route) {
-      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.createdBy === state.user.login);
+      return Boolean(!route?.archived && (isAdminUser() || (state.user?.role === "spedytor" && route.createdBy === state.user.login)));
     }
 
     function proposedLoadCanTake(route) {
-      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.status !== "taken" && !proposedLoadIsClaimed(route));
+      return Boolean(!route?.archived && (isAdminUser() || state.user?.role === "spedytor") && route.status !== "taken" && !proposedLoadIsClaimed(route));
     }
 
     function proposedLoadCanReturn(route) {
-      return Boolean(route.status === "taken" && (route.takenBy === state.user?.login || route.createdBy === state.user?.login));
+      return Boolean(route.status === "taken" && (isAdminUser() || route.takenBy === state.user?.login || route.createdBy === state.user?.login));
     }
 
     function renderProposedLoadCard(route) {
@@ -100630,7 +100631,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function futureCardCanDrag(route) {
-      return Boolean(!route?.archived && state.user?.role === "spedytor" && route.createdBy === state.user.login);
+      return Boolean(!route?.archived && (isAdminUser() || (state.user?.role === "spedytor" && route.createdBy === state.user.login)));
     }
 
 
@@ -103263,6 +103264,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         current[kind] = true;
         map.set(routeId, current);
       };
+      const allDispatchers = typeof isAdminUser === "function" && isAdminUser();
 
       // Wolne ładunki: oznaczamy kafelek POPRZEDNIEJ relacji, z której kierowca
       // został zakwalifikowany do danego wolnego ładunku. Od 3L.30 dzień wynika
@@ -103273,14 +103275,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           exactDistanceOnly: true,
           compatibleOnly: true,
           scheduleFitOnly: true,
-          currentDispatcherOnly: true
+          currentDispatcherOnly: !allDispatchers
         }));
         rows.forEach(item => add(item.previousRoute?.id, "proposed"));
       });
 
       // Planowane relacje: analogicznie niebieski znacznik na poprzednim kafelku.
       visibleFutureRoutes().forEach(load => {
-        preferredQueueMatchRows(proposedDistancesForRoute(load, load.date || state.reportDate || START_DATE, {currentDispatcherOnly:true})).forEach(item => add(item.previousRoute?.id, "future"));
+        preferredQueueMatchRows(proposedDistancesForRoute(load, load.date || state.reportDate || START_DATE, {currentDispatcherOnly:!allDispatchers})).forEach(item => add(item.previousRoute?.id, "future"));
       });
 
       ROUTE_QUEUE_MATCH_MARKER_CACHE = map;
@@ -107446,6 +107448,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function canMoveRouteToDriver(route, targetDriverId) {
+      if (isAdminUser()) return Boolean(driverById(targetDriverId));
       const sourceDispatcher = driverById(route.driverId)?.dispatcher || route.ownerDispatcher;
       const targetDispatcher = driverById(targetDriverId)?.dispatcher;
       return Boolean(sourceDispatcher && targetDispatcher && sourceDispatcher === targetDispatcher);
@@ -109859,6 +109862,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
       if (["client", "load", "unload", "date"].includes(field)) scheduleRouteHistoryCapture(route);
+      if (["load", "secondLoad", "unload", "secondUnload", "loadAddress", "secondLoadAddress", "unloadAddress", "secondUnloadAddress", "date"].includes(field)) {
+        window.refreshQueueRouteMatchesV226?.();
+      }
       invalidateRouteSmsGeneration(route, true);
       scheduleUiSync({ board: true, unload: true, details: true });
     }
@@ -111951,7 +111957,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.driverHasRelationHistory = driverHasRelationHistory;
 
       function isAdminUser() {
-        return String(state.user?.supabaseRole || "") === "admin";
+        return [state.user?.role, state.user?.supabaseRole, state.user?.actualSupabaseRole]
+          .map(value => String(value || "").trim().toLowerCase())
+          .some(value => value === "admin" || value === "administrator");
       }
       window.isAdminUser = isAdminUser;
 
@@ -114259,7 +114267,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return operationalDrivers();
       };
       canEditAccountingFields = function(route) {
-        return Boolean(route && (state.user?.role === "rozliczenia" || String(state.user?.supabaseRole || "") === "admin"));
+        return Boolean(route && (state.user?.role === "rozliczenia" || isAdminUser()));
       };
       canEditBoardRoute = function(route) {
         if (!route) return false;
@@ -114288,19 +114296,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
       proposedLoadCanModify = function(route) {
         if (!route || route.archived || !state.user) return false;
-        if (state.user.supabaseRole === "admin") return true;
+        if (isAdminUser()) return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
       futureRouteCanDelete = function(route) {
         if (!route || route.archived || !state.user) return false;
-        if (state.user.supabaseRole === "admin") return true;
+        if (isAdminUser()) return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
       futureCardCanDrag = function(route) {
         if (!route || route.archived || !state.user) return false;
-        if (state.user.supabaseRole === "admin") return true;
+        if (isAdminUser()) return true;
         if (state.user.supabaseRole === "branch_manager") return centralLoadQueueBranchId(route) === String(state.user.branchId || "");
         return Boolean(state.user.role === "spedytor" && route.createdBy === state.user.login);
       };
@@ -121126,7 +121134,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return loadId && QUEUE_TYPES.includes(queueType) ? `${branch}::${queueType}::${loadId}` : "";
       }
       function registerCandidateV142(queueType, route, branchId = "") {
-        if (!route || !state.user || !["spedytor","kierownik"].includes(state.user?.role)) return false;
+        const administrator = typeof isAdminUser === "function" && isAdminUser();
+        if (!route || !state.user || (!administrator && !["spedytor","kierownik"].includes(state.user?.role))) return false;
         const key = candidateKeyV142(queueType, route, branchId);
         if (!key) return false;
         window.registerQueueAdditionV147?.(queueType, route);
@@ -121144,16 +121153,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       window.registerQueueMatchCandidateV142 = registerCandidateV142;
       function matchedBoardRouteIds(queueType, route) {
-        if (!route || !["spedytor","kierownik"].includes(state.user?.role)) return [];
+        const administrator = typeof isAdminUser === "function" && isAdminUser();
+        if (!route || (!administrator && !["spedytor","kierownik"].includes(state.user?.role))) return [];
         const login = String(state.user?.login || "").trim().toUpperCase();
-        if (!login) return [];
+        if (!administrator && !login) return [];
         try {
           if (typeof routePointFromRoute === 'function' && !routePointFromRoute(route,'load')) return null;
-          const candidates = proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {currentDispatcherOnly:true});
+          const candidates = proposedDistancesForRoute(route, route.date || state.reportDate || START_DATE, {currentDispatcherOnly:!administrator});
           if(candidates.some(row => row.schedulePending || row.distancePending)) return null;
           const rows = preferredQueueMatchRows(candidates);
           return Array.from(new Set(rows
-            .filter(row => String(row?.driver?.dispatcher || "").trim().toUpperCase() === login)
+            .filter(row => administrator || String(row?.driver?.dispatcher || "").trim().toUpperCase() === login)
             .map(row => String(row?.previousRoute?.id || "").trim())
             .filter(Boolean)));
         } catch { return null; }
@@ -121161,9 +121171,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function refreshMatches() {
         return typeof withQueueRouteIndexV154 === 'function' ? withQueueRouteIndexV154(refreshMatchesV154) : refreshMatchesV154();
       }
+      let scheduledQueueMatchRefreshV226 = 0;
+      window.refreshQueueRouteMatchesV226 = function() {
+        if (scheduledQueueMatchRefreshV226) return;
+        scheduledQueueMatchRefreshV226 = requestAnimationFrame(() => {
+          scheduledQueueMatchRefreshV226 = 0;
+          refreshMatches();
+        });
+      };
       function refreshMatchesV154() {
         const current = ensureStore();
-        if (!state.user || !["spedytor","kierownik"].includes(state.user.role)) return false;
+        const administrator = typeof isAdminUser === "function" && isAdminUser();
+        if (!state.user || (!administrator && !["spedytor","kierownik"].includes(state.user.role))) return false;
         let changed = false;
         // Include existing entries on the first snapshot and after local saves.
         // Keep acknowledgements per user and load even when a snapshot arrives late.
@@ -121253,7 +121272,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           value.seenRouteIds=(value.seenRouteIds || []).filter(item=>String(item)!==id);
           if(value.hoverDeadlines) delete value.hoverDeadlines[id];
         });
-        persist(); requestAnimationFrame(refreshMatches);
+        persist(); window.refreshQueueRouteMatchesV226?.();
       };
       document.addEventListener('pointerover', event => {
         const tile = event.target?.closest?.('.time-route.queue-match-pulse-v136[data-route-id]');
@@ -121493,7 +121512,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v224-remove-ui-hints-cache">
+  <style id="targeted-v226-live-queue-matches-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121632,9 +121651,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v224-remove-ui-hints" />
-  <script src="/order-entry.js?build=v224-remove-ui-hints"></script>
-  <style id="targeted-v224-remove-ui-hints">
+  <link rel="stylesheet" href="/order-entry.css?build=v226-live-queue-matches" />
+  <script src="/order-entry.js?build=v226-live-queue-matches"></script>
+  <style id="targeted-v226-live-queue-matches">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121788,7 +121807,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v224-remove-ui-hints-script">
+  <script id="targeted-v226-live-queue-matches-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
