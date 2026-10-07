@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v226-live-queue-matches"></script>
-  <script src="/planning-core.js?build=v226-live-queue-matches"></script>
-  <script src="/order-stops.js?build=v226-live-queue-matches"></script>
+  <script src="/xlsx-lite.js?v=v229-desktop-theme-menu"></script>
+  <script src="/planning-core.js?build=v229-desktop-theme-menu"></script>
+  <script src="/order-stops.js?build=v229-desktop-theme-menu"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -95598,6 +95598,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="badge" style="gap:8px;"><span class="dispatcher-map-badge ${state.user.role === "spedytor" ? dispatcherBadgeClass(state.user.login) : ""}">${esc(state.user.login)}</span><span>${state.user.role === "rozliczenia" ? "rozliczenia" : state.user.role === "admin" ? "administrator" : state.user.role === "kierownik" ? "kierownik oddziału" : "spedytor"}</span></div>
                   ${state.user.role === "rozliczenia" ? `<span class="theme-pill">Widok rozliczeń</span>` : ""}
                   <button class="btn tutorial-launch-button" type="button" onclick="openTutorialMenu(event)" title="Otwórz samouczki" aria-label="Otwórz samouczki">?</button>
+                  <button class="btn desktop-theme-toggle-v229" type="button" data-action="dark-mode" onclick="toggleDarkMode(event)">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button>
                   <button class="btn" onclick="logout()">Wyloguj</button>
                 </div>
               </div>
@@ -103223,6 +103224,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           style="grid-column:${boardDayGridColumn(dayColumnIndex, dateList())};grid-row:${row};"
           data-driver-id="${attr(driver.id)}"
           data-date="${attr(date)}"
+          tabindex="-1"
           onclick="selectExcelBoardCellV186(event, '${attr(driver.id)}', '${attr(date)}')"
           ondblclick="if(excelBoardMode()) addExcelBoardTileV172(event, '${attr(driver.id)}', '${attr(date)}')"
           ondragover="allowRouteDrop(event)"
@@ -106415,7 +106417,53 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       document.querySelectorAll(".day-cell.excel-paste-target-v186").forEach(cell => cell.classList.remove("excel-paste-target-v186"));
       const cell = event?.currentTarget?.closest?.(".day-cell") || event?.currentTarget;
       cell?.classList?.add?.("excel-paste-target-v186");
+      cell?.focus?.({ preventScroll:true });
       selectedExcelBoardCellV186 = { driverId:String(driverId || ""), date:String(date || "") };
+    }
+
+    function boardDayCellV228(driverId, date) {
+      return Array.from(document.querySelectorAll('.day-cell.time-cell[data-driver-id][data-date]')).find(cell =>
+        String(cell.dataset.driverId || '') === String(driverId || '') && String(cell.dataset.date || '') === String(date || '')
+      ) || null;
+    }
+
+    function selectExcelBoardPositionV228(driverId, date) {
+      const cell = boardDayCellV228(driverId, date);
+      if (!cell) return false;
+      document.querySelector('.time-route.excel-selected-v171')?.classList.remove('excel-selected-v171');
+      document.querySelectorAll('.day-cell.excel-paste-target-v186').forEach(item => item.classList.remove('excel-paste-target-v186'));
+      cell.classList.add('excel-paste-target-v186');
+      selectedExcelBoardCellV186 = { driverId:String(driverId), date:String(date) };
+
+      const route = activeRoutes()
+        .filter(item => String(item.driverId || '') === String(driverId) && routeOverlapsDate(item, date))
+        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0];
+      const tile = route ? routeButtonElement(route.id) : null;
+      tile?.classList.add('excel-selected-v171');
+      cell.focus?.({ preventScroll:true });
+      cell.scrollIntoView({ block:'nearest', inline:'nearest', behavior:'auto' });
+      return true;
+    }
+
+    function moveExcelBoardSelectionV228(direction) {
+      if (!excelBoardMode()) return false;
+      const selectedRoute = selectedBoardRouteV183();
+      const origin = selectedRoute
+        ? { driverId:String(selectedRoute.driverId || ''), date:String(selectedRoute.date || '') }
+        : selectedExcelBoardCellV186;
+      if (!origin?.driverId || !origin?.date) return false;
+      const dates = dateList();
+      const cells = Array.from(document.querySelectorAll('.day-cell.time-cell[data-driver-id][data-date]'));
+      const driverIds = [...new Set(cells.map(cell => String(cell.dataset.driverId || '')))];
+      const dateIndex = dates.indexOf(String(origin.date));
+      const driverIndex = driverIds.indexOf(String(origin.driverId));
+      if (dateIndex < 0 || driverIndex < 0) return false;
+      const offset = ({ ArrowLeft:[0,-1], ArrowRight:[0,1], ArrowUp:[-1,0], ArrowDown:[1,0] })[direction];
+      if (!offset) return false;
+      const nextDriver = driverIds[driverIndex + offset[0]];
+      const nextDate = dates[dateIndex + offset[1]];
+      if (!nextDriver || !nextDate) return true;
+      return selectExcelBoardPositionV228(nextDriver, nextDate);
     }
 
     function boardRouteClipboardPayloadV186() {
@@ -106492,6 +106540,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const target = event.target;
       if (target?.matches?.("input,textarea,select") || target?.isContentEditable) return;
       const key = String(event.key || "").toLowerCase();
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        if (moveExcelBoardSelectionV228(event.key)) event.preventDefault();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && key === "c") {
         if (copySelectedBoardRouteV183(false)) event.preventDefault();
       } else if ((event.ctrlKey || event.metaKey) && key === "x") {
@@ -106960,8 +107012,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           suggestionHost.innerHTML = suggestions.map(value => {
             const city = displayCity(value) || value;
             const postal = postalCodeFromText(value);
-            const postalPrefix = postal ? `${postal.slice(0, 3)}` : "";
-            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span>${esc(city)}${postalPrefix ? ` <small>· ${esc(postalPrefix)}</small>` : ""}</span></button>`;
+            const postalPrefix = postal ? postal.slice(0, 2) : "";
+            const postalSuffix = postal ? postal.slice(2) : "";
+            return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span class="quick-unload-choice-city">${esc(city)}</span>${postal ? `<small class="quick-unload-postal" aria-label="Kod pocztowy ${esc(postal)}">· <b>${esc(postalPrefix)}</b>${esc(postalSuffix)}</small>` : ""}</button>`;
           }).join("");
           suggestionHost.classList.add("visible");
         }, 180);
@@ -121506,13 +121559,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap { min-width:0; width:100%; }
     .quick-unload-suggestion { max-height:154px; overflow:auto; padding:3px; cursor:default; }
     .quick-unload-choice { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
-    .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; }
+    .quick-unload-choice-city { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; white-space:nowrap; }
+    .quick-unload-choice .quick-unload-postal b { color:#1d4ed8; font-size:10px; }
     .app.dark-mode .quick-unload-choice small { color:#cbd5e1; }
+    .app.dark-mode .quick-unload-choice .quick-unload-postal b { color:#93c5fd; }
     .quick-unload-edit-wrap { display:block; }
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v226-live-queue-matches-cache">
+  <style id="targeted-v229-desktop-theme-menu-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121651,12 +121707,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v226-live-queue-matches" />
-  <script src="/order-entry.js?build=v226-live-queue-matches"></script>
-  <style id="targeted-v226-live-queue-matches">
+  <link rel="stylesheet" href="/order-entry.css?build=v229-desktop-theme-menu" />
+  <script src="/order-entry.js?build=v229-desktop-theme-menu"></script>
+  <style id="targeted-v229-desktop-theme-menu">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
+    @media (max-width:720px) { .desktop-theme-toggle-v229 { display:none !important; } }
     .main { max-width:none !important; width:100%; }
     .board .left-cell,
     .board .day-cell { box-shadow:inset 0 -1px 0 #94a3b8; }
@@ -121807,7 +121864,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v226-live-queue-matches-script">
+  <script id="targeted-v229-desktop-theme-menu-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
