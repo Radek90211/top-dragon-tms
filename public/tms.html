@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v229-desktop-theme-menu"></script>
-  <script src="/planning-core.js?build=v229-desktop-theme-menu"></script>
-  <script src="/order-stops.js?build=v229-desktop-theme-menu"></script>
+  <script src="/xlsx-lite.js?v=v231-enter-delete-confirm"></script>
+  <script src="/planning-core.js?build=v231-enter-delete-confirm"></script>
+  <script src="/order-stops.js?build=v231-enter-delete-confirm"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94698,6 +94698,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function syncDeleteConfirm() {
       replaceTransientElement(".delete-confirm-backdrop", state.deleteConfirmRouteId ? renderDeleteConfirm() : "");
+      if (state.deleteConfirmRouteId) {
+        requestAnimationFrame(() => document.querySelector('[data-action="confirm-delete-route"]')?.focus({ preventScroll:true }));
+      }
     }
 
     function syncAttentionToast() {
@@ -99349,13 +99352,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const label = `${displayCity(route.load) || "-"} → ${displayCity(route.unload) || "-"}`;
       return `
         <div class="delete-confirm-backdrop" onclick="cancelDeleteRoute()">
-          <div class="delete-confirm-box" onclick="event.stopPropagation()">
+          <div class="delete-confirm-box" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title" onclick="event.stopPropagation()">
             <div class="delete-confirm-icon">!</div>
-            <h3>Usunąć relację?</h3>
+            <h3 id="delete-confirm-title">Usunąć relację?</h3>
             <p>Relacja <b>${esc(label)}</b> zostanie usunięta z tablicy, listy i mapy.</p>
             <div class="delete-confirm-actions">
               <button class="btn" type="button" onclick="cancelDeleteRoute()">Anuluj</button>
-              <button class="btn btn-red" type="button" onclick="confirmDeleteRoute()">Usuń relację</button>
+              <button class="btn btn-red" type="button" data-action="confirm-delete-route" aria-keyshortcuts="Enter" onclick="confirmDeleteRoute()">Usuń relację</button>
             </div>
           </div>
         </div>
@@ -106980,13 +106983,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       title.innerHTML = `
         <span class="quick-unload-edit-wrap">
           <input class="quick-unload-input" autocomplete="off" aria-label="${editField === 'secondUnload' ? 'Drugi rozładunek' : 'Rozładunek'}" placeholder="${editField === 'secondUnload' ? 'Druga miejscowość lub kod' : 'Miejscowość lub kod pocztowy'}" value="${attr(displayCity(route[editField]) || '')}" />
-          <div class="quick-unload-suggestion" role="listbox"></div>
         </span>
       `;
 
       const input = title.querySelector(".quick-unload-input");
-      const suggestionHost = title.querySelector(".quick-unload-suggestion");
-      if (!input || !suggestionHost) return false;
+      if (!input) return false;
+      // Lista jest portalem przy body: nie jest obcinana przez przewijaną tablicę
+      // ani przez strukturę przycisku kafelka.
+      const suggestionHost = document.createElement("div");
+      suggestionHost.className = "quick-unload-suggestion quick-unload-suggestion-portal";
+      suggestionHost.setAttribute("role", "listbox");
+      document.body.appendChild(suggestionHost);
+      const suggestionAbort = new AbortController();
+      const positionSuggestion = () => {
+        if (!suggestionHost.isConnected) return;
+        const rect = input.getBoundingClientRect();
+        suggestionHost.style.left = `${Math.max(8, rect.left)}px`;
+        suggestionHost.style.top = `${Math.max(8, rect.bottom + 4)}px`;
+        suggestionHost.style.width = `${Math.max(190, rect.width)}px`;
+      };
+      window.addEventListener("resize", positionSuggestion, { passive:true, signal:suggestionAbort.signal });
+      document.querySelector(".board-scroll")?.addEventListener("scroll", positionSuggestion, { passive:true, signal:suggestionAbort.signal });
 
       let finished = false;
       let currentSuggestion = "";
@@ -106997,6 +107014,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         suggestionHost.classList.remove("visible");
       };
 
+      const destroySuggestion = () => {
+        suggestionAbort.abort();
+        suggestionHost.remove();
+      };
+
       const updateSuggestion = () => {
         const raw = String(input.value || "").trim();
         if (quickUnloadSuggestionTimer) clearTimeout(quickUnloadSuggestionTimer);
@@ -107004,7 +107026,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (raw.length < 2) return;
         quickUnloadSuggestionTimer = setTimeout(() => {
           if (finished || raw !== String(input.value || "").trim()) return;
-          const suggestions = locationSearchOptions(raw, 30)
+          const suggestions = uniqueLocationOptions([
+            ...locationSearchRows(raw, 30).map(row => row.label),
+            ...locationSearchOptions(raw, 30)
+          ])
             .filter(value => removePolishChars(value) !== removePolishChars(raw))
             .slice(0, 6);
           if (!suggestions.length) return;
@@ -107016,6 +107041,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const postalSuffix = postal ? postal.slice(2) : "";
             return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span class="quick-unload-choice-city">${esc(city)}</span>${postal ? `<small class="quick-unload-postal" aria-label="Kod pocztowy ${esc(postal)}">· <b>${esc(postalPrefix)}</b>${esc(postalSuffix)}</small>` : ""}</button>`;
           }).join("");
+          positionSuggestion();
           suggestionHost.classList.add("visible");
         }, 180);
       };
@@ -107028,6 +107054,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           quickUnloadSuggestionTimer = null;
         }
         hideSuggestion();
+        destroySuggestion();
 
         const raw = String(forcedValue || input.value || "").trim();
         if (commit && raw) {
@@ -121558,6 +121585,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-editing .excel-split-v171 { display:none; }
     .quick-unload-edit-wrap { min-width:0; width:100%; }
     .quick-unload-suggestion { max-height:154px; overflow:auto; padding:3px; cursor:default; }
+    .quick-unload-suggestion-portal { position:fixed !important; right:auto !important; z-index:13000 !important; max-width:calc(100vw - 16px); max-height:min(240px,calc(100dvh - 16px)); }
     .quick-unload-choice { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 6px; text-align:left; font:inherit; cursor:pointer; }
     .quick-unload-choice-city { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .quick-unload-choice small { flex:0 0 auto; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.02em; white-space:nowrap; }
@@ -121568,7 +121596,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v229-desktop-theme-menu-cache">
+  <style id="targeted-v231-enter-delete-confirm-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121707,9 +121735,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v229-desktop-theme-menu" />
-  <script src="/order-entry.js?build=v229-desktop-theme-menu"></script>
-  <style id="targeted-v229-desktop-theme-menu">
+  <link rel="stylesheet" href="/order-entry.css?build=v231-enter-delete-confirm" />
+  <script src="/order-entry.js?build=v231-enter-delete-confirm"></script>
+  <style id="targeted-v231-enter-delete-confirm">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121864,7 +121892,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v229-desktop-theme-menu-script">
+  <script id="targeted-v231-enter-delete-confirm-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
