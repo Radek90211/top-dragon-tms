@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v222-hide-save-confirmation"></script>
-  <script src="/planning-core.js?build=v222-hide-save-confirmation"></script>
-  <script src="/order-stops.js?build=v222-hide-save-confirmation"></script>
+  <script src="/xlsx-lite.js?v=v224-remove-ui-hints"></script>
+  <script src="/planning-core.js?build=v224-remove-ui-hints"></script>
+  <script src="/order-stops.js?build=v224-remove-ui-hints"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -91298,6 +91298,38 @@
       "Gorzów Wielkopolski", "Zielona Góra", "Radom", "Gliwice", "Częstochowa", "Bielsko-Biała"
     ];
 
+    // Prawdziwe ulice przypisane do miejscowości używanych w relacjach demonstracyjnych.
+    // Numery domów celowo nie są losowane, aby przykładowy adres nie sugerował nieistniejącego punktu.
+    const SAMPLE_ROUTE_STREET_BY_CITY_V223 = Object.freeze({
+      "Warszawa": "Aleje Jerozolimskie",
+      "Poznań": "Głogowska",
+      "Wrocław": "Legnicka",
+      "Gdańsk": "Elbląska",
+      "Kraków": "Zakopiańska",
+      "Katowice": "Chorzowska",
+      "Łódź": "al. Piłsudskiego",
+      "Szczecin": "Struga",
+      "Lublin": "Mełgiewska",
+      "Rzeszów": "Warszawska",
+      "Białystok": "gen. Władysława Andersa",
+      "Bydgoszcz": "Fordońska",
+      "Olsztyn": "Towarowa",
+      "Opole": "Wrocławska",
+      "Kielce": "ks. Piotra Ściegiennego",
+      "Toruń": "Grudziądzka",
+      "Gorzów Wielkopolski": "Kostrzyńska",
+      "Zielona Góra": "Sulechowska",
+      "Radom": "Warszawska",
+      "Gliwice": "Portowa",
+      "Częstochowa": "Legionów",
+      "Bielsko-Biała": "Warszawska"
+    });
+
+    function sampleRouteStreetAddressV223(city) {
+      const street = SAMPLE_ROUTE_STREET_BY_CITY_V223[String(city || "").trim()];
+      return street ? `ul. ${street}` : "";
+    }
+
     function septemberRelationDatesV167() {
       const year = currentAppDate().slice(0, 4);
       return [
@@ -91327,9 +91359,9 @@
         date,
         loadDate: date,
         load: locationWithPostal(load),
-        loadAddress: `ul. Załadunkowa ${1 + deterministicFleetValueV165(sequence, 29, 120)}`,
+        loadAddress: sampleRouteStreetAddressV223(load),
         unload: locationWithPostal(unload),
-        unloadAddress: `ul. Rozładunkowa ${1 + deterministicFleetValueV165(sequence, 30, 120)}`,
+        unloadAddress: sampleRouteStreetAddressV223(unload),
         client: `Klient ${String(sequence).padStart(4, "0")}`,
         approachKm,
         loadedKm,
@@ -91356,8 +91388,8 @@
       return (drivers || []).flatMap((driver, driverIndex) => {
         return dates.filter(date => date !== `${currentAppDate().slice(0, 4)}-10-06` || driverIndex < 16).map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
-          route.id = `sample-relation-v184-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 184;
+          route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 223;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91402,7 +91434,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 184 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 223 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -98287,7 +98319,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <section class="card client-db-card" id="client-database-section">
           <div class="client-db-head">
-            <div><h2>Baza klientów</h2><div class="small">Stała kartoteka firm wykorzystywana w zleceniach, historii i analizach. Na mapie pojawiają się wyłącznie bazy potwierdzone przez administratora.</div></div>
+            <div><h2>Baza klientów</h2></div>
             <div class="client-directory-summary"><span class="badge">Wszyscy: ${allClients.length}</span><span class="badge">Z opiekunem: ${assignedCount}</span><span class="badge">Bez opiekuna: ${unassignedCount}</span>${canAcceptClientAddresses() ? `<button type="button" class="btn" onclick="verifyClientDatabase()">Sprawdź bazy</button>` : ""}</div>
           </div>
 
@@ -103156,7 +103188,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
-              ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz maks. 3 · Ctrl+C, wybierz dzień, Ctrl+V: kopiuj · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
               <button class="btn ${!state.hideDriverColumn ? "btn-dark" : ""}" data-action="driver-column" onclick="toggleDriverColumn()">${state.hideDriverColumn ? "Pokaż kierowcę" : "Ukryj kierowcę"}</button>
@@ -103480,7 +103511,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function renderUnloadDateBlock() {
       return `
-        <label class="field-label">Mapa i lista rozładunków na dzień</label>
         ${renderDateStepper(state.reportDate || currentAppDate(), "shiftReportDate(-1)", "shiftReportDate(1)", "Wybrany dzień mapy rozładunków")}
       `;
     }
@@ -110530,11 +110560,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Mapa sprawdza następny ładunek po konkretnej trasie", typeof nextRouteAfterRoute === "function" && typeof nextRouteInfoForMapPoint === "function");
       assert("Tryb ciemny poprawia widoczność spedytora", document.querySelector ? true : true);
       assert("Render bez skoku scrolla jest dostępny", typeof captureScrollState === "function" && typeof renderKeepingScroll === "function");
-      assert("Po ukryciu nie ma karty wyboru daty rozładunków", !renderToStringForTest(true).includes("Mapa i lista rozładunków na dzień"));
       assert("Po ukryciu nie ma nagłówka mapy rozładunków", !renderToStringForTest(true).includes("Mapa rozładunków"));
       assert("Po ukryciu nie ma karty mapy/listy", !renderToStringForTest(true).includes("map-card") && !renderToStringForTest(true).includes("list-scroll"));
       assert("Po ukryciu layout ma tryb pełnej szerokości", renderToStringForTest(true).includes("layout-full"));
-      assert("Po pokazaniu panel mapy wraca", renderToStringForTest(false).includes("Mapa rozładunków") && renderToStringForTest(false).includes("Mapa i lista rozładunków na dzień"));
+      assert("Po pokazaniu panel mapy wraca", renderToStringForTest(false).includes("Mapa rozładunków"));
       assert("Funkcja zoomu scrollem jest dostępna", typeof handleMapWheel === "function");
       assert("Funkcje przeciągania mapy są dostępne", typeof startMapDrag === "function" && typeof moveMapDrag === "function" && typeof endMapDrag === "function");
       assert("Relacje w dniach roboczych są obsługiwane", INITIAL_ROUTES.length > 0 && typeof routesForCell === "function");
@@ -113857,7 +113886,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           .slice().sort((a,b) => String(a.dispatcher).localeCompare(String(b.dispatcher),"pl") || String(a.driver).localeCompare(String(b.driver),"pl"));
         return `<div class="fleet-management">
           <div class="fleet-form-card">
-            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;"><div><b>Dodaj kierowcę / przewoźnika</b><div class="small">Wymagane są tylko dane przewoźnika i kierowcy. Pojazd możesz uzupełnić teraz albo później przez Edytuj.</div></div>${isAdminUser() ? `<span class="theme-pill">Administrator: wszystkie oddziały</span>` : isBranchManagerUser() ? `<span class="theme-pill">Kierownik: ${esc(state.user.branch || "własny oddział")}</span>` : `<span class="theme-pill">Przypisanie do: ${esc(state.user.login)}</span>`}</div>
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;"><div><b>Dodaj kierowcę / przewoźnika</b></div>${isAdminUser() ? `<span class="theme-pill">Administrator: wszystkie oddziały</span>` : isBranchManagerUser() ? `<span class="theme-pill">Kierownik: ${esc(state.user.branch || "własny oddział")}</span>` : `<span class="theme-pill">Przypisanie do: ${esc(state.user.login)}</span>`}</div>
             <form class="fleet-form-grid" onsubmit="addFleetDriver(event)">
               ${renderFleetDispatcherField()}
               <div class="wide"><label class="field-label" style="margin-top:0;">Przewoźnik</label><input id="fleet-carrier" class="input" required placeholder="np. Trans ABC" /></div>
@@ -121464,7 +121493,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v222-hide-save-confirmation-cache">
+  <style id="targeted-v224-remove-ui-hints-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121603,9 +121632,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v222-hide-save-confirmation" />
-  <script src="/order-entry.js?build=v222-hide-save-confirmation"></script>
-  <style id="targeted-v222-hide-save-confirmation">
+  <link rel="stylesheet" href="/order-entry.css?build=v224-remove-ui-hints" />
+  <script src="/order-entry.js?build=v224-remove-ui-hints"></script>
+  <style id="targeted-v224-remove-ui-hints">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121759,7 +121788,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v222-hide-save-confirmation-script">
+  <script id="targeted-v224-remove-ui-hints-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
