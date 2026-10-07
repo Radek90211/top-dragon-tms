@@ -90118,9 +90118,19 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v219-mobile-low-menu-dnd"></script>
-  <script src="/planning-core.js?build=v219-mobile-low-menu-dnd"></script>
-  <script src="/order-stops.js?build=v219-mobile-low-menu-dnd"></script>
+  <script src="/xlsx-lite.js?v=v222-hide-save-confirmation"></script>
+  <script src="/planning-core.js?build=v222-hide-save-confirmation"></script>
+  <script src="/order-stops.js?build=v222-hide-save-confirmation"></script>
+  <script>
+    // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
+    (() => {
+      const baseOrderStopsSummary = window.orderStopsSummary;
+      if (typeof baseOrderStopsSummary !== "function") return;
+      window.orderStopsSummary = function(route) {
+        return String(baseOrderStopsSummary.call(this, route)).replace(/<div\b[^>]*>Oczekuje na potwierdzenie zapisu<\/div>/gi, "");
+      };
+    })();
+  </script>
   <script>
 
     const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
@@ -92470,7 +92480,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       reportDate: currentAppDate(),
       boardWindowStart: addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS),
       mobileBoardWindowTouched: false,
-      mobileFullRangeV203: true,
       mobileHeaderCollapsedV205: false,
       mobileNavigationCollapsedV205: true,
       onlyMine: false,
@@ -93950,19 +93959,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const BOARD_ARCHIVE_DAYS = 183;
     const BOARD_WINDOW_DAYS = BOARD_PAST_DAYS + BOARD_FUTURE_DAYS + 1;
-    const MOBILE_BOARD_PAST_DAYS = 1;
-    const MOBILE_BOARD_FUTURE_DAYS = 2;
 
     function mobileViewportActive() {
       return Boolean(window.matchMedia?.("(max-width: 720px)")?.matches);
     }
 
     function activeBoardWindowDays() {
-      return mobileViewportActive() && !state.mobileFullRangeV203 ? MOBILE_BOARD_PAST_DAYS + MOBILE_BOARD_FUTURE_DAYS + 1 : BOARD_WINDOW_DAYS;
+      return BOARD_WINDOW_DAYS;
     }
 
     function activeBoardPastDays() {
-      return mobileViewportActive() && !state.mobileFullRangeV203 ? MOBILE_BOARD_PAST_DAYS : BOARD_PAST_DAYS;
+      return BOARD_PAST_DAYS;
     }
 
     function isoDayDifference(fromDate, toDate) {
@@ -94000,16 +94007,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function resetBoardWindow() {
       state.boardWindowStart = addDaysToIso(currentAppDate(), -activeBoardPastDays());
       state.mobileBoardWindowTouched = false;
-      dateListMemo = { signature: "", dates: null, indexMap: null };
-      boardRenderCache = null;
-      syncBoardOnly();
-    }
-
-    function toggleMobileFullRangeV203() {
-      if (!mobileViewportActive()) return;
-      state.mobileFullRangeV203 = !state.mobileFullRangeV203;
-      state.mobileBoardWindowTouched = false;
-      state.boardWindowStart = addDaysToIso(currentAppDate(), -activeBoardPastDays());
       dateListMemo = { signature: "", dates: null, indexMap: null };
       boardRenderCache = null;
       syncBoardOnly();
@@ -96166,6 +96163,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     ];
 
     function canSetDriverPrivateColor(driver) {
+      if (!driver || !state.user) return false;
+      if (isAdminUser()) return true;
       return Boolean(
         driver?.supabaseFleet &&
         driver?.driverEntityId &&
@@ -96234,6 +96233,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const requestId = `driver-color-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
       state.driverColorPickerId = null;
       syncDriverColorPicker();
+      if (!driver.driverEntityId) {
+        driver.privateColor = normalized;
+        state.driverColorOperationBusy = false;
+        invalidateFleetCaches?.();
+        syncBoardOnly();
+        showAppMessage("Kolor wiersza zmieniony", "Administrator zmienił oznaczenie kierowcy.", "success");
+        return;
+      }
       window.parent?.postMessage({
         type: "top-dragon-driver-row-color",
         requestId,
@@ -96251,8 +96258,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function canManageDriverFleetActions(driver) {
-      if (!driver?.supabaseFleet || !state.user) return false;
-      if (state.user.role === "admin") return true;
+      if (!driver || !state.user) return false;
+      if (isAdminUser()) return true;
+      if (!driver.supabaseFleet) return false;
       if (state.user.role === "kierownik") return !state.user.branchId || !driver.branchId || String(driver.branchId) === String(state.user.branchId);
       if (state.user.role !== "spedytor") return false;
       const login = String(state.user.login || "");
@@ -96383,7 +96391,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('edit','${attr(driver.id)}')"><span>Edytuj dane kierowcy i pojazdu</span><span>›</span></button>
             <button class="driver-actions-button" type="button" ${disabled(canManage)} onclick="runDriverAction('hide','${attr(driver.id)}')"><span>Ukryj kierowcę</span><span>›</span></button>
             <button class="driver-actions-button" type="button" onclick="openHiddenDriversRestore(event,'${attr(hiddenDriverLeadDispatcher(driver))}')"><span>Przywróć ukrytych kierowców${hiddenCount ? ` (${hiddenCount})` : ""}</span><span>›</span></button>
-            ${canManage ? `<p class="driver-actions-note">Ukrycie usuwa kierowcę z planu, mapy i dopasowań, ale nie kasuje historii. Lista przywracania obejmuje wszystkich ukrytych kierowców prowadzącego spedytora.</p>` : `<p class="driver-actions-note">Możesz prywatnie oznaczyć kolorem kierowcę z Twojego oddziału. Przypisanie, edycję i ukrywanie wykonuje jego obecny lub macierzysty spedytor.</p>`}
+            ${canManage ? `<p class="driver-actions-note">Ukrycie usuwa kierowcę z planu, mapy i dopasowań, ale nie kasuje historii. Lista przywracania obejmuje wszystkich ukrytych kierowców prowadzącego spedytora.</p>` : ""}
           </div>
         </section>
       </div>`;
@@ -96396,7 +96404,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function canAdminPermanentlyReassignDriver(driver) {
-      return Boolean(isAdminUser() && driver?.supabaseFleet && driver?.dbAssignmentId);
+      return Boolean(isAdminUser() && driver);
     }
 
     function openDriverPermanentReassignPopup(driverId) {
@@ -96519,6 +96527,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const homeDispatcher = driver.homeDispatcher || DRIVER_HOME_DISPATCHERS.get(driver.id) || previous;
       if (target === homeDispatcher) delete assignments[driver.id];
       else assignments[driver.id] = target;
+      if (permanent) {
+        driver.homeDispatcher = target;
+        DRIVER_HOME_DISPATCHERS.set(driver.id, target);
+      }
       saveDriverAssignments(assignments);
       driver.dispatcher = target;
 
@@ -103144,7 +103156,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <h2>Plan kierowców</h2>
             <div class="board-controls">
               <span class="ui-scale-control" aria-label="Skala planu kierowców"><button type="button" class="btn-mini" onclick="changeBoardScale(-1)" title="Pomniejsz plan">-</button><b>${Math.round(currentBoardScale() * 100)}%</b><button type="button" class="btn-mini" onclick="changeBoardScale(1)" title="Powiększ plan">+</button></span>
-              ${mobileViewportActive() ? `<button class="btn mobile-range-toggle-v203" type="button" onclick="toggleMobileFullRangeV203()">${state.mobileFullRangeV203 ? "Widok 4 dni" : "Pełny zakres: 13 dni"}</button>` : ""}
               ${excelBoardMode() ? `<span class="small">Dwuklik pustego dnia: relacja · Przeciągnij na kafelek: połącz maks. 3 · Ctrl+C, wybierz dzień, Ctrl+V: kopiuj · Prawy przycisk: szczegóły</span>` : ''}
               ${state.user?.role === "spedytor" ? `<button class="btn ${state.onlyMine ? "btn-dark" : ""}" data-action="only-mine" onclick="toggleOnlyMine()">${state.onlyMine ? "Wszystkie pojazdy" : "Moje pojazdy"}</button>` : ""}
               <button class="btn ${!state.hideCarrierColumn ? "btn-dark" : ""}" data-action="carrier-column" onclick="toggleCarrierColumn()">${state.hideCarrierColumn ? "Pokaż przewoźnika" : "Ukryj przewoźnika"}</button>
@@ -113933,9 +113944,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.setFleetDriverHidden = function(driverId, hidden) {
         const driver = driverById(driverId);
-        if (!driver?.supabaseFleet || state.fleetOperationBusy) return;
+        if (!driver || state.fleetOperationBusy) return;
         if (!isAdminUser() && !(isBranchManagerUser() ? itemBelongsToCurrentBranch(driver.branchId || state.user.branchId) : state.user?.role === "spedytor" && [driver.dispatcher, driver.homeDispatcher].some(login => String(login || "") === String(state.user.login || "")))) {
           showAppMessage("Brak uprawnień", "Możesz ukrywać wyłącznie własne pojazdy.", "error");
+          return;
+        }
+        if (!driver.supabaseFleet || !driver.dbAssignmentId) {
+          driver.fleetHidden = Boolean(hidden);
+          invalidateFleetCaches();
+          syncBoardOnly();
+          if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
+          showAppMessage(hidden ? "Kierowca ukryty" : "Kierowca przywrócony", "Zmiana została wykonana przez administratora.", "success");
           return;
         }
         state.fleetOperationBusy = true;
@@ -115080,8 +115099,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.fleetEditBusy = false;
 
       function fleetEditAllowed(driver) {
-        if (!driver?.supabaseFleet || !state.user) return false;
+        if (!driver || !state.user) return false;
         if (typeof isAdminUser === "function" && isAdminUser()) return true;
+        if (!driver.supabaseFleet) return false;
         if (typeof isBranchManagerUser === "function" && isBranchManagerUser()) {
           return typeof itemBelongsToCurrentBranch === "function" && itemBelongsToCurrentBranch(driver.branchId || state.user.branchId);
         }
@@ -115148,6 +115168,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         if (trailerHeightM && (trailerHeightM < 1 || trailerHeightM > 4.3)) {
           showAppMessage("Nieprawidłowa wysokość", "Wysokość naczepy musi mieścić się w zakresie 1,00-4,30 m.", "error");
+          return;
+        }
+
+        if (!driver.supabaseFleet || !driver.dbAssignmentId) {
+          Object.assign(driver, { driver:driverName, phone, idCard:identityDocumentNumber, nationality, base:baseLocation, vehicleBrand, tractorReg:vehicleRegistrationNo, trailerReg:trailerRegistrationNo, trailerHeight:trailerHeightM || null });
+          invalidateFleetCaches();
+          window.closeFleetEdit();
+          syncBoardOnly();
+          showAppMessage("Dane kierowcy zapisane", "Administrator zaktualizował dane kierowcy.", "success");
           return;
         }
 
@@ -121435,7 +121464,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v219-mobile-low-menu-dnd-cache">
+  <style id="targeted-v222-hide-save-confirmation-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121574,9 +121603,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v219-mobile-low-menu-dnd" />
-  <script src="/order-entry.js?build=v219-mobile-low-menu-dnd"></script>
-  <style id="targeted-v219-mobile-low-menu-dnd">
+  <link rel="stylesheet" href="/order-entry.css?build=v222-hide-save-confirmation" />
+  <script src="/order-entry.js?build=v222-hide-save-confirmation"></script>
+  <style id="targeted-v222-hide-save-confirmation">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121628,13 +121657,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         border:1px solid var(--border); border-radius:16px; box-shadow:0 8px 22px rgba(15,23,42,.14); backdrop-filter:blur(12px);
         transform:none; transition:transform .2s ease, opacity .2s ease;
       }
-      .mobile-nav-toggle-v205 { position:fixed !important; left:auto !important; right:10px !important; top:auto; bottom:38px; z-index:2147483000 !important; width:44px; height:44px; padding:0; display:grid !important; visibility:visible !important; opacity:.72; place-items:center; transform:none; -webkit-appearance:none; appearance:none; touch-action:manipulation; border:2px solid rgba(15,23,42,.72); border-radius:12px; background:rgba(255,255,255,.82); color:#0f172a; box-shadow:0 3px 14px rgba(15,23,42,.16); transition:opacity .16s ease, background .16s ease; }
+      .mobile-nav-toggle-v205 { position:fixed !important; left:auto !important; right:10px !important; top:auto; bottom:57px; z-index:2147483000 !important; width:44px; height:44px; padding:0; display:grid !important; visibility:visible !important; opacity:.72; place-items:center; transform:none; -webkit-appearance:none; appearance:none; touch-action:manipulation; border:2px solid rgba(15,23,42,.72); border-radius:12px; background:rgba(255,255,255,.82); color:#0f172a; box-shadow:0 3px 14px rgba(15,23,42,.16); transition:opacity .16s ease, background .16s ease; }
       .mobile-nav-toggle-v205:active, .mobile-nav-toggle-v205:focus-visible { opacity:1; background:#fff; }
       .mobile-nav-toggle-v205 svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transform:rotate(90deg); transition:transform .2s ease; }
       .app.mobile-navigation-collapsed-v205 .mobile-nav-v200 { transform:translateX(calc(100% + 16px)); pointer-events:none; opacity:0; }
-      .mobile-nav-toggle-v205.is-collapsed-v211 { right:10px !important; top:auto; bottom:38px; border-radius:12px; }
+      .mobile-nav-toggle-v205.is-collapsed-v211 { right:10px !important; top:auto; bottom:57px; border-radius:12px; }
       .mobile-nav-toggle-v205.is-collapsed-v211 svg { transform:rotate(-90deg); }
-      .mobile-nav-toggle-v205:not(.is-collapsed-v211) { right:86px !important; }
+      .mobile-nav-toggle-v205:not(.is-collapsed-v211) { right:10px !important; }
       .mobile-nav-item-v200 { min-width:54px; min-height:54px; border:0; border-radius:11px; background:transparent; color:var(--muted); display:grid; place-items:center; gap:2px; font:800 9px/1.05 Inter,ui-sans-serif,system-ui; }
       .mobile-nav-item-v200.active { background:color-mix(in srgb,var(--dark) 10%,transparent); color:var(--dark); }
       .mobile-nav-item-v200 .side-tool-icon { width:23px; height:23px; display:grid; place-items:center; color:currentColor !important; opacity:1 !important; }
@@ -121659,12 +121688,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .board-title { gap:7px; align-items:flex-start; }
       .board-title h2 { font-size:16px; }
       .board-controls { width:100%; gap:6px; }
-      .board-controls > .btn:not(.board-range-nav .btn):not(.mobile-range-toggle-v203),
+      .board-controls > .btn:not(.board-range-nav .btn),
       .board-controls > .small { display:none; }
       .board-controls > .ui-scale-control { display:inline-flex; align-items:center; justify-content:center; gap:4px; min-height:44px; padding:3px 5px; border:1px solid var(--border); border-radius:10px; background:var(--soft); }
       .board-controls > .ui-scale-control .btn-mini { width:38px; min-width:38px; min-height:38px; padding:0; font-size:20px; line-height:1; }
       .board-controls > .ui-scale-control b { min-width:43px; text-align:center; font-size:12px; }
-      .board-controls > .mobile-range-toggle-v203 { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px 10px; font-size:11px; }
       .board-range-nav { width:100%; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
       .board-range-nav .btn { min-height:44px; padding:8px 6px; font-size:11px; }
       .board-range-label { grid-column:1/-1; text-align:center; font-size:10px; }
@@ -121731,7 +121759,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v219-mobile-low-menu-dnd-script">
+  <script id="targeted-v222-hide-save-confirmation-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
