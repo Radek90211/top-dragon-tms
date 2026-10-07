@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v232-unload-suggestion-viewport"></script>
-  <script src="/planning-core.js?build=v232-unload-suggestion-viewport"></script>
-  <script src="/order-stops.js?build=v232-unload-suggestion-viewport"></script>
+  <script src="/xlsx-lite.js?v=v234-exact-location-choice"></script>
+  <script src="/planning-core.js?build=v234-exact-location-choice"></script>
+  <script src="/order-stops.js?build=v234-exact-location-choice"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -106547,6 +106547,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (moveExcelBoardSelectionV228(event.key)) event.preventDefault();
         return;
       }
+      if (event.key === "Enter") {
+        const route = selectedBoardRouteV183();
+        if (route) {
+          event.preventDefault();
+          openRoute(route.id);
+        }
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && key === "c") {
         if (copySelectedBoardRouteV183(false)) event.preventDefault();
       } else if ((event.ctrlKey || event.metaKey) && key === "x") {
@@ -107018,9 +107026,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       let finished = false;
       let currentSuggestion = "";
+      let currentSuggestionDetails = null;
+      let suggestionDetails = new Map();
 
       const hideSuggestion = () => {
         currentSuggestion = "";
+        currentSuggestionDetails = null;
+        suggestionDetails = new Map();
         suggestionHost.textContent = "";
         suggestionHost.classList.remove("visible");
       };
@@ -107044,20 +107056,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             .filter(value => removePolishChars(value) !== removePolishChars(raw))
             .slice(0, 6);
           if (!suggestions.length) return;
+          suggestionDetails = new Map();
           currentSuggestion = suggestions[0];
           suggestionHost.innerHTML = suggestions.map(value => {
-            const city = displayCity(value) || value;
-            const postal = postalCodeFromText(value);
+            const row = locationSearchRows(value, 1)[0] || null;
+            const city = row?.city || displayCity(value) || value;
+            const postal = row?.code || postalCodeFromText(value);
             const postalPrefix = postal ? postal.slice(0, 2) : "";
             const postalSuffix = postal ? postal.slice(2) : "";
+            suggestionDetails.set(value, {
+              city,
+              postal,
+              coords: Array.isArray(row?.coords) ? [...row.coords] : null,
+              label: row?.label || value
+            });
             return `<button type="button" class="quick-unload-choice" role="option" data-value="${attr(value)}"><span class="quick-unload-choice-city">${esc(city)}</span>${postal ? `<small class="quick-unload-postal" aria-label="Kod pocztowy ${esc(postal)}">· <b>${esc(postalPrefix)}</b>${esc(postalSuffix)}</small>` : ""}</button>`;
           }).join("");
+          currentSuggestionDetails = suggestionDetails.get(currentSuggestion) || null;
           suggestionHost.classList.add("visible");
           positionSuggestion();
         }, 180);
       };
 
-      const finish = (commit, forcedValue = "") => {
+      const finish = (commit, forcedValue = "", selectedSuggestion = null) => {
         if (finished) return;
         finished = true;
         if (quickUnloadSuggestionTimer) {
@@ -107070,15 +107091,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const raw = String(forcedValue || input.value || "").trim();
         if (commit && raw) {
           delete route.quickEntryDraftV172;
-          const normalized = displayCity(normalizeLocation(raw));
-          const selectedPostal = postalCodeFromText(forcedValue) || postalCodeFromText(raw) || "";
+          const normalized = selectedSuggestion?.city || displayCity(normalizeLocation(raw));
+          const selectedPostal = selectedSuggestion?.postal || postalCodeFromText(forcedValue) || postalCodeFromText(raw) || "";
           const changedLocation = route[editField] !== (normalized || raw);
           route[editField] = normalized || raw;
           route[postalField] = selectedPostal;
           if (changedLocation) route[editField + 'Address'] = '';
           route.emptyTile = false;
           route.freeDay = false;
-          const geo = postalGeoCoordsFromText(route[editField]);
+          const geo = selectedSuggestion?.coords
+            ? { coords:selectedSuggestion.coords, label:selectedSuggestion.label || `${route[editField]} ${selectedPostal}`.trim() }
+            : postalGeoCoordsFromText(selectedPostal ? `${route[editField]} ${selectedPostal}` : route[editField]);
           route[editField === 'secondUnload' ? 'routeSecondUnloadCoords' : 'routeDestinationCoords'] = geo?.coords
             ? { lat: Number(geo.coords[0]), lng: Number(geo.coords[1]), label: geo.label || route[editField] }
             : null;
@@ -107130,10 +107153,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       input.addEventListener("keydown", e => {
         if (e.key === "Enter") {
           e.preventDefault();
-          finish(true, currentSuggestion || input.value);
+          finish(true, currentSuggestion || input.value, currentSuggestionDetails);
         } else if (e.key === "Tab") {
           e.preventDefault();
-          finish(true, currentSuggestion || input.value);
+          finish(true, currentSuggestion || input.value, currentSuggestionDetails);
         } else if (e.key === "Escape") {
           e.preventDefault();
           finish(false);
@@ -107152,11 +107175,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const choice = e.target.closest('.quick-unload-choice');
         if (!choice) return;
         e.preventDefault(); e.stopPropagation();
-        finish(true, choice.dataset.value || choice.textContent);
+        const value = choice.dataset.value || choice.textContent;
+        finish(true, value, suggestionDetails.get(value) || null);
       });
       suggestionHost.addEventListener("keydown", e => {
         const choice = e.target.closest('.quick-unload-choice');
-        if ((e.key === "Enter" || e.key === " ") && choice) { e.preventDefault(); finish(true, choice.dataset.value || choice.textContent); }
+        if ((e.key === "Enter" || e.key === " ") && choice) { const value = choice.dataset.value || choice.textContent; e.preventDefault(); finish(true, value, suggestionDetails.get(value) || null); }
         else if (e.key === "Escape") { e.preventDefault(); finish(false); }
       });
 
@@ -121607,7 +121631,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v232-unload-suggestion-viewport-cache">
+  <style id="targeted-v234-exact-location-choice-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121746,9 +121770,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v232-unload-suggestion-viewport" />
-  <script src="/order-entry.js?build=v232-unload-suggestion-viewport"></script>
-  <style id="targeted-v232-unload-suggestion-viewport">
+  <link rel="stylesheet" href="/order-entry.css?build=v234-exact-location-choice" />
+  <script src="/order-entry.js?build=v234-exact-location-choice"></script>
+  <style id="targeted-v234-exact-location-choice">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121903,7 +121927,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v232-unload-suggestion-viewport-script">
+  <script id="targeted-v234-exact-location-choice-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
