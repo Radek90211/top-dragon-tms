@@ -2200,40 +2200,25 @@ function proposedLoadHour(payload) {
   return 8
 }
 
-function proposedLoadEndMoment(payload) {
+function proposedLoadDeadlineMoment(payload) {
   if (!payload || typeof payload !== 'object') return null
   const date = normalizeProposedLoadDate(
-    String(payload.secondUnloadDate || '').trim()
-      || String(payload.unloadDate || '').trim()
-      || String(payload.endDate || '').trim()
-      || String(payload.loadDate || '').trim()
+    String(payload.loadDate || '').trim()
       || String(payload.date || '').trim()
   )
   if (!date) return null
-
-  const directHour = payload.secondUnloadHour ?? payload.unloadHour ?? payload.endHour
-  let hour = Number.NaN
-  if (directHour !== undefined && directHour !== null && String(directHour).trim() !== '' && /^\d+(?:\.\d+)?$/.test(String(directHour).trim())) {
-    hour = Math.max(0, Math.min(24, Number(directHour)))
-  } else {
-    const clock = String(payload.secondUnloadTime || payload.unloadTime || payload.endTime || '').trim()
-    const match = clock.match(/^(\d{1,2}):(\d{2})/)
-    if (match) hour = Math.max(0, Math.min(24, Number(match[1]) + Number(match[2]) / 60))
-  }
-
-  // Jeżeli znamy wyłącznie datę, relacja wygasa dopiero po zakończeniu tej daty.
-  return { date, hour: Number.isFinite(hour) ? hour : 24 }
+  return { date, hour: proposedLoadHour(payload) }
 }
 
 function isExpiredProposedLoadPayload(payload) {
   if (!payload || typeof payload !== 'object') return false
   if (String(payload.status || 'available').trim().toLowerCase() === 'taken') return false
-  const end = proposedLoadEndMoment(payload)
-  if (!end) return false
+  const deadline = proposedLoadDeadlineMoment(payload)
+  if (!deadline) return false
   const now = warsawNowForLoadQueue()
-  if (end.date < now.date) return true
-  if (end.date > now.date) return false
-  return now.hour > end.hour
+  if (deadline.date < now.date) return true
+  if (deadline.date > now.date) return false
+  return now.hour > deadline.hour
 }
 
 async function loadCentralLoadQueue() {
@@ -4431,7 +4416,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v234-exact-location-choice"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v235-menu-expiry-october"
         title="Top Dragon TMS"
       ></iframe>
     </main>
