@@ -90119,9 +90119,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v242-ai-route-normalization"></script>
-  <script src="/planning-core.js?build=v242-ai-route-normalization"></script>
-  <script src="/order-stops.js?build=v242-ai-route-normalization"></script>
+  <script src="/xlsx-lite.js?v=v243-multistop-ai-mapping"></script>
+  <script src="/planning-core.js?build=v243-multistop-ai-mapping"></script>
+  <script src="/order-stops.js?build=v243-multistop-ai-mapping"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -101686,6 +101686,41 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return snapToQuarterHour(hour + minute / 60);
     }
 
+    function textImportPolishDate(value, fallback) {
+      const names = { stycznia: 1, lutego: 2, marca: 3, kwietnia: 4, maja: 5, czerwca: 6, lipca: 7, sierpnia: 8, września: 9, wrzesnia: 9, października: 10, pazdziernika: 10, listopada: 11, grudnia: 12 };
+      const match = String(value || "").match(/\b(\d{1,2})\s+(stycznia|lutego|marca|kwietnia|maja|czerwca|lipca|sierpnia|wrze(?:ś|s)nia|pa(?:ź|z)dziernika|listopada|grudnia)(?:\s+(\d{4}))?\b/i);
+      if (!match) return "";
+      const month = names[removePolishChars(match[2]).toLowerCase()] || names[String(match[2]).toLowerCase()];
+      const year = Number(match[3] || String(fallback || currentAppDate()).slice(0, 4));
+      return month && year ? `${year}-${String(month).padStart(2, "0")}-${String(match[1]).padStart(2, "0")}` : "";
+    }
+
+    function textImportWeekdayAfter(value, startDate) {
+      const weekdays = { poniedzialek: 1, wtorek: 2, sroda: 3, czwartek: 4, piatek: 5, sobota: 6, niedziela: 0 };
+      const match = String(value || "").match(/roz[łl]adunek[\s\S]{0,60}?\b(poniedzia[łl]ek|wtorek|[śs]roda|czwartek|pi[aą]tek|sobota|niedziela)\b/i);
+      const target = weekdays[removePolishChars(match?.[1] || "").toLowerCase()];
+      if (!match || target === undefined || !/^\d{4}-\d{2}-\d{2}$/.test(String(startDate || ""))) return "";
+      const current = new Date(`${startDate}T12:00:00`).getDay();
+      let offset = (target - current + 7) % 7;
+      if (!offset) offset = 7;
+      return addDaysToIso(startDate, offset);
+    }
+
+    function textAnalysisPointLabel(point = {}) {
+      const label = [point.city, point.postalCode].filter(Boolean).join(" ") || point.fullAddress || point.address || point.place || point.location || "";
+      return normalizeLocation(label) || String(label || "").trim();
+    }
+
+    function textAnalysisPointAddress(point = {}) {
+      return String(point.fullAddress || point.address || [point.street, point.number].filter(Boolean).join(" ") || "").trim();
+    }
+
+    function textAnalysisStops(item = {}) {
+      return (Array.isArray(item.stops) ? item.stops : (Array.isArray(item.orderStops) ? item.orderStops : []))
+        .filter(point => point && (point.type === "pickup" || point.type === "delivery"))
+        .map(point => ({ ...point, city: textAnalysisPointLabel(point), address: textAnalysisPointAddress(point) }));
+    }
+
     function textImportCleanLocation(value) {
       let text = String(value || "")
         .replace(/\b(za[łl]adunek|roz[łl]adunek|miejsce|adres|data|godz\.?|godzina|od|do)\b\s*:?/gi, " ")
@@ -101757,32 +101792,44 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return candidates.map((block, index) => parseTextImportBlock(block, index)).filter(Boolean);
     }
 
-    function normalizeTextOrderAnalysis(payload = {}) {
+    function normalizeTextOrderAnalysis(payload = {}, sourceText = "") {
       const directRoute = payload && typeof payload === "object" && !Array.isArray(payload)
         && (payload.pickup || payload.load || payload.loading || payload.zaladunek || payload.załadunek)
         && (payload.delivery || payload.unload || payload.unloading || payload.rozladunek || payload.rozładunek);
       const list = Array.isArray(payload) ? payload : (payload.routes || payload.relations || payload.loads || payload.items || (directRoute ? [payload] : []));
       if (!Array.isArray(list)) return [];
       return list.map((item, index) => {
-        const pickup = item.pickup || item.load || item.loading || item.zaladunek || item.załadunek || {};
-        const lastDelivery = (item.stops || item.orderStops || []).filter(p => p.type === "delivery").at(-1);
-        const delivery = item.delivery || item.unload || item.unloading || item.rozladunek || item.rozładunek || {};
+        const stops = textAnalysisStops(item);
+        const pickups = stops.filter(point => point.type === "pickup");
+        const deliveries = stops.filter(point => point.type === "delivery");
+        const pickup = pickups[0] || item.pickup || item.load || item.loading || item.zaladunek || item.załadunek || {};
+        const delivery = deliveries[0] || item.delivery || item.unload || item.unloading || item.rozladunek || item.rozładunek || {};
+        const lastDelivery = deliveries.at(-1) || item.delivery || item.unload || item.unloading || item.rozladunek || item.rozładunek || {};
         const loadLabel = [pickup.city, pickup.postalCode].filter(Boolean).join(" ") || pickup.fullAddress || pickup.place || pickup.location || item.loadCity || item.load || "";
         const unloadLabel = [delivery.city, delivery.postalCode].filter(Boolean).join(" ") || delivery.fullAddress || delivery.place || delivery.location || item.unloadCity || item.unload || "";
         const load = normalizeLocation(loadLabel) || String(loadLabel || "").trim();
         const unload = normalizeLocation(unloadLabel) || String(unloadLabel || "").trim();
         if (!load || !unload) return null;
+        const fallbackDate = state.reportDate || currentAppDate();
+        const explicitLoadDate = textImportPolishDate(sourceText, fallbackDate);
+        const loadDate = explicitLoadDate || normalizeTextImportDate(pickup.date || item.date || item.loadDate, fallbackDate);
+        const explicitUnloadDate = textImportWeekdayAfter(sourceText, loadDate);
+        const sourceTimes = Array.from(String(sourceText || "").matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)).map(match => `${match[1].padStart(2, "0")}:${match[2]}`);
         return {
-          ...orderStopFields(item),
+          ...(stops.length ? { orderStops: stops } : orderStopFields(item)),
           load,
           unload,
           loadAddress: pickup.address || pickup.fullAddress || item.loadAddress || "",
           unloadAddress: delivery.address || delivery.fullAddress || item.unloadAddress || "",
-          date: normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate()),
-          loadDate: normalizeTextImportDate(pickup.date || item.loadDate || item.date, state.reportDate || currentAppDate()),
-          startHour: textImportHour(pickup.time || pickup.hour || item.startTime || item.startHour, 12),
-          endDate: normalizeTextImportDate(lastDelivery?.date || delivery.date || item.unloadDate || item.endDate, normalizeTextImportDate(pickup.date || item.date || item.loadDate, state.reportDate || currentAppDate())),
-          endHour: textImportHour(lastDelivery?.time || delivery.time || delivery.hour || item.endTime || item.endHour, 10),
+          secondLoad: pickups[1] ? textAnalysisPointLabel(pickups[1]) : "",
+          secondLoadAddress: pickups[1] ? textAnalysisPointAddress(pickups[1]) : "",
+          secondUnload: deliveries[1] ? textAnalysisPointLabel(deliveries[1]) : "",
+          secondUnloadAddress: deliveries[1] ? textAnalysisPointAddress(deliveries[1]) : "",
+          date: loadDate,
+          loadDate,
+          startHour: textImportHour(pickup.time || pickup.hour || item.startTime || item.startHour || sourceTimes[0], 12),
+          endDate: explicitUnloadDate || normalizeTextImportDate(lastDelivery?.date || delivery.date || item.unloadDate || item.endDate, loadDate),
+          endHour: textImportHour(lastDelivery?.time || delivery.time || delivery.hour || item.endTime || item.endHour || sourceTimes.at(-1), 10),
           notes: [
             item.reference ? `Ref.: ${item.reference}` : "",
             item.currency && String(item.currency).toUpperCase() !== "PLN" && Number(item.rate || 0) > 0 ? `Stawka z wiadomości: ${item.rate} ${String(item.currency).toUpperCase()}` : "",
@@ -102021,7 +102068,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       try {
         if (EMBEDDED_MODE) {
           const payload = await requestAiAnalyzer("text", { text: textValue, date: state.reportDate || currentAppDate() }, 130000);
-          parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
+          parsed = normalizeTextOrderAnalysis(payload, textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
           state.aiAnalyzerLastElapsedMs = Number(payload?.elapsedMs || Math.max(0, performance.now() - clientStartedAt));
         } else {
           parsed = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text" }));
@@ -102091,7 +102138,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         let parsed = [];
         if (EMBEDDED_MODE) {
           const payload = await requestAiAnalyzer("text", { text, date: state.reportDate || currentAppDate() }, 130000);
-          parsed = normalizeTextOrderAnalysis(payload).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
+          parsed = normalizeTextOrderAnalysis(payload, text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
         } else {
           parsed = localTextOrderParser(text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text" }));
         }
@@ -121673,7 +121720,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v242-ai-route-normalization-cache">
+  <style id="targeted-v243-multistop-ai-mapping-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121812,9 +121859,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v242-ai-route-normalization" />
-  <script src="/order-entry.js?build=v242-ai-route-normalization"></script>
-  <style id="targeted-v242-ai-route-normalization">
+  <link rel="stylesheet" href="/order-entry.css?build=v243-multistop-ai-mapping" />
+  <script src="/order-entry.js?build=v243-multistop-ai-mapping"></script>
+  <style id="targeted-v243-multistop-ai-mapping">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121979,7 +122026,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v242-ai-route-normalization-script">
+  <script id="targeted-v243-multistop-ai-mapping-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
