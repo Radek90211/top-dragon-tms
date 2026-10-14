@@ -76,6 +76,14 @@ function requiredEnvironment() {
     || '',
   )
   const openAiKey = String(process.env.OPENAI_API_KEY || '')
+  if (supabaseUrl) {
+    try {
+      const parsedUrl = new URL(supabaseUrl)
+      if (parsedUrl.protocol !== 'https:') throw new Error('unsupported protocol')
+    } catch {
+      throw new ApiError(503, 'Konfiguracja Supabase jest nieprawidłowa: SUPABASE_URL lub VITE_SUPABASE_URL musi zawierać adres https://…supabase.co, a nie klucz sb_publishable_.')
+    }
+  }
   return supabaseUrl && supabaseKey && openAiKey ? { supabaseUrl, supabaseKey, openAiKey } : null
 }
 
@@ -152,7 +160,7 @@ function instructions(referenceDate, kind) {
     'Brak danych zapisz jako pusty tekst, 0 lub false. Daty zwracaj jako YYYY-MM-DD, a godziny jako HH:MM; pusty tekst jest poprawny, gdy danych nie ma.',
     'W pickup i delivery zapisz pierwszy załadunek oraz ostatni rozładunek. Wszystkie punkty w kolejności wpisz do stops.',
     kind === 'text'
-      ? 'Dla wiadomości z wieloma relacjami wypełnij routes po jednym obiekcie na relację. Pola główne mogą powtarzać pierwszą relację.'
+      ? 'Dla wiadomości zawsze wpisz każdą rozpoznaną relację do routes, także gdy jest tylko jedna. Nie pozostawiaj routes pustego, jeśli znasz załadunek i rozładunek. Pola główne mogą powtarzać pierwszą relację.'
       : 'Dla dokumentu wypełnij pola główne. routes pozostaw puste, chyba że dokument zawiera niezależne zlecenia.',
     referenceDate ? `Data odniesienia użytkownika: ${referenceDate}. Użyj jej wyłącznie dla jednoznacznych określeń względnych.` : '',
   ].filter(Boolean).join(' ')
@@ -184,6 +192,16 @@ async function analyzeWithOpenAi({ env, kind, text = '', file = null }) {
   try { return JSON.parse(output) } catch { throw new ApiError(502, 'Analizator AI zwrócił nieprawidłowy format danych.') }
 }
 
+function textRoutesFromAnalysis(result) {
+  const routes = Array.isArray(result?.routes) ? result.routes.filter(item => item && typeof item === 'object') : []
+  if (routes.length) return routes
+  const pickup = result?.pickup || {}
+  const delivery = result?.delivery || {}
+  const hasPickup = Boolean(pickup.city || pickup.fullAddress || pickup.address)
+  const hasDelivery = Boolean(delivery.city || delivery.fullAddress || delivery.address)
+  return hasPickup && hasDelivery ? [{ ...result, routes: [] }] : []
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return send(res, 405, { ok: false, message: 'Dozwolona jest wyłącznie metoda POST.' }) }
   const startedAt = Date.now()
@@ -204,7 +222,7 @@ export default async function handler(req, res) {
       if (!text) throw new ApiError(400, 'Wklej wiadomość klienta przed analizą.')
       stage = 'openai-text'
       const result = await analyzeWithOpenAi({ env, kind: 'text', text })
-      return send(res, 200, { ok: true, routes: result.routes || [], elapsedMs: Date.now() - startedAt })
+      return send(res, 200, { ok: true, routes: textRoutesFromAnalysis(result), elapsedMs: Date.now() - startedAt })
     }
     const mimeType = contentType.split(';')[0].trim() || 'application/pdf'
     if (!SUPPORTED_DOCUMENT_TYPES.has(mimeType)) throw new ApiError(400, 'Obsługiwane są pliki PDF, Word, RTF, ODT i TXT.')
