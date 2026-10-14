@@ -6288,7 +6288,8 @@
 
     .dispatcher-filter-picker { position:relative;width:100%;min-width:0; }
     .dispatcher-filter-trigger { width:100%;height:38px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#0f172a;font-weight:800;cursor:pointer; }
-    .dispatcher-filter-trigger::after { content:'▾';font-size:12px;color:#64748b; }
+    .dispatcher-filter-trigger > .dispatcher-map-badge { flex:0 0 auto;line-height:1; }
+    .dispatcher-filter-trigger::after { content:'▾';display:flex;align-items:center;justify-content:center;align-self:center;flex:0 0 12px;width:12px;height:16px;font-size:12px;line-height:1;color:#64748b; }
     .dispatcher-filter-menu { position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:1200;background:#fff;border:1px solid #cbd5e1;border-radius:11px;box-shadow:0 16px 38px rgba(15,23,42,.18);padding:6px;display:grid;gap:4px;max-height:310px;overflow:auto; }
     .dispatcher-filter-menu[hidden] { display:none!important; }
     .dispatcher-filter-option { width:100%;display:flex;align-items:center;justify-content:flex-start;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:left; }
@@ -90118,9 +90119,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v237-openai-supabase-env"></script>
-  <script src="/planning-core.js?build=v237-openai-supabase-env"></script>
-  <script src="/order-stops.js?build=v237-openai-supabase-env"></script>
+  <script src="/xlsx-lite.js?v=v240-openai-diagnostics"></script>
+  <script src="/planning-core.js?build=v240-openai-diagnostics"></script>
+  <script src="/order-stops.js?build=v240-openai-diagnostics"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -101430,6 +101431,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
     }
 
+    function aiFailureReason(error) {
+      return String(error?.message || error || "Nieznany błąd serwera.")
+        .replace(/\s+/g, " ").trim().slice(0, 220);
+    }
+
     function setAiAnalyzerBusy(kind = "") {
       state.aiAnalyzerBusyKind = String(kind || "");
       if (state.aiAnalyzerBusyKind) state.aiAnalyzerStatus = "busy";
@@ -102038,9 +102044,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (state.aiAnalyzerMinimized) syncPdfImportUi();
         else await continueAiAnalyzerResult();
       } catch (error) {
+        const reason = aiFailureReason(error);
         const fallback = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text-fallback" }));
         if (fallback.length) {
-          state.textImportStatus = `Analizator AI jest chwilowo niedostępny. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
+          state.textImportStatus = `Analizator AI jest niedostępny: ${reason}. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
           state.textImportWarning = true;
           state.aiAnalyzerStatus = "ready";
           state.textImportBatch = fallback;
@@ -102050,7 +102057,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           setAiAnalyzerBusy("");
           if (state.aiAnalyzerMinimized) syncPdfImportUi();
           else await continueAiAnalyzerResult();
-          showAppMessage("Użyto szybkiej analizy lokalnej", "Analizator AI był chwilowo niedostępny. Sprawdź uzupełnione pola przed zapisaniem.", "info");
+          showAppMessage("Użyto szybkiej analizy lokalnej", `Analizator AI nie odpowiedział: ${reason}`, "info");
         } else {
           state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
           state.textImportWarning = true;
@@ -102108,18 +102115,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         notifyProposedLoadsIfNeeded();
         syncTextImportUi();
       } catch (error) {
+        const reason = aiFailureReason(error);
         const fallback = localTextOrderParser(text).map(item => ({ ...item, aiSourceText: text, aiSourceType: "text-fallback" }));
         if (fallback.length) {
           const routes = fallback.map((item, index) => ({ ...createProposedLoadFromTextItem(item, index), aiSourceText: text, aiSourceType: "text-fallback" }));
           if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
           routes.forEach(route => state.proposedLoads.push(route));
           state.textImportPreview = routes;
-          state.textImportStatus = `Analizator AI jest chwilowo niedostępny. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
+          state.textImportStatus = `Analizator AI jest niedostępny: ${reason}. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
           state.textImportWarning = true;
           state.proposedPanelOpen = true;
           syncProposedPanel();
         } else {
-          state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
+          state.textImportStatus = `Nie udało się przeanalizować tekstu: ${reason}.`;
           state.textImportWarning = true;
         }
         syncTextImportUi();
@@ -121662,7 +121670,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v237-openai-supabase-env-cache">
+  <style id="targeted-v240-openai-diagnostics-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121801,9 +121809,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v237-openai-supabase-env" />
-  <script src="/order-entry.js?build=v237-openai-supabase-env"></script>
-  <style id="targeted-v237-openai-supabase-env">
+  <link rel="stylesheet" href="/order-entry.css?build=v240-openai-diagnostics" />
+  <script src="/order-entry.js?build=v240-openai-diagnostics"></script>
+  <style id="targeted-v240-openai-diagnostics">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121968,7 +121976,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v237-openai-supabase-env-script">
+  <script id="targeted-v240-openai-diagnostics-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
