@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v234-exact-location-choice"></script>
-  <script src="/planning-core.js?build=v234-exact-location-choice"></script>
-  <script src="/order-stops.js?build=v234-exact-location-choice"></script>
+  <script src="/xlsx-lite.js?v=v235-menu-expiry-october"></script>
+  <script src="/planning-core.js?build=v235-menu-expiry-october"></script>
+  <script src="/order-stops.js?build=v235-menu-expiry-october"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -91332,11 +91332,9 @@
 
     function septemberRelationDatesV167() {
       const year = currentAppDate().slice(0, 4);
-      return [
-        `${year}-09-28`, `${year}-09-29`, `${year}-09-30`,
-        `${year}-10-01`, `${year}-10-02`, `${year}-10-03`,
-        `${year}-10-04`, `${year}-10-05`, `${year}-10-06`
-      ];
+      const dates = [];
+      for (let date = `${year}-09-28`; date <= `${year}-10-31`; date = addDaysToIso(date, 1)) dates.push(date);
+      return dates;
     }
 
     function sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex) {
@@ -91386,10 +91384,10 @@
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = septemberRelationDatesV167();
       return (drivers || []).flatMap((driver, driverIndex) => {
-        return dates.filter(date => date !== `${currentAppDate().slice(0, 4)}-10-06` || driverIndex < 16).map((date, dayIndex) => {
+        return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 223;
+          route.sampleScheduleVersion = 235;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91434,7 +91432,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 223 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 235 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -99557,12 +99555,43 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function proposedLoadExpiredForPanel3L51(route) {
-      // 3L.60: Wolny ładunek pozostaje widoczny przez CAŁY dzień załadunku.
-      // Godzina załadunku nie wygasza już wpisu. Dopiero data wcześniejsza niż
-      // dzisiejsza (Europe/Warsaw) przenosi go poza aktywną kolejkę.
+      // Termin Wolnego ładunku to data i godzina załadunku.
       const iso = queueLoadDateIso(route);
       if (!iso) return false;
-      return iso < queueTodayIsoWarsaw();
+      const now = queueWarsawMomentV235();
+      if (iso !== now.date) return iso < now.date;
+      return now.hour > proposedLoadDeadlineHourV235(route);
+    }
+
+    function queueWarsawMomentV235() {
+      try {
+        const parts = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Warsaw", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return { date:`${values.year}-${values.month}-${values.day}`, hour:Number(values.hour || 0) + Number(values.minute || 0) / 60 };
+      } catch (error) {
+        const now = new Date();
+        return { date:currentAppDate(), hour:now.getHours() + now.getMinutes() / 60 };
+      }
+    }
+
+    function proposedLoadDeadlineHourV235(route) {
+      const direct = Number(route?.startHour);
+      if (Number.isFinite(direct)) return Math.max(0, Math.min(24, direct));
+      const clock = String(route?.loadTime || route?.startTime || "").match(/^(\d{1,2}):(\d{2})/);
+      return clock ? Math.max(0, Math.min(24, Number(clock[1]) + Number(clock[2]) / 60)) : 8;
+    }
+
+    function archiveExpiredProposedLoadsV235() {
+      let changed = false;
+      const archivedAt = new Date().toISOString();
+      (state.proposedLoads || []).forEach(route => {
+        if (route?.archived || route?.status === "taken" || !proposedLoadExpiredForPanel3L51(route)) return;
+        route.archived = true;
+        route.archivedAt = archivedAt;
+        route.archiveReason = "Przekroczony termin załadunku";
+        changed = true;
+      });
+      return changed;
     }
 
     function reportedLoadRoutesForDate(date = state.reportDate) {
@@ -99577,6 +99606,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
 
     function visibleProposedLoadsForPanel() {
+      archiveExpiredProposedLoadsV235();
       return (state.proposedLoads || [])
         .filter(route => !route?.archived && queueEntryVisibleToUser(route, "all") && route.status !== "taken" && !proposedLoadIsClaimed(route))
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.startHour ?? 8) - Number(b.startHour ?? 8));
@@ -111509,6 +111539,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       persistQueueOutbox();
       if (!EMBEDDED_MODE || !state.user || !CENTRAL_LOAD_QUEUE_READY) return;
       if (String(state.user?.supabaseRole || "") === "accounting") return;
+      archiveExpiredProposedLoadsV235();
 
       for (const [key, sentAt] of CENTRAL_LOAD_QUEUE_PENDING_SINCE) {
         if (Date.now() - sentAt < 30000) continue;
@@ -111518,7 +111549,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       const currentKeys = new Set();
-      const all = [...(state.futureRoutes || []), ...(state.proposedLoads || [])];
+      const all = [...(state.futureRoutes || []), ...(state.proposedLoads || [])].filter(route => !route?.archived);
       all.forEach(route => {
         const kind = centralLoadQueueKind(route);
         const loadId = String(route?.id || "").trim();
@@ -121631,7 +121662,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v234-exact-location-choice-cache">
+  <style id="targeted-v235-menu-expiry-october-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121770,14 +121801,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v234-exact-location-choice" />
-  <script src="/order-entry.js?build=v234-exact-location-choice"></script>
-  <style id="targeted-v234-exact-location-choice">
+  <link rel="stylesheet" href="/order-entry.css?build=v235-menu-expiry-october" />
+  <script src="/order-entry.js?build=v235-menu-expiry-october"></script>
+  <style id="targeted-v235-menu-expiry-october">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
     @media (max-width:720px) { .desktop-theme-toggle-v229 { display:none !important; } }
+    @media (min-width:721px) {
+      /* 5 cm = ok. 189 px przy standardowej gęstości CSS. */
+      .app > .header { width:189px !important; margin:0 auto !important; }
+      .app > .header::after { border-radius:0 0 10px 10px; }
+      .app > .header .header-inner { left:50% !important; right:auto !important; width:min(980px,calc(100vw - 24px)); transform:translate(-50%,calc(-100% + 11px)); }
+      .app > .header:hover .header-inner,
+      .app > .header:focus-within .header-inner { transform:translate(-50%,0); }
+    }
     .main { max-width:none !important; width:100%; }
+    .queue-add-menu { display:grid; gap:7px; }
+    .queue-add-menu > .btn { width:100%; min-height:38px; justify-content:center; }
     .board .left-cell,
     .board .day-cell { box-shadow:inset 0 -1px 0 #94a3b8; }
     .driver-column-heading { display:grid; gap:1px; line-height:1.05; }
@@ -121927,7 +121968,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v234-exact-location-choice-script">
+  <script id="targeted-v235-menu-expiry-october-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
