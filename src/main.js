@@ -4418,7 +4418,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v243-multistop-ai-mapping"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v244-queue-sync-and-cards"
         title="Top Dragon TMS"
       ></iframe>
     </main>
