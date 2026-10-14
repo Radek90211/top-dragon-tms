@@ -90118,9 +90118,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v235-menu-expiry-october"></script>
-  <script src="/planning-core.js?build=v235-menu-expiry-october"></script>
-  <script src="/order-stops.js?build=v235-menu-expiry-october"></script>
+  <script src="/xlsx-lite.js?v=v236-openai-order-analysis"></script>
+  <script src="/planning-core.js?build=v236-openai-order-analysis"></script>
+  <script src="/order-stops.js?build=v236-openai-order-analysis"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -91507,9 +91507,9 @@
     const INITIAL_FUTURE_ROUTES = [];
 
     // ETAP 3L.1: Analizator AI działa wyłącznie przez bezpieczny backend Vercel.
-    // Klucz GEMINI_API_KEY nigdy nie trafia do iframe ani kodu przeglądarki.
-    const PDF_ORDER_ANALYZER_ENDPOINT = "/api/import-pdf";
-    const TEXT_ORDER_ANALYZER_ENDPOINT = "/api/import-text-orders";
+    // Klucz OPENAI_API_KEY nigdy nie trafia do iframe ani kodu przeglądarki.
+    const PDF_ORDER_ANALYZER_ENDPOINT = "/api/openai-order-analysis";
+    const TEXT_ORDER_ANALYZER_ENDPOINT = "/api/openai-order-analysis";
 
 
     // MODUŁ: wspólna baza klientów i historia relacji.
@@ -102040,7 +102040,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       } catch (error) {
         const fallback = localTextOrderParser(textValue).map(item => ({ ...item, aiSourceText: textValue, aiSourceType: "text-fallback" }));
         if (fallback.length) {
-          state.textImportStatus = `Gemini jest chwilowo przeciążone. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
+          state.textImportStatus = `Analizator AI jest chwilowo niedostępny. Rozpoznano lokalnie ${fallback.length} ${fallback.length === 1 ? "relację" : "relacji"}; sprawdź dane przed zapisem.`;
           state.textImportWarning = true;
           state.aiAnalyzerStatus = "ready";
           state.textImportBatch = fallback;
@@ -102050,7 +102050,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           setAiAnalyzerBusy("");
           if (state.aiAnalyzerMinimized) syncPdfImportUi();
           else await continueAiAnalyzerResult();
-          showAppMessage("Użyto szybkiej analizy lokalnej", "Gemini było chwilowo przeciążone. Sprawdź uzupełnione pola przed zapisaniem.", "info");
+          showAppMessage("Użyto szybkiej analizy lokalnej", "Analizator AI był chwilowo niedostępny. Sprawdź uzupełnione pola przed zapisaniem.", "info");
         } else {
           state.textImportStatus = `Nie udało się przeanalizować tekstu: ${error?.message || error}.`;
           state.textImportWarning = true;
@@ -102114,7 +102114,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!Array.isArray(state.proposedLoads)) state.proposedLoads = [];
           routes.forEach(route => state.proposedLoads.push(route));
           state.textImportPreview = routes;
-          state.textImportStatus = `Gemini jest chwilowo przeciążone. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
+          state.textImportStatus = `Analizator AI jest chwilowo niedostępny. Dodano lokalnie ${routes.length} ${routes.length === 1 ? "ładunek" : "ładunków"}; sprawdź dane.`;
           state.textImportWarning = true;
           state.proposedPanelOpen = true;
           syncProposedPanel();
@@ -121662,7 +121662,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v235-menu-expiry-october-cache">
+  <style id="targeted-v236-openai-order-analysis-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121801,9 +121801,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v235-menu-expiry-october" />
-  <script src="/order-entry.js?build=v235-menu-expiry-october"></script>
-  <style id="targeted-v235-menu-expiry-october">
+  <link rel="stylesheet" href="/order-entry.css?build=v236-openai-order-analysis" />
+  <script src="/order-entry.js?build=v236-openai-order-analysis"></script>
+  <style id="targeted-v236-openai-order-analysis">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121968,7 +121968,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v235-menu-expiry-october-script">
+  <script id="targeted-v236-openai-order-analysis-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
