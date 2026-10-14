@@ -4145,24 +4145,26 @@ async function handleAiAnalyzerRequestFromTms(message) {
       const file = payload.file
       if (!(file instanceof Blob)) throw new Error('Nie przekazano prawidłowego pliku zlecenia.')
       const fileName = String(payload.fileName || file.name || 'zlecenie.pdf')
-      response = await fetch('/api/import-order-document', {
+      response = await fetch('/api/openai-order-analysis', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': file.type || 'application/pdf',
           'X-File-Name': encodeURIComponent(fileName),
           'X-Reference-Date': String(payload.referenceDate || ''),
+          'X-Analysis-Mode': 'document',
         },
         body: file,
       })
     } else if (kind === 'text') {
-      response = await fetch('/api/import-text-orders', {
+      response = await fetch('/api/openai-order-analysis', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          mode: 'text',
           text: String(payload.text || ''),
           date: String(payload.date || ''),
         }),
@@ -4416,7 +4418,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v235-menu-expiry-october"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v236-openai-order-analysis"
         title="Top Dragon TMS"
       ></iframe>
     </main>
