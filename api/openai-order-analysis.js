@@ -112,13 +112,15 @@ async function authenticatedProfile(req, env) {
   const headers = { apikey: env.supabaseKey, Authorization: `Bearer ${token}` }
   const userResponse = await fetch(`${env.supabaseUrl}/auth/v1/user`, { headers })
   if (!userResponse.ok) throw new ApiError(401, 'Sesja użytkownika wygasła. Zaloguj się ponownie.')
-  const user = await userResponse.json()
+  const user = await userResponse.json().catch(() => null)
+  if (!user?.id) throw new ApiError(401, 'Sesja użytkownika wygasła. Zaloguj się ponownie.')
   const profileResponse = await fetch(
     `${env.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(String(user.id || ''))}&select=role,active&limit=1`,
     { headers },
   )
   if (!profileResponse.ok) throw new ApiError(403, 'Nie udało się potwierdzić uprawnień do analizatora AI.')
-  const [profile] = await profileResponse.json()
+  const profiles = await profileResponse.json().catch(() => null)
+  const profile = Array.isArray(profiles) ? profiles[0] : null
   if (!profile?.active || !ALLOWED_ROLES.has(String(profile.role || ''))) {
     throw new ApiError(403, 'Analizator AI jest dostępny dla spedytora, kierownika oddziału i administratora.')
   }
@@ -185,10 +187,13 @@ async function analyzeWithOpenAi({ env, kind, text = '', file = null }) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return send(res, 405, { ok: false, message: 'Dozwolona jest wyłącznie metoda POST.' }) }
   const startedAt = Date.now()
+  let stage = 'configuration'
   try {
     const env = requiredEnvironment()
     if (!env) throw new ApiError(503, 'Analizator AI nie jest jeszcze skonfigurowany na serwerze.')
+    stage = 'authentication'
     await authenticatedProfile(req, env)
+    stage = 'request'
     const contentType = readHeader(req, 'content-type').toLowerCase()
     const isText = readHeader(req, 'x-analysis-mode').toLowerCase() === 'text' || contentType.includes('application/json')
     if (isText) {
@@ -197,6 +202,7 @@ export default async function handler(req, res) {
       try { payload = JSON.parse(body.toString('utf8') || '{}') } catch { throw new ApiError(400, 'Treść wiadomości ma nieprawidłowy format.') }
       const text = String(payload?.text || '').trim()
       if (!text) throw new ApiError(400, 'Wklej wiadomość klienta przed analizą.')
+      stage = 'openai-text'
       const result = await analyzeWithOpenAi({ env, kind: 'text', text })
       return send(res, 200, { ok: true, routes: result.routes || [], elapsedMs: Date.now() - startedAt })
     }
@@ -204,12 +210,16 @@ export default async function handler(req, res) {
     if (!SUPPORTED_DOCUMENT_TYPES.has(mimeType)) throw new ApiError(400, 'Obsługiwane są pliki PDF, Word, RTF, ODT i TXT.')
     const bytes = await readRequestBuffer(req, MAX_DOCUMENT_BYTES)
     if (!bytes.length) throw new ApiError(400, 'Nie przekazano pliku zlecenia.')
+    stage = 'openai-document'
     const result = await analyzeWithOpenAi({
       env, kind: 'document',
       file: { name: safeFileName(req), mimeType, bytes, referenceDate: readHeader(req, 'x-reference-date') },
     })
     return send(res, 200, { ok: true, ...result, elapsedMs: Date.now() - startedAt })
   } catch (error) {
-    return send(res, Number(error?.status) || 500, { ok: false, message: String(error?.message || 'Nie udało się wykonać analizy AI.') })
+    const status = Number(error?.status) || 500
+    const message = String(error?.message || 'Nie udało się wykonać analizy AI.')
+    console.error('[openai-order-analysis]', { stage, status, message })
+    return send(res, status, { ok: false, message })
   }
 }
