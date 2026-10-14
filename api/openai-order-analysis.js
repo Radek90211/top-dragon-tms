@@ -67,8 +67,14 @@ function readHeader(req, name) {
 }
 
 function requiredEnvironment() {
-  const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '')
-  const supabaseKey = String(process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '')
+  const supabaseUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '')
+  const supabaseKey = String(
+    process.env.SUPABASE_ANON_KEY
+    || process.env.SUPABASE_PUBLISHABLE_KEY
+    || process.env.VITE_SUPABASE_ANON_KEY
+    || process.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    || '',
+  )
   const openAiKey = String(process.env.OPENAI_API_KEY || '')
   return supabaseUrl && supabaseKey && openAiKey ? { supabaseUrl, supabaseKey, openAiKey } : null
 }
