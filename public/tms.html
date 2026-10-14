@@ -90119,9 +90119,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v243-multistop-ai-mapping"></script>
-  <script src="/planning-core.js?build=v243-multistop-ai-mapping"></script>
-  <script src="/order-stops.js?build=v243-multistop-ai-mapping"></script>
+  <script src="/xlsx-lite.js?v=v244-queue-sync-and-cards"></script>
+  <script src="/planning-core.js?build=v244-queue-sync-and-cards"></script>
+  <script src="/order-stops.js?build=v244-queue-sync-and-cards"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -92358,6 +92358,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     // ETAP 3I: centralne planowane relacje / wolne ładunki oraz zapytania o ładunek.
     let CENTRAL_LOAD_QUEUE_READY = false;
     const CENTRAL_LOAD_QUEUE_BASELINE = new Map();
+    const CENTRAL_LOAD_QUEUE_OWNER = new Map();
     const CENTRAL_LOAD_QUEUE_PENDING_UPSERT = new Set();
     const CENTRAL_LOAD_QUEUE_PENDING_SINCE = new Map();
     const CENTRAL_LOAD_QUEUE_PENDING_DELETE = new Set();
@@ -100177,7 +100178,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const menuOpen = state.queueAddMenuTarget === normalizedTarget;
       const manualAction = normalizedTarget === "future"
         ? `<button class="btn" type="button" onclick="openQueueManualAdd(event,'future')">Wprowadź planowaną relację</button>`
-        : "";
+        : `<button class="btn" type="button" onclick="openQueueManualAdd(event,'proposed')">Wprowadź wolny ładunek</button>`;
       return `<div class="queue-import-actions"><div class="queue-add-control"><button class="btn btn-dark" type="button" data-queue-add="${normalizedTarget}" onclick="toggleQueueAddMenu(event,'${normalizedTarget}')">+ Dodaj relację</button>${menuOpen ? `<div class="queue-add-menu">${manualAction}${canUseOperationalAi() ? `<button class="btn btn-ai-action" type="button" data-queue-ai="${normalizedTarget}" onclick="openQueueAiAnalyzer(event,'${normalizedTarget}')">✦ PDF, Word lub tekst</button>` : ""}</div>` : ""}</div></div>`;
     }
 
@@ -100299,15 +100300,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div>
               <div class="proposed-load-title future-card-title">
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
-                ${esc(displayLocationWithPostal(route.load) || route.load || "-")} → ${esc(displayLocationWithPostal(route.unload) || route.unload || "-")}
+                ${esc(displayCity(route.load) || compactRouteLocationLabel(route.load) || "-")} → ${esc(displayCity(route.unload) || compactRouteLocationLabel(route.unload) || "-")}
               </div>
-              ${orderStopsSummary(route)}
-              <div class="proposed-load-dates future-card-meta">
-                <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
-                <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
-              </div>
-              ${queueBoardStatusV189(route, "proposed")}
               ${detailsHidden ? "" : `
+                ${orderStopsSummary(route)}
+                <div class="proposed-load-dates future-card-meta">
+                  <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
+                  <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
+                </div>
+                ${queueBoardStatusV189(route, "proposed")}
                 <div class="proposed-load-meta future-card-meta">${esc(routeKmLabel)}</div>
                 ${(loadGeoCorrection || unloadGeoCorrection) ? `<div class="proposed-load-meta" style="color:#b45309;font-weight:800;">Skorygowano lokalizację: ${loadGeoCorrection ? `${esc(loadGeoCorrection.requestedPostal)} → ${esc(loadGeoCorrection.label)}` : ""}${loadGeoCorrection && unloadGeoCorrection ? " · " : ""}${unloadGeoCorrection ? `${esc(unloadGeoCorrection.requestedPostal)} → ${esc(unloadGeoCorrection.label)}` : ""}</div>` : ""}
                 <div class="proposed-load-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'all')}</div>
@@ -102591,11 +102592,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div>
               <div class="future-card-title">
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
-                ${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayLocationWithPostal(route.load) || "-")} → ${esc(displayLocationWithPostal(route.unload) || "-")}
+                ${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayCity(route.load) || compactRouteLocationLabel(route.load) || "-")} → ${esc(displayCity(route.unload) || compactRouteLocationLabel(route.unload) || "-")}
               </div>
-              ${orderStopsSummary(route)}
-              ${queueBoardStatusV189(route, "future")}
               ${detailsHidden ? "" : `
+                ${orderStopsSummary(route)}
+                ${queueBoardStatusV189(route, "future")}
                 <div class="future-card-meta">Data relacji: <b>${esc(formatDateForInput(route.date))}</b> · ${hourLabel(Number(route.startHour ?? 8))} · ${totalKm(route)} km · ${money(profit(route))}</div>
                 <div class="future-card-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'branch')}</div>
               `}
@@ -111540,6 +111541,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         payload.archived = Boolean(row?.archived);
         const key = centralLoadQueueKey(branchId, kind, loadId);
         remoteKeys.add(key);
+        CENTRAL_LOAD_QUEUE_OWNER.set(key, String(payload?.createdBy || payload?.ownerDispatcher || "").trim());
         if (CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key)) return;
 
         const local = currentByKey.get(key) || null;
@@ -111647,6 +111649,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       persistQueueOutbox();
       for (const key of Array.from(CENTRAL_LOAD_QUEUE_BASELINE.keys())) {
         if (currentKeys.has(key) || CENTRAL_LOAD_QUEUE_PENDING_DELETE.has(key) || CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key)) continue;
+        const owner = String(CENTRAL_LOAD_QUEUE_OWNER.get(key) || "").trim();
+        const actor = String(state.user?.login || "").trim();
+        if (state.user?.role === "spedytor" && owner && owner !== actor) {
+          CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+          continue;
+        }
         const parts = key.split("::");
         if (parts.length < 3) continue;
         const branchId = parts.shift() || "";
@@ -111684,6 +111692,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       if (message?.ok) {
         scheduleCentralLoadQueueDiff(0);
+        return;
+      }
+      if (message?.action === "archive" && /możesz usuwać wyłącznie wpisy, które utworzyłeś/i.test(String(message?.message || ""))) {
+        CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
+        CENTRAL_LOAD_QUEUE_OWNER.delete(key);
+        setTimeout(requestCentralLoadQueue, 1200);
         return;
       }
       if (message?.action === "upsert") CENTRAL_LOAD_QUEUE_BASELINE.delete(key);
@@ -111987,6 +112001,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         CENTRAL_CLIENT_PENDING_DELETE.clear();
         CENTRAL_LOAD_QUEUE_READY = false;
         CENTRAL_LOAD_QUEUE_BASELINE.clear();
+        CENTRAL_LOAD_QUEUE_OWNER.clear();
         CENTRAL_LOAD_QUEUE_PENDING_UPSERT.clear();
         CENTRAL_LOAD_QUEUE_PENDING_SINCE.clear();
         CENTRAL_LOAD_QUEUE_PENDING_DELETE.clear();
@@ -121720,7 +121735,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v243-multistop-ai-mapping-cache">
+  <style id="targeted-v244-queue-sync-and-cards-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121859,9 +121874,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v243-multistop-ai-mapping" />
-  <script src="/order-entry.js?build=v243-multistop-ai-mapping"></script>
-  <style id="targeted-v243-multistop-ai-mapping">
+  <link rel="stylesheet" href="/order-entry.css?build=v244-queue-sync-and-cards" />
+  <script src="/order-entry.js?build=v244-queue-sync-and-cards"></script>
+  <style id="targeted-v244-queue-sync-and-cards">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122026,7 +122041,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v243-multistop-ai-mapping-script">
+  <script id="targeted-v244-queue-sync-and-cards-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
