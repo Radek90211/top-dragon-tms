@@ -90119,9 +90119,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v240-openai-diagnostics"></script>
-  <script src="/planning-core.js?build=v240-openai-diagnostics"></script>
-  <script src="/order-stops.js?build=v240-openai-diagnostics"></script>
+  <script src="/xlsx-lite.js?v=v242-ai-route-normalization"></script>
+  <script src="/planning-core.js?build=v242-ai-route-normalization"></script>
+  <script src="/order-stops.js?build=v242-ai-route-normalization"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -101758,7 +101758,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function normalizeTextOrderAnalysis(payload = {}) {
-      const list = Array.isArray(payload) ? payload : (payload.routes || payload.relations || payload.loads || payload.items || []);
+      const directRoute = payload && typeof payload === "object" && !Array.isArray(payload)
+        && (payload.pickup || payload.load || payload.loading || payload.zaladunek || payload.załadunek)
+        && (payload.delivery || payload.unload || payload.unloading || payload.rozladunek || payload.rozładunek);
+      const list = Array.isArray(payload) ? payload : (payload.routes || payload.relations || payload.loads || payload.items || (directRoute ? [payload] : []));
       if (!Array.isArray(list)) return [];
       return list.map((item, index) => {
         const pickup = item.pickup || item.load || item.loading || item.zaladunek || item.załadunek || {};
@@ -121670,7 +121673,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v240-openai-diagnostics-cache">
+  <style id="targeted-v242-ai-route-normalization-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121809,9 +121812,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v240-openai-diagnostics" />
-  <script src="/order-entry.js?build=v240-openai-diagnostics"></script>
-  <style id="targeted-v240-openai-diagnostics">
+  <link rel="stylesheet" href="/order-entry.css?build=v242-ai-route-normalization" />
+  <script src="/order-entry.js?build=v242-ai-route-normalization"></script>
+  <style id="targeted-v242-ai-route-normalization">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -121976,7 +121979,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
   </style>
-  <script id="targeted-v240-openai-diagnostics-script">
+  <script id="targeted-v242-ai-route-normalization-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
