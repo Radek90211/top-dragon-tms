@@ -65,6 +65,31 @@ const ROLE_LABELS = {
 
 const PRIMARY_ADMIN_EMAIL = 'radek90211@gmail.com'
 
+const USER_FEATURES = Object.freeze([
+  ['routeOptimization', 'Optymalizacja tras'],
+  ['routeHistory', 'Historia tras'],
+  ['multiVehicleProjects', 'Projekty wieloautowe'],
+  ['militaryTransport', 'Transporty wojskowe'],
+  ['statistics', 'Statystyki'],
+  ['loadRequests', 'Zapytania o ładunek'],
+  ['nearbyClients', 'Klienci w rejonie'],
+  ['plannedRelations', 'Planowane relacje'],
+  ['freeLoads', 'Wolne ładunki'],
+  ['relationChat', 'Czat dotyczący relacji'],
+  ['clientDatabase', 'Baza klientów'],
+])
+
+function normalizedFeaturePermissions(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return Object.fromEntries(USER_FEATURES.map(([key]) => [key, source[key] !== false]))
+}
+
+function renderUserFeatureControls(user) {
+  if (String(user?.role || '') === 'admin') return '<div class="user-feature-admin-note">Administrator ma zawsze pełny dostęp.</div>'
+  const permissions = normalizedFeaturePermissions(user?.feature_permissions)
+  return `<details class="user-features"><summary>Funkcje użytkownika</summary><div class="user-feature-grid">${USER_FEATURES.map(([key, label]) => `<label><input class="user-feature-toggle" type="checkbox" data-feature-key="${key}" ${permissions[key] ? 'checked' : ''} />${escapeHtml(label)}</label>`).join('')}</div></details>`
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isValidUuid(value) {
@@ -498,18 +523,37 @@ async function loadAdminCarrierRateData() {
 }
 
 async function loadAdminData() {
-  const [branchesResult, usersResult, carrierRates] = await Promise.all([
+  const [branchesResult, usersResult, carrierRates, featurePermissions] = await Promise.all([
     supabase.from('branches').select('id,name,active').order('name'),
     adminApi('/api/admin/users'),
     loadAdminCarrierRateData(),
+    loadAdminFeaturePermissions(),
   ])
 
   if (branchesResult.error) throw new Error(`Nie udało się pobrać oddziałów: ${branchesResult.error.message}`)
+  const permissionsByUserId = new Map((featurePermissions || []).map((item) => [String(item.user_id || ''), item.feature_permissions || {}]))
   return {
     branches: branchesResult.data || [],
-    users: usersResult.users || [],
+    users: (usersResult.users || []).map((item) => ({ ...item, feature_permissions: permissionsByUserId.get(String(item.id || '')) || {} })),
     carrierRates,
   }
+}
+
+async function loadAdminFeaturePermissions() {
+  const { data, error } = await supabase.rpc('get_tms_feature_permissions')
+  if (error) {
+    if (/get_tms_feature_permissions|does not exist/i.test(String(error.message || ''))) return []
+    throw error
+  }
+  return Array.isArray(data) ? data : []
+}
+
+async function saveUserFeaturePermissions(userId, permissions) {
+  const { error } = await supabase.rpc('set_tms_user_feature_permissions', {
+    p_user_id: String(userId || ''),
+    p_permissions: permissions || {},
+  })
+  if (error) throw error
 }
 
 function branchOptions(branches, selectedId = '') {
@@ -626,6 +670,12 @@ function adminPanelLayoutStyles() {
       .user-row label { margin:0; }
       .user-row .active-check { align-self:center; }
       .user-row .user-save { min-height:40px; }
+      .user-features,.user-feature-admin-note { grid-column:1/-1; margin:0; padding:9px 10px; border:1px solid #dbe3ee; border-radius:10px; background:#f8fafc; }
+      .user-features summary { cursor:pointer; font-size:11px; font-weight:850; color:#334155; }
+      .user-feature-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px 12px; margin-top:9px; }
+      .user-feature-grid label { display:flex; align-items:center; gap:6px; min-height:28px; font-size:11px; font-weight:700; color:#334155; }
+      .user-feature-grid input { width:16px; height:16px; accent-color:#0f766e; }
+      .user-feature-admin-note { color:#64748b; font-size:11px; font-weight:700; }
       .compact-form { padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
       .admin-tools-grid { display:grid; grid-template-columns:minmax(240px,.55fr) minmax(0,1.45fr); gap:14px; margin-bottom:16px; }
       .admin-tool-card { margin:0; }
@@ -653,6 +703,7 @@ function adminPanelLayoutStyles() {
         .admin-card .section-heading { min-height:0; }
         .user-row { grid-template-columns:1fr 1fr; }
         .user-identity { grid-column:1/-1; }
+        .user-feature-grid { grid-template-columns:1fr 1fr; }
         #common-carrier-rate-form { grid-template-columns:1fr; }
       }
       @media(max-width:560px) {
@@ -664,6 +715,7 @@ function adminPanelLayoutStyles() {
         .admin-role-guide-summary-copy { display:grid; gap:2px; }
         .user-row { grid-template-columns:1fr; }
         .user-identity { grid-column:auto; }
+        .user-feature-grid { grid-template-columns:1fr; }
         .admin-row .row-actions { justify-content:flex-start; }
       }
     </style>
@@ -969,6 +1021,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
                 </label>
                 <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled data-locked="true"' : ''}>Zapisz</button>
+                ${renderUserFeatureControls(item)}
               </article>
             `
           }).join('') : '<p class="muted">Brak użytkowników.</p>'}
@@ -1183,6 +1236,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
             active: Boolean(row.querySelector('.user-active')?.checked),
           }),
         })
+        const permissions = Object.fromEntries(USER_FEATURES.map(([key]) => [key, Boolean(row.querySelector(`.user-feature-toggle[data-feature-key="${key}"]`)?.checked)]))
+        if (requestedRole !== 'admin') await saveUserFeaturePermissions(userId, permissions)
 
         writeCurrentUserAudit('Zmieniono dane użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${result.user?.role || existing?.role || ''}`)
 
@@ -1190,6 +1245,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           ...existing,
           ...result.user,
           email: existing?.email || '',
+          feature_permissions: permissions,
         })
         renderAdminPanelFromCache('Dane użytkownika zostały zapisane.')
       } catch (error) {
@@ -4319,6 +4375,7 @@ function buildTmsAuthMessage(user = currentUser, profile = currentProfile) {
       actualUserId: user?.id || '',
       branchId: profile?.branch_id || '',
       uiColor: profile?.role === 'admin' ? '#EF4444' : (profile?.ui_color || '#E2E8F0'),
+      featurePermissions: normalizedFeaturePermissions(profile?.feature_permissions),
       branch: role === 'accounting' ? 'Wszystkie oddziały' : (previewActive ? 'Podgląd kategorii' : branchName),
     },
   }
@@ -4381,11 +4438,18 @@ async function renderDashboard(user) {
     // po await, dzięki czemu start działa z obiema wersjami biblioteki.
     profileResult = await supabase
       .from('profiles')
-      .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
+      .select('display_name, role, active, branch_id, ui_color, feature_permissions, branch:branches(name)')
       .eq('id', user.id)
       .maybeSingle()
   } catch (error) {
     profileResult = { data: null, error }
+  }
+  if (profileResult?.error && /feature_permissions/i.test(String(profileResult.error.message || ''))) {
+    profileResult = await supabase
+      .from('profiles')
+      .select('display_name, role, active, branch_id, ui_color, branch:branches(name)')
+      .eq('id', user.id)
+      .maybeSingle()
   }
   const { data: profile, error } = profileResult || {}
   if(!hostViews.isCurrent(viewLease))return
@@ -4418,7 +4482,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v260-tablet-scroll"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v261-feature-permissions"
         title="Top Dragon TMS"
       ></iframe>
     </main>
