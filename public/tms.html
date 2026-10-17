@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v259-central-relations"></script>
-  <script src="/planning-core.js?build=v259-central-relations"></script>
-  <script src="/order-stops.js?build=v259-central-relations"></script>
+  <script src="/xlsx-lite.js?v=v260-tablet-scroll"></script>
+  <script src="/planning-core.js?build=v260-tablet-scroll"></script>
+  <script src="/order-stops.js?build=v260-tablet-scroll"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -122189,7 +122189,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v259-central-relations-cache">
+  <style id="targeted-v260-tablet-scroll-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122328,9 +122328,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v259-central-relations" />
-  <script src="/order-entry.js?build=v259-central-relations"></script>
-  <style id="targeted-v259-central-relations">
+  <link rel="stylesheet" href="/order-entry.css?build=v260-tablet-scroll" />
+  <script src="/order-entry.js?build=v260-tablet-scroll"></script>
+  <style id="targeted-v260-tablet-scroll">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122576,7 +122576,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v259-central-relations-script">
+  <script id="targeted-v260-tablet-scroll-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -122775,6 +122775,61 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }).observe(document.body, { childList:true, subtree:true });
       scheduleKeyboardEnhanceV252();
+    })();
+  </script>
+  <style id="targeted-v260-tablet-touch-scroll">
+    /* Chromium na tabletach potrafi chwilowo ukryć element z content-visibility
+       wewnątrz przewijanego, skalowanego planu. Wiersze z kafelkami pozostają
+       więc renderowane, a optymalizacja pustych pól działa na komputerach. */
+    @media (any-pointer:coarse) {
+      .board-scroll {
+        touch-action:pan-x pan-y;
+        overscroll-behavior:contain;
+        -webkit-overflow-scrolling:touch;
+      }
+      .board-scroll .timeline-row,
+      .board-scroll .day-cell,
+      .board-scroll .time-route {
+        content-visibility:visible !important;
+        contain:none !important;
+      }
+      .board-scroll .time-route:not(.is-resizing) {
+        touch-action:pan-x pan-y !important;
+      }
+    }
+  </style>
+  <script id="targeted-v260-tablet-touch-scroll-script">
+    (() => {
+      let touch = null;
+      let suppressTileClickUntil = 0;
+
+      function finishTouchScroll() {
+        if (!touch?.viewport) return;
+        const moved = touch.moved;
+        touch = null;
+        if (moved) suppressTileClickUntil = Date.now() + 260;
+      }
+
+      document.addEventListener('pointerdown', event => {
+        if (event.pointerType !== 'touch') return;
+        const viewport = event.target?.closest?.('.board-scroll');
+        if (!viewport) return;
+        touch = { id:event.pointerId, viewport, x:event.clientX, y:event.clientY, moved:false };
+      }, { capture:true, passive:true });
+
+      document.addEventListener('pointermove', event => {
+        if (!touch || event.pointerId !== touch.id || touch.moved) return;
+        if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) < 7) return;
+        touch.moved = true;
+      }, { capture:true, passive:true });
+
+      document.addEventListener('pointerup', finishTouchScroll, { capture:true, passive:true });
+      document.addEventListener('pointercancel', finishTouchScroll, { capture:true, passive:true });
+      document.addEventListener('click', event => {
+        if (Date.now() > suppressTileClickUntil || !event.target?.closest?.('.time-route')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
     })();
   </script>
 </body>
