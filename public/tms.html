@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v249-mobile-table-focus"></script>
-  <script src="/planning-core.js?build=v249-mobile-table-focus"></script>
-  <script src="/order-stops.js?build=v249-mobile-table-focus"></script>
+  <script src="/xlsx-lite.js?v=v251-scroll-smoothness"></script>
+  <script src="/planning-core.js?build=v251-scroll-smoothness"></script>
+  <script src="/order-stops.js?build=v251-scroll-smoothness"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -95666,6 +95666,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderMobileNavigationV200() {
       if (!state.user) return "";
       return `<nav class="mobile-nav-v200" aria-label="Nawigacja mobilna">
+        <div class="mobile-nav-user-v250" aria-label="Zalogowany spedytor">${sideToolIcon("admin")}<span><small>Spedytor</small><b>${esc(state.user.login)}</b></span></div>
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="proposed" onclick="mobileOpenQueueV200('proposed', event)">${sideToolIcon("proposed")}<span>Wolne</span></button>
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="future" onclick="mobileOpenQueueV200('future', event)">${sideToolIcon("future")}<span>Planowane</span></button>
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="map" onclick="mobileOpenMapV200(event)">${sideToolIcon("map")}<span>Mapa</span></button>
@@ -107190,7 +107191,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       suggestionHost.setAttribute("role", "listbox");
       document.body.appendChild(suggestionHost);
       const suggestionAbort = new AbortController();
+      let suggestionPositionFrame = 0;
       const positionSuggestion = () => {
+        suggestionPositionFrame = 0;
         if (!suggestionHost.isConnected) return;
         const rect = input.getBoundingClientRect();
         const viewportWidth = window.visualViewport?.width || window.innerWidth;
@@ -107208,8 +107211,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         suggestionHost.style.maxHeight = `${availableHeight}px`;
         suggestionHost.style.top = `${openAbove ? Math.max(8, rect.top - Math.min(listHeight, availableHeight) - 4) : rect.bottom + 4}px`;
       };
-      window.addEventListener("resize", positionSuggestion, { passive:true, signal:suggestionAbort.signal });
-      document.querySelector(".board-scroll")?.addEventListener("scroll", positionSuggestion, { passive:true, signal:suggestionAbort.signal });
+      const scheduleSuggestionPosition = () => {
+        if (suggestionPositionFrame || !suggestionHost.isConnected) return;
+        suggestionPositionFrame = requestAnimationFrame(positionSuggestion);
+      };
+      window.addEventListener("resize", scheduleSuggestionPosition, { passive:true, signal:suggestionAbort.signal });
+      document.querySelector(".board-scroll")?.addEventListener("scroll", scheduleSuggestionPosition, { passive:true, signal:suggestionAbort.signal });
 
       let finished = false;
       let currentSuggestion = "";
@@ -107225,6 +107232,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       const destroySuggestion = () => {
+        if (suggestionPositionFrame) cancelAnimationFrame(suggestionPositionFrame);
+        suggestionPositionFrame = 0;
         suggestionAbort.abort();
         suggestionHost.remove();
       };
@@ -107261,7 +107270,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }).join("");
           currentSuggestionDetails = suggestionDetails.get(currentSuggestion) || null;
           suggestionHost.classList.add("visible");
-          positionSuggestion();
+          scheduleSuggestionPosition();
         }, 180);
       };
 
@@ -121643,7 +121652,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (target?.matches?.('.board-scroll') || target?.closest?.('.board-scroll')) {
           boardScrollBusyUntilV152 = Date.now() + 260;
         }
-      }, true);
+      }, { capture:true, passive:true });
       setInterval(() => {
         if (document.hidden || !state.user || state.queueDragPayload) return;
         const current = ensureStore();
@@ -121780,7 +121789,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       function markBoardMovingV161(viewport) {
         viewport = prepareBoardViewportV161(viewport);
-        if (!viewport || (!viewport.classList.contains('board-low-scale-v161') && !viewport.classList.contains('board-dense-v170'))) return;
+        if (!viewport) return;
         viewport.classList.add('board-scroll-moving-v161');
         clearTimeout(stopTimer);
         stopTimer = setTimeout(() => viewport.classList.remove('board-scroll-moving-v161'), 120);
@@ -121841,7 +121850,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v249-mobile-table-focus-cache">
+  <style id="targeted-v251-scroll-smoothness-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121980,9 +121989,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v249-mobile-table-focus" />
-  <script src="/order-entry.js?build=v249-mobile-table-focus"></script>
-  <style id="targeted-v249-mobile-table-focus">
+  <link rel="stylesheet" href="/order-entry.css?build=v251-scroll-smoothness" />
+  <script src="/order-entry.js?build=v251-scroll-smoothness"></script>
+  <style id="targeted-v251-scroll-smoothness">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122167,9 +122176,35 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       .mobile-nav-logout-v249 { color:#b91c1c; }
       .app.dark-mode .mobile-nav-logout-v249 { color:#fca5a5; }
+      .mobile-nav-user-v250 { min-width:54px; min-height:54px; padding:5px 3px; display:grid; grid-template-columns:22px minmax(0,1fr); gap:3px; align-items:center; color:var(--text); border-bottom:1px solid var(--border); }
+      .mobile-nav-user-v250 .side-tool-icon { width:21px; height:21px; }
+      .mobile-nav-user-v250 .side-tool-icon svg { width:20px; height:20px; }
+      .mobile-nav-user-v250 span { min-width:0; display:grid; gap:1px; text-align:left; }
+      .mobile-nav-user-v250 small { color:var(--muted); font-size:8px; font-weight:800; line-height:1; }
+      .mobile-nav-user-v250 b { overflow:hidden; text-overflow:ellipsis; font-size:9px; line-height:1.1; }
+      .mobile-nav-v200 { max-height:calc(100dvh - 16px); overflow-y:auto; scrollbar-width:none; }
+      .mobile-nav-v200::-webkit-scrollbar { display:none; }
+      .app:not(.mobile-navigation-collapsed-v205) + .mobile-nav-toggle-v205 { right:86px !important; }
+      .board.mobile-compact-v200 .head-cell.driver-col { display:flex !important; align-items:center; min-width:126px; padding:5px 6px; }
+      .board.mobile-compact-v200 .head-cell.driver-col .driver-column-heading { display:block !important; color:inherit; font-size:10px; font-weight:850; }
+      .board.mobile-compact-v200 .head-cell.driver-col .driver-column-heading small { display:none !important; }
     }
+
+    /* v251: podczas rzeczywistego przewijania wyłączamy wyłącznie kosztowne efekty
+       malowania. Po 120 ms bez ruchu istniejący mechanizm przywraca pełny wygląd. */
+    .board-scroll { -webkit-overflow-scrolling:touch; }
+    .board-scroll.board-scroll-moving-v161 .top,
+    .board-scroll.board-scroll-moving-v161 .time-route,
+    .board-scroll.board-scroll-moving-v161 .board-week-finance-col {
+      box-shadow:none !important;
+      filter:none !important;
+      transition:none !important;
+    }
+    .board-scroll.board-scroll-moving-v161 .board *,
+    .board-scroll.board-scroll-moving-v161 .board *::before,
+    .board-scroll.board-scroll-moving-v161 .board *::after { animation-play-state:paused !important; }
   </style>
-  <script id="targeted-v249-mobile-table-focus-script">
+  <script id="targeted-v251-scroll-smoothness-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
