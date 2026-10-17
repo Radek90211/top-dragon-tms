@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v261-feature-permissions"></script>
-  <script src="/planning-core.js?build=v261-feature-permissions"></script>
-  <script src="/order-stops.js?build=v261-feature-permissions"></script>
+  <script src="/xlsx-lite.js?v=v262-feature-toggles"></script>
+  <script src="/planning-core.js?build=v262-feature-toggles"></script>
+  <script src="/order-stops.js?build=v262-feature-toggles"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94019,7 +94019,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const TMS_USER_FEATURES_V261 = Object.freeze([
       "routeOptimization", "routeHistory", "multiVehicleProjects", "militaryTransport",
       "statistics", "loadRequests", "nearbyClients", "plannedRelations", "freeLoads",
-      "relationChat", "clientDatabase"
+      "relationChat", "clientDatabase", "excelBoardMode"
     ]);
     const TMS_COMMERCIAL_FEATURES_V261 = Object.freeze({
       rates:"routeHistory", region:"nearbyClients", requests:"loadRequests", database:"clientDatabase", fleet:null
@@ -107475,7 +107475,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function excelBoardMode() {
-      return new URLSearchParams(window.location.search).get('boardMode') !== 'classic';
+      return tmsFeatureEnabledV261("excelBoardMode") && new URLSearchParams(window.location.search).get('boardMode') !== 'classic';
     }
 
     function splitExcelBoardTile(event, routeId) {
@@ -122244,7 +122244,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v261-feature-permissions-cache">
+  <style id="targeted-v262-feature-toggles-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122383,9 +122383,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v261-feature-permissions" />
-  <script src="/order-entry.js?build=v261-feature-permissions"></script>
-  <style id="targeted-v261-feature-permissions">
+  <link rel="stylesheet" href="/order-entry.css?build=v262-feature-toggles" />
+  <script src="/order-entry.js?build=v262-feature-toggles"></script>
+  <style id="targeted-v262-feature-toggles">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122631,7 +122631,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v261-feature-permissions-script">
+  <script id="targeted-v262-feature-toggles-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
