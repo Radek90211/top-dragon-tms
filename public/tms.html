@@ -5957,6 +5957,9 @@
       background:#f8fafc;
     }
     .commercial-rate-pair { display:grid;grid-template-columns:1fr 1fr;gap:5px; }
+    .commercial-rate-location-filter { display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:5px; }
+    .commercial-radius-result { display:inline-flex;align-items:center;margin-top:3px;padding:2px 6px;border:1px solid #bae6fd;border-radius:999px;background:#f0f9ff;color:#075985;font-size:10px;font-weight:800; }
+    .app.dark-mode .commercial-radius-result { border-color:#0c4a6e;background:#082f49;color:#bae6fd; }
     .commercial-rate-filter-actions { display:flex;align-items:center;justify-content:flex-end;gap:7px;min-width:100px; }
     .commercial-relation-actions { display:flex;gap:6px;align-items:end; }
     .dispatcher-color-select { font-weight:800; transition:background-color .12s ease; }
@@ -90132,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v246-match-details-toggle"></script>
-  <script src="/planning-core.js?build=v246-match-details-toggle"></script>
-  <script src="/order-stops.js?build=v246-match-details-toggle"></script>
+  <script src="/xlsx-lite.js?v=v249-mobile-table-focus"></script>
+  <script src="/planning-core.js?build=v249-mobile-table-focus"></script>
+  <script src="/order-stops.js?build=v249-mobile-table-focus"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -95667,6 +95670,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="future" onclick="mobileOpenQueueV200('future', event)">${sideToolIcon("future")}<span>Planowane</span></button>
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="map" onclick="mobileOpenMapV200(event)">${sideToolIcon("map")}<span>Mapa</span></button>
         <button type="button" class="mobile-nav-item-v200" data-mobile-tab-v202="more" onclick="openMobileMoreV200(event)">${sideToolIcon("assistant")}<span>Więcej</span></button>
+        ${(state.user.actualSupabaseRole || state.user.supabaseRole) === "admin" ? `<button type="button" class="mobile-nav-item-v200" onclick="mobileOpenAdministrationV249(event)" title="Administracja" aria-label="Administracja">${sideToolIcon("admin")}<span>Administracja</span></button>` : ""}
+        <button type="button" class="mobile-nav-item-v200 mobile-nav-logout-v249" onclick="mobileLogoutV249(event)" title="Wyloguj" aria-label="Wyloguj">${sideToolIcon("logout")}<span>Wyloguj</span></button>
       </nav>`;
     }
 
@@ -97461,7 +97466,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function currentCommercialRateFilters() {
-      const defaults = { client: "", load: "", unload: "", rangeMin: "", rangeMax: "", marginMin: "", dispatcher: "", countMin: "" };
+      const defaults = { client: "", load: "", loadRadius: "", unload: "", unloadRadius: "", rangeMin: "", rangeMax: "", marginMin: "", dispatcher: "", countMin: "" };
       const existing = state.commercialRateFilters || {};
       const migratedClient = existing.client || existing.query || "";
       state.commercialRateFilters = { ...defaults, ...existing, client: migratedClient };
@@ -97477,11 +97482,34 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Number.isFinite(number) ? number : null;
     }
 
+    function commercialLocationRadiusCheck(query, radius, location) {
+      const text = String(query || "").trim();
+      if (!text) return { matches:true, distanceKm:null };
+      const radiusKm = optionalFilterNumber(radius);
+      if (radiusKm == null) {
+        const queryKey = removePolishChars(text);
+        const locationKey = removePolishChars(location || "");
+        return { matches:locationKey.includes(queryKey) || queryKey.includes(locationKey), distanceKm:null };
+      }
+      const queryPoint = clientRelationLocationPoint(text);
+      const distanceKm = clientRelationDistance(text, queryPoint, location);
+      return {
+        matches:Number.isFinite(distanceKm) && distanceKm <= Math.max(0, radiusKm),
+        distanceKm:Number.isFinite(distanceKm) ? distanceKm : null
+      };
+    }
+
+    function commercialRouteRadiusInfo(item, filters = currentCommercialRateFilters()) {
+      const route = item?.last || {};
+      return {
+        load:commercialLocationRadiusCheck(filters.load, filters.loadRadius, route.load),
+        unload:commercialLocationRadiusCheck(filters.unload, filters.unloadRadius, route.unload)
+      };
+    }
+
     function commercialRateItemMatches(item, filters = currentCommercialRateFilters()) {
       const clientName = item.client?.name || item.last.clientName || "Klient nieprzypisany";
       const clientSearch = removePolishChars([clientName, item.client?.nip, item.client?.address].filter(Boolean).join(" "));
-      const loadSearch = removePolishChars(item.last.load || "");
-      const unloadSearch = removePolishChars(item.last.unload || "");
       const clientQuery = removePolishChars(String(filters.client || "").trim());
       const loadQuery = removePolishChars(String(filters.load || "").trim());
       const unloadQuery = removePolishChars(String(filters.unload || "").trim());
@@ -97489,9 +97517,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const rangeMax = optionalFilterNumber(filters.rangeMax);
       const marginMin = optionalFilterNumber(filters.marginMin);
       const countMin = optionalFilterNumber(filters.countMin);
+      const locationRadius = commercialRouteRadiusInfo(item, filters);
       if (clientQuery && !clientSearch.includes(clientQuery)) return false;
-      if (loadQuery && !loadSearch.includes(loadQuery)) return false;
-      if (unloadQuery && !unloadSearch.includes(unloadQuery)) return false;
+      if (loadQuery && !locationRadius.load.matches) return false;
+      if (unloadQuery && !locationRadius.unload.matches) return false;
       if (filters.dispatcher === "__unassigned__" && item.hasOwner) return false;
       if (filters.dispatcher && filters.dispatcher !== "__unassigned__" && item.ownerDispatcher !== filters.dispatcher) return false;
       if (rangeMin != null && item.maxRate < rangeMin) return false;
@@ -97502,9 +97531,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function setCommercialRateFilter(field, value) {
-      if (!["client", "load", "unload", "rangeMin", "rangeMax", "marginMin", "dispatcher", "countMin"].includes(field)) return;
+      if (!["client", "load", "loadRadius", "unload", "unloadRadius", "rangeMin", "rangeMax", "marginMin", "dispatcher", "countMin"].includes(field)) return;
       currentCommercialRateFilters()[field] = String(value ?? "");
       clearTimeout(state.commercialRateFilterTimer);
+      if (["load", "loadRadius", "unload", "unloadRadius"].includes(field)) {
+        state.commercialRateFilterTimer = setTimeout(() => {
+          const host = document.querySelector('[data-role="commercial-body"]');
+          if (host && state.commercialView === "rates") host.innerHTML = renderCommercialBody();
+        }, 180);
+        return;
+      }
       state.commercialRateFilterTimer = setTimeout(applyCommercialRateFilters, field === "dispatcher" ? 0 : 45);
     }
 
@@ -97512,6 +97548,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const list = document.querySelector('[data-commercial-list="rates"]');
       if (!list) return;
       const filters = currentCommercialRateFilters();
+      if (optionalFilterNumber(filters.loadRadius) != null || optionalFilterNumber(filters.unloadRadius) != null) {
+        const host = document.querySelector('[data-role="commercial-body"]');
+        if (host && state.commercialView === "rates") host.innerHTML = renderCommercialBody();
+        return;
+      }
       const clientQuery = removePolishChars(String(filters.client || "").trim());
       const loadQuery = removePolishChars(String(filters.load || "").trim());
       const unloadQuery = removePolishChars(String(filters.unload || "").trim());
@@ -97579,7 +97620,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function clearCommercialRateFilters() {
-      state.commercialRateFilters = { client: "", load: "", unload: "", rangeMin: "", rangeMax: "", marginMin: "", dispatcher: "", countMin: "" };
+      state.commercialRateFilters = { client: "", load: "", loadRadius: "", unload: "", unloadRadius: "", rangeMin: "", rangeMax: "", marginMin: "", dispatcher: "", countMin: "" };
       const host = document.querySelector('[data-role="commercial-body"]');
       if (host) host.innerHTML = renderCommercialBody();
     }
@@ -97588,8 +97629,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const filters = currentCommercialRateFilters();
       return `<div class="commercial-rate-filters">
         <div><label class="field-label" style="margin-top:0;">Klient</label><input class="input" value="${attr(filters.client)}" placeholder="nazwa lub NIP" oninput="setCommercialRateFilter('client',this.value)" /></div>
-        <div><label class="field-label" style="margin-top:0;">Skąd</label><input class="input" value="${attr(filters.load)}" placeholder="miejscowość lub kod" oninput="setCommercialRateFilter('load',this.value)" /></div>
-        <div><label class="field-label" style="margin-top:0;">Dokąd</label><input class="input" value="${attr(filters.unload)}" placeholder="miejscowość lub kod" oninput="setCommercialRateFilter('unload',this.value)" /></div>
+        <div><label class="field-label" style="margin-top:0;">Załadunek w promieniu</label><div class="commercial-rate-location-filter"><input class="input" list="locations-list" value="${attr(filters.load)}" placeholder="miejscowość lub kod" oninput="setCommercialRateFilter('load',this.value)" /><input class="input" type="number" min="0" max="1000" step="1" value="${attr(filters.loadRadius)}" placeholder="km" aria-label="Promień załadunku w kilometrach" oninput="setCommercialRateFilter('loadRadius',this.value)" /></div></div>
+        <div><label class="field-label" style="margin-top:0;">Rozładunek w promieniu</label><div class="commercial-rate-location-filter"><input class="input" list="locations-list" value="${attr(filters.unload)}" placeholder="miejscowość lub kod" oninput="setCommercialRateFilter('unload',this.value)" /><input class="input" type="number" min="0" max="1000" step="1" value="${attr(filters.unloadRadius)}" placeholder="km" aria-label="Promień rozładunku w kilometrach" oninput="setCommercialRateFilter('unloadRadius',this.value)" /></div></div>
         <div><label class="field-label" style="margin-top:0;">Zakres stawek</label><div class="commercial-rate-pair"><input class="input" type="number" min="0" value="${attr(filters.rangeMin)}" placeholder="od" oninput="setCommercialRateFilter('rangeMin',this.value)" /><input class="input" type="number" min="0" value="${attr(filters.rangeMax)}" placeholder="do" oninput="setCommercialRateFilter('rangeMax',this.value)" /></div></div>
         <div><label class="field-label" style="margin-top:0;">Średnia marża od</label><input class="input" type="number" value="${attr(filters.marginMin)}" placeholder="np. 500" oninput="setCommercialRateFilter('marginMin',this.value)" /></div>
         <div><label class="field-label" style="margin-top:0;">Spedytor</label>${renderCommercialDispatcherPicker(filters.dispatcher)}</div>
@@ -98170,7 +98211,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const loadSearch = removePolishChars(item.last.load || "");
           const unloadSearch = removePolishChars(item.last.unload || "");
           const matches = commercialRateItemMatches(item, filters);
-          return `<div class="commercial-row" data-rate-row data-client="${attr(clientSearch)}" data-load="${attr(loadSearch)}" data-unload="${attr(unloadSearch)}" data-dispatcher="${attr(item.dispatcher)}" data-owner-dispatcher="${attr(item.ownerDispatcher || "")}" data-has-owner="${item.hasOwner ? "1" : "0"}" data-min-rate="${attr(item.minRate)}" data-max-rate="${attr(item.maxRate)}" data-avg-margin="${attr(item.avgMargin)}" data-count="${attr(item.items.length)}" ${matches ? "" : "hidden"} style="${matches ? "" : "display:none"}"><div><div class="commercial-route">${esc(item.last.load)} → ${esc(item.last.unload)}</div><div class="commercial-meta">Klient: ${clientNameLink(item.client, clientName, item.ownerDispatcher)}<br>${item.items.length} relacji · ostatnio ${esc(formatDateForInput(item.last.date))}</div></div><div class="commercial-meta">Średnia: <b>${money(item.avgRate)}</b> · zakres ${money(item.minRate)}-${money(item.maxRate)} · średnia marża <b>${money(item.avgMargin)}</b></div></div>`;
+          const radiusInfo = commercialRouteRadiusInfo(item, filters);
+          const radiusNotes = [
+            optionalFilterNumber(filters.loadRadius) != null && radiusInfo.load.distanceKm != null ? `załadunek ${Math.round(radiusInfo.load.distanceKm)} km` : "",
+            optionalFilterNumber(filters.unloadRadius) != null && radiusInfo.unload.distanceKm != null ? `rozładunek ${Math.round(radiusInfo.unload.distanceKm)} km` : ""
+          ].filter(Boolean);
+          return `<div class="commercial-row" data-rate-row data-client="${attr(clientSearch)}" data-load="${attr(loadSearch)}" data-unload="${attr(unloadSearch)}" data-dispatcher="${attr(item.dispatcher)}" data-owner-dispatcher="${attr(item.ownerDispatcher || "")}" data-has-owner="${item.hasOwner ? "1" : "0"}" data-min-rate="${attr(item.minRate)}" data-max-rate="${attr(item.maxRate)}" data-avg-margin="${attr(item.avgMargin)}" data-count="${attr(item.items.length)}" ${matches ? "" : "hidden"} style="${matches ? "" : "display:none"}"><div><div class="commercial-route">${esc(item.last.load)} → ${esc(item.last.unload)}</div><div class="commercial-meta">Klient: ${clientNameLink(item.client, clientName, item.ownerDispatcher)}<br>${item.items.length} relacji · ostatnio ${esc(formatDateForInput(item.last.date))}${radiusNotes.length ? `<br><span class="commercial-radius-result">${esc(radiusNotes.join(" · "))}</span>` : ""}</div></div><div class="commercial-meta">Średnia: <b>${money(item.avgRate)}</b> · zakres ${money(item.minRate)}-${money(item.maxRate)} · średnia marża <b>${money(item.avgMargin)}</b></div></div>`;
         }).join("")}<div class="commercial-empty" data-commercial-search-empty ${visibleCount ? "hidden" : ""}>Brak historii spełniającej wybrane filtry.</div></div>` : `<div class="commercial-empty">Brak danych w historii. Stawki zapisują się automatycznie wraz ze zleceniem.</div>`}`;
       }
       if (state.commercialView === "region") {
@@ -102234,7 +102280,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         moon: '<path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z"/>',
         future: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h3M13 14h3M8 17h3"/>',
         proposed: '<path d="M4 8h16l-1 12H5L4 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2M9 13h6"/>',
-        stats: '<path d="M4 20V10h4v10H4ZM10 20V4h4v16h-4ZM16 20v-7h4v7h-4Z"/>'
+        stats: '<path d="M4 20V10h4v10H4ZM10 20V4h4v16h-4ZM16 20v-7h4v7h-4Z"/>',
+        admin: '<path d="M12 3 20 6v5c0 4.9-3.4 8.3-8 10-4.6-1.7-8-5.1-8-10V6l8-3Z"/><path d="M9 12h6M12 9v6"/>',
+        logout: '<path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4M18 12H9"/>'
       };
       return `<span class="side-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false">${paths[name] || paths.settings}</svg></span>`;
     }
@@ -106160,8 +106208,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function beginBoardStartupV188() {
       clearTimeout(state.boardStartupV188?.timeout);
-      // Plan jest widoczny od razu; dane dochodzą w tle bez osobnego ekranu.
-      state.boardStartupV188 = null;
+      // Plan jest widoczny natychmiast, lecz snapshoty z autoryzacją, flotą i
+      // relacjami nie mogą kolejno przebudowywać całej tablicy. Łączymy je w
+      // jeden końcowy render albo kończymy bezpiecznie po krótkim czasie.
+      BOARD_STARTUP_RECEIVED_V188.users = false;
+      BOARD_STARTUP_RECEIVED_V188.fleet = false;
+      BOARD_STARTUP_RECEIVED_V188.relations = false;
+      const startup = {
+        active: true,
+        usersReady: false,
+        fleetReady: false,
+        relationsReady: false,
+        // Dane tygodniowe są dodatkowe; nie blokują stabilnego pierwszego widoku.
+        weeklyReady: true,
+        weeklyRequested: false,
+        timeout: null
+      };
+      state.boardStartupV188 = startup;
+      startup.timeout = setTimeout(() => finishBoardStartupV188(true), 2200);
     }
 
     function markBoardStartupReadyV188(part) {
@@ -111623,7 +111687,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       CENTRAL_LOAD_QUEUE_READY = true;
       const afterFingerprint = centralLoadQueueSetFingerprint();
       const expiredStatsChanged = expiredStatsBefore !== JSON.stringify(state.expiredProposedLoadStats || []);
-      if (beforeFingerprint !== afterFingerprint) renderKeepingScroll();
+      if (beforeFingerprint !== afterFingerprint && !state.boardStartupV188?.active) renderKeepingScroll();
       else if (expiredStatsChanged) syncProposedPanel();
       persistQueueOutbox();
       scheduleCentralLoadQueueDiff(120);
@@ -121777,7 +121841,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v246-match-details-toggle-cache">
+  <style id="targeted-v249-mobile-table-focus-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121916,9 +121980,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v246-match-details-toggle" />
-  <script src="/order-entry.js?build=v246-match-details-toggle"></script>
-  <style id="targeted-v246-match-details-toggle">
+  <link rel="stylesheet" href="/order-entry.css?build=v249-mobile-table-focus" />
+  <script src="/order-entry.js?build=v249-mobile-table-focus"></script>
+  <style id="targeted-v249-mobile-table-focus">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122082,8 +122146,30 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .mobile-more-actions-v200 .side-tool-icon { width:22px; height:22px; color:currentColor; flex:0 0 22px; }
       .mobile-more-actions-v200 .side-tool-icon svg { width:22px; height:22px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
     }
+
+    /* v249: telefon jest widokiem tablicy. Konto i administracja są w wysuwanym panelu. */
+    @media (max-width:720px) {
+      .app > .header { display:none !important; }
+      .app.app-view-plan > .main,
+      .main { margin:0 !important; padding:0 !important; }
+      .board-title { display:none !important; }
+      .board-wrap { border-width:0 !important; border-radius:0 !important; }
+      .board-scroll { max-height:100dvh !important; min-height:0 !important; }
+      .mobile-nav-v200 { inset:50% 8px auto auto !important; transform:translateY(-50%) !important; }
+      .app.mobile-navigation-collapsed-v205 .mobile-nav-v200 { transform:translate(calc(100% + 16px),-50%) !important; }
+      .mobile-nav-toggle-v205,
+      .mobile-nav-toggle-v205.is-collapsed-v211,
+      .mobile-nav-toggle-v205:not(.is-collapsed-v211) {
+        right:8px !important;
+        top:50% !important;
+        bottom:auto !important;
+        transform:translateY(-50%) !important;
+      }
+      .mobile-nav-logout-v249 { color:#b91c1c; }
+      .app.dark-mode .mobile-nav-logout-v249 { color:#fca5a5; }
+    }
   </style>
-  <script id="targeted-v246-match-details-toggle-script">
+  <script id="targeted-v249-mobile-table-focus-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -122140,6 +122226,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         toggle?.classList.toggle('is-collapsed-v211', state.mobileNavigationCollapsedV205);
         toggle?.setAttribute('aria-expanded', String(!state.mobileNavigationCollapsedV205));
         toggle?.setAttribute('aria-label', state.mobileNavigationCollapsedV205 ? 'Pokaż zakładki' : 'Ukryj zakładki');
+      };
+
+      window.mobileOpenAdministrationV249 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        if (!state.mobileNavigationCollapsedV205) window.mobileToggleNavigationV205?.();
+        openAdministrationPanel();
+      };
+
+      window.mobileLogoutV249 = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        logout();
       };
 
       window.mobilePlanHomeV200 = function(event) {
