@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v265-fleet-military"></script>
-  <script src="/planning-core.js?build=v265-fleet-military"></script>
-  <script src="/order-stops.js?build=v265-fleet-military"></script>
+  <script src="/xlsx-lite.js?v=v270-admin-audit-color"></script>
+  <script src="/planning-core.js?build=v270-admin-audit-color"></script>
+  <script src="/order-stops.js?build=v270-admin-audit-color"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94034,7 +94034,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return feature ? tmsFeatureEnabledV261(feature) : true;
     }
     function tmsAnyAssistantFeatureEnabledV261() {
-      return ["routeHistory", "nearbyClients", "loadRequests", "clientDatabase"].some(tmsFeatureEnabledV261);
+      /* Asystent jest punktem dostępu do obsługi floty, w tym dodania kierowcy.
+         Musi więc pozostać dostępny, nawet gdy wszystkie opcjonalne moduły
+         handlowe zostały wyłączone dla danego użytkownika. */
+      return true;
     }
     function showFeatureDisabledMessageV261() {
       showAppMessage("Funkcja wyłączona", "Administrator nie udostępnił tej funkcji dla Twojego konta.", "info");
@@ -106304,6 +106307,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="grid-2" style="margin-top:10px;">
                 <button class="btn sms-copy-button ${state.copiedRouteId === route.id ? "btn-dark" : ""}" onclick="copySms('${attr(route.id)}')">Kopiuj SMS</button>
                 <button class="btn" type="button" data-sms-open-route="${attr(route.id)}" data-sms-href="${attr(smsHref)}" onclick="openRouteSms('${attr(route.id)}')">Otwórz SMS</button>
+                <button class="btn" type="button" onclick="chooseRouteSmsImage('${attr(route.id)}')">Wyślij obraz / MMS</button>
               </div>
             </section>
 
@@ -108378,15 +108382,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const pointerGlobal = routeResizeGlobalFromClientX(clientX);
       const maxHour = Math.max(0.25, Number(routeResize.timelineHours || timelineMaxHour()));
+      const minimumDuration = 3;
       let nextStart;
       let nextEnd;
 
       if (routeResize.side === "left") {
-        nextEnd = clampTimelineHour(routeResize.fixedOppositeGlobal, 0.25, maxHour);
-        nextStart = clampTimelineHour(pointerGlobal, 0, Math.max(0, nextEnd - 0.25));
+        nextEnd = clampTimelineHour(routeResize.fixedOppositeGlobal, minimumDuration, maxHour);
+        nextStart = clampTimelineHour(pointerGlobal, 0, Math.max(0, nextEnd - minimumDuration));
       } else {
-        nextStart = clampTimelineHour(routeResize.fixedOppositeGlobal, 0, Math.max(0, maxHour - 0.25));
-        nextEnd = clampTimelineHour(pointerGlobal, Math.min(maxHour, nextStart + 0.25), maxHour);
+        nextStart = clampTimelineHour(routeResize.fixedOppositeGlobal, 0, Math.max(0, maxHour - minimumDuration));
+        nextEnd = clampTimelineHour(pointerGlobal, Math.min(maxHour, nextStart + minimumDuration), maxHour);
       }
 
       // Od pierwszego faktycznego ruchu szerokość jest manualna. Dzięki temu
@@ -108910,7 +108915,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function previousRouteBeforeRoute(targetRoute) {
       if (!targetRoute?.driverId) return null;
-      const requiredDate = addDaysToIso(String(targetRoute.date || '').slice(0, 10), -1);
+      const requiredDate = addDaysToIso(String(targetRoute.loadDate || targetRoute.date || '').slice(0, 10), -1);
       return activeRoutes()
         .filter(route => route.id !== targetRoute.id && route.driverId === targetRoute.driverId && String(routeEndDate(route) || '').slice(0, 10) === requiredDate)
         .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a))[0] || null;
@@ -111206,6 +111211,54 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         button?.classList.remove("btn-dark");
         if (ok) ok.style.display = "none";
       }, 1800);
+    }
+
+    function chooseRouteSmsImage(routeId) {
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route) return;
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/png,image/jpeg,image/webp';
+      input.addEventListener('change', async () => {
+        const image = input.files?.[0];
+        if (!image) return;
+        await shareRouteSmsImage(routeId, image);
+      }, { once:true });
+      input.click();
+    }
+
+    async function shareRouteSmsImage(routeId, image) {
+      const route = state.routes.find(item => item.id === routeId);
+      const driver = route ? driverById(route.driverId) : null;
+      if (!route || !driver || !image?.type?.startsWith('image/')) {
+        showAppMessage('Nieprawidłowy obraz', 'Wybierz plik PNG, JPG albo WEBP.', 'error');
+        return;
+      }
+
+      const filename = `zlecenie-${String(route.id || 'top-dragon').replace(/[^a-z0-9_-]/gi, '-')}.${String(image.name || '').split('.').pop() || 'png'}`;
+      const attachment = new File([image], filename, { type:image.type || 'image/png' });
+      const text = routeSms(route, driver);
+
+      try {
+        if (navigator.share && (!navigator.canShare || navigator.canShare({ files:[attachment] }))) {
+          await navigator.share({ title:'Top Dragon TMS', text, files:[attachment] });
+          recordAuditOperation?.('Udostępniono obraz do SMS','route',route.id,attachment.name);
+          return;
+        }
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+      }
+
+      try {
+        if (navigator.clipboard?.write && window.ClipboardItem) {
+          await navigator.clipboard.write([new ClipboardItem({ [attachment.type]:attachment })]);
+          openRouteSms(routeId);
+          showAppMessage('Obraz skopiowany', 'Wklej obraz do tworzonej wiadomości SMS/MMS.', 'success');
+          return;
+        }
+      } catch (error) {}
+
+      showAppMessage('Brak obsługi MMS', 'To urządzenie nie udostępnia obrazu bezpośrednio do SMS. Otwórz SMS i dodaj wycięty zrzut z galerii.', 'info');
     }
 
     function openRouteSms(routeId) {
@@ -114941,7 +114994,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn" type="button" onclick="clearAuditFilters()">Wyczyść filtry</button><button class="btn" type="button" onclick="window.parent?.postMessage({type:'top-dragon-audit-request'},window.location.origin)">Odśwież</button><button class="btn" type="button" onclick="exportAuditHistory()">Eksport</button></div>
           </div>
           <div class="small" style="margin-bottom:7px;">${rows.length} operacji</div>
-          <div class="audit-list">${rows.length ? rows.slice(0,state.auditDisplayLimit || 500).map(item => `<div class="audit-row"><span>${esc(new Date(item.at).toLocaleString("pl-PL"))}</span><span>${queueDispatchers().includes(item.actor) ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.actor)}">${esc(item.actor)}</span>` : `<b>${esc(item.actor)}</b>`}</span><span class="audit-action">${esc(item.action)}</span><span class="audit-details">${esc(item.details || `${item.entityType} ${item.entityId}`.trim())}</span></div>`).join("") : `<div class="commercial-empty">Brak zapisanych operacji spełniających filtry.</div>`}</div>
+          <div class="audit-list">${rows.length ? rows.slice(0,state.auditDisplayLimit || 500).map(item => `<div class="audit-row"><span>${esc(new Date(item.at).toLocaleString("pl-PL"))}</span><span>${dispatcherUserRecord(item.actor) ? `<span class="dispatcher-map-badge ${dispatcherBadgeClass(item.actor)}">${esc(item.actor)}</span>` : `<b>${esc(item.actor)}</b>`}</span><span class="audit-action">${esc(item.action)}</span><span class="audit-details">${esc(item.details || `${item.entityType} ${item.entityId}`.trim())}</span></div>`).join("") : `<div class="commercial-empty">Brak zapisanych operacji spełniających filtry.</div>`}</div>
           ${rows.length > Number(state.auditDisplayLimit || 500) ? `<div style="display:flex;justify-content:center;margin-top:10px;"><button type="button" class="btn" onclick="showMoreAuditHistory()">Pokaż kolejne 500</button></div>` : ""}
         </div>`;
       };
@@ -117833,15 +117886,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   <script id="targeted-3l43-autoscroll-stats-ux-script">
     (() => {
       /* ---------- Plan kierowców: stabilny scrollbar ---------- */
-      const boardScrollbar3L43 = { held:false, pending:false };
+      const boardScrollbar3L43 = { held:false, scrolling:false, pending:false, scrollTimer:0, flushFrame:0 };
       const baseSyncBoardOnly3L43 = syncBoardOnly;
       syncBoardOnly = function(...args) {
-        if (boardScrollbar3L43.held) {
+        /* Nie wymieniamy całej tablicy w czasie fizycznego przewijania.
+           Realtime może wtedy jedynie oznaczyć pojedynczą, odroczoną aktualizację,
+           dzięki czemu uchwyt paska pozostaje pod kontrolą przeglądarki. */
+        if (boardScrollbar3L43.held || boardScrollbar3L43.scrolling || boardScrollbar3L43.flushFrame) {
           boardScrollbar3L43.pending = true;
           return;
         }
         return baseSyncBoardOnly3L43.apply(this, args);
       };
+
+      function flushBoardScrollbarSync3L43() {
+        if (boardScrollbar3L43.held || boardScrollbar3L43.scrolling || !boardScrollbar3L43.pending) return;
+        boardScrollbar3L43.pending = false;
+        if (boardScrollbar3L43.flushFrame) cancelAnimationFrame(boardScrollbar3L43.flushFrame);
+        boardScrollbar3L43.flushFrame = requestAnimationFrame(() => {
+          boardScrollbar3L43.flushFrame = 0;
+          /* Stan danych jest wspólny, więc jeden render obejmuje wszystkie
+             komunikaty odebrane przed następną klatką. */
+          boardScrollbar3L43.pending = false;
+          syncBoardOnly();
+        });
+      }
 
       function boardScrollbarZone3L43(event, viewport) {
         if (!viewport || event.button !== 0) return false;
@@ -117860,14 +117929,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function releaseBoardScrollbar3L43() {
         if (!boardScrollbar3L43.held) return;
         boardScrollbar3L43.held = false;
-        if (boardScrollbar3L43.pending) {
-          boardScrollbar3L43.pending = false;
-          requestAnimationFrame(() => baseSyncBoardOnly3L43());
-        }
+        flushBoardScrollbarSync3L43();
       }
       document.addEventListener('pointerup', releaseBoardScrollbar3L43, true);
       document.addEventListener('pointercancel', releaseBoardScrollbar3L43, true);
       window.addEventListener('blur', releaseBoardScrollbar3L43, true);
+
+      document.addEventListener('scroll', event => {
+        const viewport = event.target?.matches?.('.board-scroll') ? event.target : null;
+        if (!viewport || !event.isTrusted) return;
+        boardScrollbar3L43.scrolling = true;
+        clearTimeout(boardScrollbar3L43.scrollTimer);
+        boardScrollbar3L43.scrollTimer = setTimeout(() => {
+          boardScrollbar3L43.scrolling = false;
+          flushBoardScrollbarSync3L43();
+        }, 160);
+      }, { capture:true, passive:true });
 
       /* ---------- Klasyczny autoscroll po kliknięciu rolki ----------
          Klik i puszczenie środkowego przycisku ustawia punkt z czarnymi strzałkami.
@@ -120510,8 +120587,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .input.ai-value-accepted { background:#dcfce7 !important;border-color:#22c55e !important;box-shadow:0 0 0 2px rgba(34,197,94,.12) !important; }
     .app.dark-mode .input.ai-value-pending { background:#4a2d0b !important;color:#ffedd5 !important; }
     .app.dark-mode .input.ai-value-accepted { background:#12351f !important;color:#dcfce7 !important; }
-    .route-external-links { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
-    .route-external-links .btn { justify-content:center;text-align:center; }
+    .details-route-provider-actions { display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:4px; }
+    .details-route-provider-button { width:34px;min-width:34px;height:34px;display:grid;place-items:center;padding:0;border:1px solid var(--border);border-radius:9px;background:var(--soft);color:var(--text);cursor:pointer; }
+    .details-route-provider-button:hover { background:#e8f0fe;border-color:#8ab4f8; }
+    .details-route-provider-button.impargo:hover { background:#e8f7ee;border-color:#5bbd7a; }
+    .details-route-provider-button .provider-google-icon { font:900 18px/1 Arial,sans-serif;color:#4285f4;text-shadow:-1px 0 #ea4335,0 1px #fbbc05,1px 0 #34a853; }
+    .details-route-provider-button .provider-impargo-icon { display:grid;place-items:center;width:18px;height:18px;border-radius:5px;background:#1b8f4b;color:#fff;font:900 12px/1 system-ui,sans-serif; }
+    .app.dark-mode .details-route-provider-button:hover { background:#1e3a5f; }
     .map-client-delete { color:#b91c1c !important;border-color:#fecaca !important; }
     .map-client-delete:hover { background:#fee2e2 !important; }
     @keyframes mapRouteRecentPulse3L66 { 0%,100%{filter:drop-shadow(0 0 0 rgba(37,99,235,0));transform:scale(1)} 50%{filter:drop-shadow(0 0 10px rgba(37,99,235,.9));transform:scale(1.13)} }
@@ -120665,8 +120747,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         let html = renderSidePanel3L66.apply(this, arguments);
         const route = state.routes.find(item => item.id === state.selectedRouteId);
         if (!route) return html;
-        const controls = `<section class="section"><div class="details-section-title">Nawigacja trasy</div><div class="route-external-links"><button type="button" class="btn" onclick="openRouteExternal3L66('${attr(route.id)}','google')">Otwórz Google Maps</button><button type="button" class="btn btn-ai-action" onclick="openRouteExternal3L66('${attr(route.id)}','impargo')">Otwórz Impargo</button></div></section>`;
-        return html.replace('<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">', `${controls}<section class="section">\n              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">`);
+        const controls = `<div class="details-route-provider-actions" aria-label="Nawigacja trasy"><button type="button" class="details-route-provider-button google" title="Otwórz Google Maps" aria-label="Otwórz Google Maps" onclick="openRouteExternal3L66('${attr(route.id)}','google')"><span class="provider-google-icon" aria-hidden="true">G</span></button><button type="button" class="details-route-provider-button impargo" title="Otwórz Impargo" aria-label="Otwórz Impargo" onclick="openRouteExternal3L66('${attr(route.id)}','impargo')"><span class="provider-impargo-icon" aria-hidden="true">I</span></button></div>`;
+        return html.replace('</h2>\n            <button class="btn" onclick="closeDetails()">Schowaj</button>', `</h2>${controls}\n            <button class="btn" onclick="closeDetails()">Schowaj</button>`);
       };
 
       let aiFileDragDepth3L67 = 0;
@@ -122279,7 +122361,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v265-fleet-military-cache">
+  <style id="targeted-v270-admin-audit-color-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122418,9 +122500,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v265-fleet-military" />
-  <script src="/order-entry.js?build=v265-fleet-military"></script>
-  <style id="targeted-v265-fleet-military">
+  <link rel="stylesheet" href="/order-entry.css?build=v270-admin-audit-color" />
+  <script src="/order-entry.js?build=v270-admin-audit-color"></script>
+  <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122666,7 +122748,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v265-fleet-military-script">
+  <script id="targeted-v267-sms-image-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
