@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v253-current-time-line"></script>
-  <script src="/planning-core.js?build=v253-current-time-line"></script>
-  <script src="/order-stops.js?build=v253-current-time-line"></script>
+  <script src="/xlsx-lite.js?v=v256-route-swap-analyzer"></script>
+  <script src="/planning-core.js?build=v256-route-swap-analyzer"></script>
+  <script src="/order-stops.js?build=v256-route-swap-analyzer"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -90826,6 +90826,9 @@
     const DRIVER_SURNAME_POOL_V165 = ["Bąk", "Duda", "Górski", "Jankowski", "Kaczmarek", "Kowalski", "Król", "Mazur", "Nowak", "Wójcik"];
     const CARRIER_NAME_POOL = ["Amber", "Baltic", "Cargo", "Dragon", "Express", "Logistic", "North", "Polonia", "Road", "Trans"];
     const VEHICLE_BRAND_POOL_V165 = ["DAF", "MAN", "Mercedes-Benz", "Scania", "Volvo", "Renault", "Iveco"];
+    const VEHICLE_MODELS_V255 = { "DAF":["XF 480","XG 530"], "MAN":["TGX 18.510","TGX 18.470"], "Mercedes-Benz":["Actros 1845","Actros 1851"], "Scania":["R 500","S 460"], "Volvo":["FH 500","FH 460"], "Renault":["T High 480","T 440"], "Iveco":["S-Way 490","S-Way 460"] };
+    const TRACTOR_COLORS_V255 = ["biały", "grafitowy", "niebieski", "czerwony", "czarny"];
+    const TRAILER_BRANDS_V255 = ["Schmitz Cargobull", "Krone", "Wielton", "Kögel", "Fliegl"];
 
     function deterministicFleetValueV165(index, salt, modulo) {
       let value = Math.imul(index + 1, 1103515245) + Math.imul(salt + 17, 12345);
@@ -90843,6 +90846,7 @@
         const carrierRoot = CARRIER_NAME_POOL[deterministicFleetValueV165(index, 3, CARRIER_NAME_POOL.length)];
         const district = districtLetters[deterministicFleetValueV165(index, 4, districtLetters.length)];
         const registration = `${district} ${String(31000 + deterministicFleetValueV165(index, 5, 68000))}`;
+        const vehicleBrand = VEHICLE_BRAND_POOL_V165[deterministicFleetValueV165(index, 8, VEHICLE_BRAND_POOL_V165.length)];
         return {
           id: `sample-fleet-v165-${serial}`,
           dispatcher: dispatchers[index % dispatchers.length],
@@ -90853,7 +90857,10 @@
           nationality: "PL",
           base: DRIVER_BASE_POOL[deterministicFleetValueV165(index, 7, DRIVER_BASE_POOL.length)],
           tractorReg: registration,
-          vehicleBrand: VEHICLE_BRAND_POOL_V165[deterministicFleetValueV165(index, 8, VEHICLE_BRAND_POOL_V165.length)],
+          vehicleBrand,
+          vehicleModel: VEHICLE_MODELS_V255[vehicleBrand][deterministicFleetValueV165(index, 10, VEHICLE_MODELS_V255[vehicleBrand].length)],
+          tractorColor: TRACTOR_COLORS_V255[deterministicFleetValueV165(index, 11, TRACTOR_COLORS_V255.length)],
+          trailerBrand: TRAILER_BRANDS_V255[deterministicFleetValueV165(index, 12, TRAILER_BRANDS_V255.length)],
           trailerReg: `${district} N${String(1000 + deterministicFleetValueV165(index, 9, 8999))}`,
           trailerHeight: 2.7,
           sampleFleet: true,
@@ -91398,10 +91405,7 @@
       };
     }
 
-    const SAMPLE_TRANSPORT_PROJECTS_V252 = Object.freeze([
-      { dayIndex:2, drivers:[0,1,2], code:"P-2026-01", name:"Projekt Warszawa → Gdańsk", load:"Warszawa", unload:"Gdańsk", client:"Baltic Retail Sp. z o.o." },
-      { dayIndex:9, drivers:[4,5,6,7], code:"P-2026-02", name:"Projekt Katowice → Szczecin", load:"Katowice", unload:"Szczecin", client:"Nord Cargo Polska S.A." }
-    ]);
+    const SAMPLE_TRANSPORT_PROJECTS_V252 = Object.freeze([]);
 
     function applySampleTransportProjectV252(route, driverIndex, dayIndex) {
       const project = SAMPLE_TRANSPORT_PROJECTS_V252.find(item => item.dayIndex === dayIndex && item.drivers.includes(driverIndex));
@@ -91417,14 +91421,39 @@
       return route;
     }
 
+    const DAILY_TRANSPORT_PROJECTS_V255 = Object.freeze([
+      { drivers:[0, 1], code:"ALFA", name:"Projekt Alfa", client:"Baltic Retail Sp. z o.o.", loads:["Warszawa","Poznań","Gdańsk","Łódź"], unloads:["Kraków","Katowice","Wrocław","Rzeszów"] },
+      { drivers:[2, 3], code:"BRAVO", name:"Projekt Bravo", client:"Polonia Foods S.A.", loads:["Lublin","Białystok","Szczecin","Bydgoszcz"], unloads:["Radom","Płock","Kielce","Toruń"] }
+    ]);
+
+    function applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex) {
+      const project = DAILY_TRANSPORT_PROJECTS_V255.find(item => item.drivers.includes(driverIndex));
+      if (!project) return;
+      const index = dayIndex % project.loads.length;
+      const loadCity = project.loads[index];
+      const unloadCity = project.unloads[index];
+      route.projectTransport = true;
+      route.projectCode = `${project.code}-${date.replaceAll("-", "")}`;
+      route.projectName = project.name;
+      route.projectVehicleNo = project.drivers.indexOf(driverIndex) + 1;
+      route.projectVehicleTotal = project.drivers.length;
+      route.client = project.client;
+      route.load = loadCity;
+      route.unload = unloadCity;
+      route.loadAddress = sampleRouteStreetAddressV223(loadCity);
+      route.unloadAddress = sampleRouteStreetAddressV223(unloadCity);
+      route.notes = `Projekt dla klienta ${project.client}: pojazd ${route.projectVehicleNo}/${route.projectVehicleTotal}.`;
+    }
+
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = septemberRelationDatesV167();
       return (drivers || []).flatMap((driver, driverIndex) => {
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
           applySampleTransportProjectV252(route, driverIndex, dayIndex);
+          applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex);
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 252;
+          route.sampleScheduleVersion = 255;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91469,7 +91498,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 252 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 255 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -91810,6 +91839,7 @@
         unloadDelayMinutes: item.unloadDelayMinutes == null && item.unload_delay_minutes == null ? null : Math.max(0, Number(item.unloadDelayMinutes ?? item.unload_delay_minutes ?? 0) || 0),
         loadDelayRating: normalizeFreightStarRating(item.loadDelayRating ?? item.load_delay_rating, item.loadDelayMinutes ?? item.load_delay_minutes),
         unloadDelayRating: normalizeFreightStarRating(item.unloadDelayRating ?? item.unload_delay_rating, item.unloadDelayMinutes ?? item.unload_delay_minutes),
+        routeComment: String(item.routeComment ?? item.route_comment ?? "").trim(),
         updatedAt: String(item.updatedAt ?? item.updated_at ?? new Date().toISOString()),
         sample: Boolean(item.sample)
       };
@@ -91910,6 +91940,7 @@ create table if not exists public.tms_client_route_history (
   cost numeric default 0,
   loaded_km numeric default 0,
   margin numeric default 0,
+  route_comment text default '',
   sample boolean default false,
   updated_at timestamptz default now()
 );
@@ -91922,6 +91953,7 @@ alter table public.tms_client_route_history add column if not exists rate numeri
 alter table public.tms_client_route_history add column if not exists cost numeric default 0;
 alter table public.tms_client_route_history add column if not exists loaded_km numeric default 0;
 alter table public.tms_client_route_history add column if not exists margin numeric default 0;
+alter table public.tms_client_route_history add column if not exists route_comment text default '';
 
 create table if not exists public.tms_proposed_load_claims (
   proposed_id text primary key,
@@ -92079,6 +92111,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         cost: Number(record.cost || 0),
         loaded_km: Number(record.loadedKm || 0),
         margin: Number(record.margin || 0),
+        route_comment: String(record.routeComment || ""),
         sample: Boolean(record.sample),
         updated_at: record.updatedAt || new Date().toISOString()
       };
@@ -92345,6 +92378,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unloadDelayMinutes: route.unloadDelayMinutes == null ? null : Math.max(0, Number(route.unloadDelayMinutes || 0)),
         loadDelayRating: normalizeFreightStarRating(route.loadDelayRating),
         unloadDelayRating: normalizeFreightStarRating(route.unloadDelayRating),
+        routeComment: String(route.routeComment || "").trim(),
         updatedAt: new Date().toISOString()
       });
     }
@@ -92689,6 +92723,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       aiTextBatchRouteEstimate: null,
       aiAnalyzerBusyKind: "",
       aiAnalyzerLastElapsedMs: 0,
+      routeSwapSuggestions: [],
+      routeSwapPanelOpen: false,
+      routeSwapAnalysisSignature: "",
+      routeSwapAnalysisTimer: null,
       aiImportTarget: "future",
       aiPlanDrop: null,
       aiImportMode: "choose",
@@ -93964,7 +94002,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const vehicleNo = Number(route.projectVehicleNo || 0);
       const vehicleTotal = Number(route.projectVehicleTotal || 0);
       const label = vehicleNo && vehicleTotal ? `Projekt · auto ${vehicleNo}/${vehicleTotal}` : "Projekt transportowy";
-      return `<span class="route-project-badge" title="${attr(`${route.projectName}${route.projectCode ? ` · ${route.projectCode}` : ""} · ${label}`)}">P ${vehicleNo || "–"}/${vehicleTotal || "–"}</span>`;
+      return `<span class="route-project-badge" title="${attr(`${route.projectName}${route.projectCode ? ` · ${route.projectCode}` : ""} · ${label}`)}">PROJEKT ${vehicleNo || "–"}/${vehicleTotal || "–"}</span>`;
     }
 
     function renderBoardRouteTitle(route, fallbackDriver = null) {
@@ -94326,6 +94364,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         setTimeout(() => initDetailsRoutePlanner(state.selectedRouteId), 0);
       }
       setTimeout(() => notifyProposedLoadsIfNeeded(), 0);
+      scheduleRouteSwapAnalysis();
       if (!state.unloadPanelCollapsed) preloadLeafletRuntime();
     }
 
@@ -94648,6 +94687,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       syncIdentityColumnsButton();
       syncCurrentTimeLines();
       restoreScrollState(scrollState);
+      scheduleRouteSwapAnalysis();
       if (state.statsPanelOpen) scheduleStatsPanelSync();
     }
 
@@ -95672,6 +95712,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${state.appView === "plan" ? renderPdfImportUi() : ""}
           ${state.appView === "plan" ? renderTextImportUi() : ""}
           ${state.appView === "plan" ? renderAiAnalyzerDock() : ""}
+          ${state.appView === "plan" ? renderRouteSwapDock() : ""}
           ${state.appView === "plan" ? renderMapToggleTab() : ""}
           ${state.appView === "plan" ? renderWorkspaceToolTabs() : ""}
           ${renderRouteContextMenu()}
@@ -96043,7 +96084,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeRequiresPolishDriver(route) {
-      return Boolean(route?.requirePolishDriver);
+      return Boolean(route?.requirePolishDriver || route?.militaryTransport);
+    }
+
+    function routeIsMilitaryTransport(route) {
+      return Boolean(route?.militaryTransport);
     }
 
     function maxLoadHeightForDriver(driver) {
@@ -96053,21 +96098,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function driverLoadCompatibility(driver, route = {}) {
       const loadHeight = routeLoadHeightValue(route);
       const requirePolish = routeRequiresPolishDriver(route);
+      const militaryTransport = routeIsMilitaryTransport(route);
       const maxLoadHeight = maxLoadHeightForDriver(driver);
       const heightOk = !loadHeight || loadHeight <= maxLoadHeight + 0.0001;
       const nationalityOk = !requirePolish || isPolishNationality(driverNationality(driver));
+      const nonVolvoOk = !militaryTransport || !/^volvo\b/i.test(String(driver?.vehicleBrand || "").trim());
       const problems = [];
 
       if (!heightOk) {
         problems.push(`za wysoki ładunek: ${loadHeight.toFixed(2)} m, max ${maxLoadHeight.toFixed(2)} m`);
       }
+      if (militaryTransport && !nationalityOk) problems.push("transport wojskowy: wymagana polska narodowość kierowcy");
+      if (militaryTransport && !nonVolvoOk) problems.push("transport wojskowy: ciągnik Volvo jest wykluczony");
 
       if (!nationalityOk) {
         problems.push("wymagany kierowca PL");
       }
 
       return {
-        ok: heightOk && nationalityOk,
+        ok: heightOk && nationalityOk && nonVolvoOk,
         heightOk,
         nationalityOk,
         maxLoadHeight,
@@ -96081,6 +96130,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const loadHeight = routeLoadHeightValue(route);
       if (loadHeight) items.push(`ładunek ${loadHeight.toFixed(2)} m`);
       if (routeRequiresPolishDriver(route)) items.push("kierowca PL");
+      if (routeIsMilitaryTransport(route)) items.push("wojsko · bez Volvo");
       return items.join(" · ");
     }
 
@@ -96663,8 +96713,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
             <div class="driver-info-popup-body">
               <div class="driver-info-row"><span>Telefon</span><b>${esc(driver.phone || "-")}</b></div>
-              <div class="driver-info-row"><span>Ciągnik</span><b>${esc(driver.tractorReg || "-")}</b></div>
-              <div class="driver-info-row"><span>Naczepa</span><b>${esc(driver.trailerReg || "-")}</b></div>
+              <div class="driver-info-row"><span>Marka i model ciągnika</span><b>${esc([driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(" ") || "-")}</b></div>
+              <div class="driver-info-row"><span>Kolor ciągnika</span><b>${esc(driver.tractorColor || "-")}</b></div>
+              <div class="driver-info-row"><span>Ciągnik / PL</span><b>${esc(driver.tractorReg || "-")}</b></div>
+              <div class="driver-info-row"><span>Marka naczepy</span><b>${esc(driver.trailerBrand || "-")}</b></div>
+              <div class="driver-info-row"><span>Naczepa / PL</span><b>${esc(driver.trailerReg || "-")}</b></div>
               <div class="driver-info-row"><span>Dowód osobisty</span><b>${esc(driver.idCard || "-")}</b></div>
               <div class="driver-info-row"><span>Naczepa / PL</span><b>${esc(driverTrailerHeight(driver).toFixed(2))} m · ${esc(driverNationality(driver))}</b></div>
               <div class="driver-info-row"><span>Baza</span><b>${esc(driverBaseLabel(driver) || "-")}</b></div>
@@ -100371,6 +100424,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Boolean(route.status === "taken" && (isAdminUser() || route.takenBy === state.user?.login || route.createdBy === state.user?.login));
     }
 
+    function militaryTransportBadge(route) {
+      if (!route?.militaryTransport) return "";
+      return `<span class="military-transport-badge" title="Transport organizowany dla wojska" aria-label="Transport wojskowy"><span aria-hidden="true">♜</span> Wojsko</span>`;
+    }
+
     function renderProposedLoadCard(route) {
       const distanceDate = route.date || state.reportDate || START_DATE;
       const detailsHidden = cardDetailsHidden("proposed", route.id);
@@ -100402,6 +100460,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div>
               <div class="proposed-load-title future-card-title">
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
+                ${militaryTransportBadge(route)}
                 ${esc(displayCity(route.load) || compactRouteLocationLabel(route.load) || "-")} → ${esc(displayCity(route.unload) || compactRouteLocationLabel(route.unload) || "-")}
               </div>
               ${detailsHidden ? "" : `
@@ -101039,9 +101098,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function statsAvailableDispatcherUsers() {
       const dispatchers = USERS.filter(user => user?.role === "spedytor" && user?.login);
-      if (state.user?.role === "spedytor") {
-        return dispatchers.filter(user => String(user.login || "") === String(state.user.login || ""));
-      }
       if (state.user?.supabaseRole === "branch_manager") {
         const branchId = String(state.user?.branchId || "");
         return dispatchers.filter(user => !branchId || String(user.branchId || "") === branchId);
@@ -101050,7 +101106,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function statsSelectedDispatcherLogin() {
-      if (state.user?.role === "spedytor") return String(state.user.login || "").toUpperCase();
       const allowed = new Set(statsAvailableDispatcherUsers().map(user => String(user.login || "").toUpperCase()));
       const selected = String(state.statsDispatcherFilter || "all").toUpperCase();
       return selected !== "ALL" && allowed.has(selected) ? selected : "all";
@@ -101331,6 +101386,179 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const contextLabel = statusOnly ? (state.aiActivityLabel || "Analiza AI") : (state.aiImportTarget === "proposed" ? "Wolne ładunki" : "Planowane relacje");
       const hint = statusOnly && meta.status !== "busy" ? "Kliknij, aby ukryć status" : meta.hint;
       return `<button type="button" class="ai-analyzer-dock status-${meta.status} ${statusOnly ? "status-only" : "queue-analyzer"}" onclick="handleAiAnalyzerDockClick(event)" title="${attr(hint)}"><span class="ai-analyzer-dock-icon">AI</span><span class="ai-analyzer-dock-state"><b>${esc(meta.label)}</b><small>${esc(contextLabel)}</small></span><span class="ai-analyzer-dock-mark">${esc(meta.mark)}</span></button>`;
+    }
+
+    // Analizator wymian nie korzysta z AI ani routingu sieciowego. Pracuje na
+    // lokalnych współrzędnych, harmonogramie i wymaganiach już obecnych w planie.
+    const ROUTE_SWAP_MIN_SAVING_KM = 30;
+    const ROUTE_SWAP_MAX_ROUTES = 80;
+
+    function routeSwapRouteSet() {
+      return activeRoutes()
+        .filter(route => route && !route.futureQueue && !route.sampleRelationV167 && !isFreeDayRoute(route)
+          && route.driverId && route.load && operationalPointForRoute(route, "load"))
+        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id)))
+        .slice(0, ROUTE_SWAP_MAX_ROUTES);
+    }
+
+    function routeSwapSignature(routes) {
+      return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus].join("~")).join("|");
+    }
+
+    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds) {
+      const startsBefore = (routesByDriver.get(driver.id) || [])
+        .filter(route => !ignoredIds.has(route.id) && routeGlobalEnd(route) <= routeGlobalStart(ownRoute))
+        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a));
+      const previous = startsBefore[0] || null;
+      const unload = previous ? finalUnloadPointForRoute(previous) : null;
+      if (unload) return { coords:[Number(unload.lat), Number(unload.lng)], route:previous };
+      const base = driverBasePoint(driver);
+      return base?.coords ? { coords:base.coords, route:null } : null;
+    }
+
+    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds) {
+      if (!driverLoadCompatibility(driver, route).ok) return false;
+      const start = routeGlobalStart(route);
+      const end = routeGlobalEnd(route);
+      return !(routesByDriver.get(driver.id) || []).some(item => !ignoredIds.has(item.id)
+        && routeGlobalStart(item) < end && routeGlobalEnd(item) > start);
+    }
+
+    function routeSwapDistance(position, route) {
+      const load = operationalPointForRoute(route, "load");
+      if (!position?.coords || !load) return Number.NaN;
+      return preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
+    }
+
+    function buildRouteSwapSuggestions() {
+      const routes = routeSwapRouteSet();
+      const routesByDriver = new Map();
+      activeRoutes().filter(route => !route.futureQueue && !isFreeDayRoute(route)).forEach(route => {
+        const list = routesByDriver.get(route.driverId) || [];
+        list.push(route);
+        routesByDriver.set(route.driverId, list);
+      });
+      routesByDriver.forEach(list => list.sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b)));
+      const suggestions = [];
+
+      for (let left = 0; left < routes.length; left += 1) {
+        const first = routes[left];
+        const firstDriver = driverById(first.driverId);
+        const firstDispatcher = routeDispatcherLogin(first);
+        if (!firstDriver || !firstDispatcher) continue;
+        for (let right = left + 1; right < routes.length; right += 1) {
+          const second = routes[right];
+          if (String(first.date || "") !== String(second.date || "") || first.driverId === second.driverId) continue;
+          const secondDriver = driverById(second.driverId);
+          const secondDispatcher = routeDispatcherLogin(second);
+          if (!secondDriver || !secondDispatcher || firstDispatcher === secondDispatcher) continue;
+
+          const ignoredIds = new Set([first.id, second.id]);
+          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds)
+            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds)) continue;
+
+          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds);
+          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds);
+          const currentKm = routeSwapDistance(firstPosition, first) + routeSwapDistance(secondPosition, second);
+          const swappedKm = routeSwapDistance(firstPosition, second) + routeSwapDistance(secondPosition, first);
+          const savingKm = Math.round(currentKm - swappedKm);
+          if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) continue;
+          suggestions.push({
+            kind:"swap",
+            id:[first.id, second.id].sort().join("::"),
+            date:first.date,
+            firstRouteId:first.id, secondRouteId:second.id,
+            firstDriver:firstDriver.driver, secondDriver:secondDriver.driver,
+            firstDispatcher, secondDispatcher,
+            firstRoute:`${displayCity(first.load) || first.load} → ${displayCity(first.unload) || first.unload}`,
+            secondRoute:`${displayCity(second.load) || second.load} → ${displayCity(second.unload) || second.unload}`,
+            currentKm:Math.round(currentKm), swappedKm:Math.round(swappedKm), savingKm
+          });
+        }
+      }
+      // Gdy pełna zamiana nie jest możliwa, sprawdzamy także prostą podmianę
+      // kierowcy. Nadal pokazujemy wyłącznie propozycje między spedytorami.
+      routes.forEach(route => {
+        const currentDriver = driverById(route.driverId);
+        const currentDispatcher = routeDispatcherLogin(route);
+        if (!currentDriver || !currentDispatcher) return;
+        const ignoredIds = new Set([route.id]);
+        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds);
+        const currentKm = routeSwapDistance(currentPosition, route);
+        if (!Number.isFinite(currentKm)) return;
+        let best = null;
+        operationalDrivers().forEach(candidate => {
+          if (!candidate || candidate.id === currentDriver.id || String(candidate.dispatcher || "") === currentDispatcher) return;
+          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds)) return;
+          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds);
+          const candidateKm = routeSwapDistance(candidatePosition, route);
+          const savingKm = Math.round(currentKm - candidateKm);
+          if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return;
+          if (!best || savingKm > best.savingKm) best = { candidate, candidateKm, savingKm };
+        });
+        if (!best) return;
+        suggestions.push({
+          kind:"reassign",
+          id:`${route.id}::${best.candidate.id}`,
+          date:route.date,
+          firstRouteId:route.id, secondRouteId:"",
+          firstDriver:currentDriver.driver, secondDriver:best.candidate.driver,
+          firstDispatcher:currentDispatcher, secondDispatcher:String(best.candidate.dispatcher || ""),
+          firstRoute:`${displayCity(route.load) || route.load} → ${displayCity(route.unload) || route.unload}`,
+          secondRoute:"",
+          currentKm:Math.round(currentKm), swappedKm:Math.round(best.candidateKm), savingKm:best.savingKm
+        });
+      });
+      return suggestions.sort((a, b) => b.savingKm - a.savingKm || String(a.date).localeCompare(String(b.date))).slice(0, 12);
+    }
+
+    function routeSwapSuggestionsForUser() {
+      const login = String(state.user?.login || "");
+      if (isAdminUser()) return state.routeSwapSuggestions || [];
+      return (state.routeSwapSuggestions || []).filter(item => item.firstDispatcher === login || item.secondDispatcher === login);
+    }
+
+    function routeSwapShortLine(item) {
+      return `−${Math.round(item.savingKm)} km · ${item.currentKm}→${item.swappedKm} km`;
+    }
+
+    function renderRouteSwapDock() {
+      const suggestions = routeSwapSuggestionsForUser();
+      if (!suggestions.length) return "";
+      const open = Boolean(state.routeSwapPanelOpen);
+      return `<div class="route-swap-notice ${open ? "open" : ""}">
+        ${open ? `<section class="route-swap-panel" aria-label="Propozycje zamiany tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij">×</button></header><div class="route-swap-panel-note">Uzgodnij zmianę ze spedytorem.</div>${suggestions.map(item => `<div class="route-swap-row" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><b>${esc(routeSwapShortLine(item))}</b><span>${esc(item.firstDriver)} ${item.kind === "swap" ? "↔" : "→"} ${esc(item.secondDriver)}</span><small>${esc(item.firstRoute)}${item.secondRoute ? ` / ${esc(item.secondRoute)}` : ""}</small></div>`).join("")}</section>` : ""}
+        <button type="button" class="route-swap-dock" onclick="toggleRouteSwapPanel(event)" title="${attr(`${suggestions.length} propozycji wymiany tras`)}" aria-label="Propozycje wymiany tras"><span>↔</span><b>${suggestions.length}</b></button>
+      </div>`;
+    }
+
+    function syncRouteSwapDock() {
+      replaceTransientElement(".route-swap-notice", renderRouteSwapDock());
+    }
+
+    function toggleRouteSwapPanel(event) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      state.routeSwapPanelOpen = !state.routeSwapPanelOpen;
+      syncRouteSwapDock();
+    }
+
+    function scheduleRouteSwapAnalysis() {
+      if (!state.user || document.hidden) return;
+      clearTimeout(state.routeSwapAnalysisTimer);
+      state.routeSwapAnalysisTimer = setTimeout(() => {
+        const run = () => {
+          const routes = routeSwapRouteSet();
+          const signature = routeSwapSignature(routes);
+          if (signature === state.routeSwapAnalysisSignature) return;
+          state.routeSwapAnalysisSignature = signature;
+          state.routeSwapSuggestions = buildRouteSwapSuggestions();
+          if (!state.routeSwapSuggestions.length) state.routeSwapPanelOpen = false;
+          syncRouteSwapDock();
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout:700 });
+        else setTimeout(run, 0);
+      }, 350);
     }
 
     function handleAiAnalyzerDockClick(event) {
@@ -102699,7 +102927,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div>
               <div class="future-card-title">
                 <span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Dodał: ${attr(dispatcher)}">${esc(dispatcher)}</span>
-                ${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayCity(route.load) || compactRouteLocationLabel(route.load) || "-")} → ${esc(displayCity(route.unload) || compactRouteLocationLabel(route.unload) || "-")}
+                ${militaryTransportBadge(route)}${route.futureGroup ? `<span class="future-group-badge" title="Grupa: ${attr(route.futureGroup)}">GR</span>` : ""}${routeOversizeBadge(route)}${esc(displayCity(route.load) || compactRouteLocationLabel(route.load) || "-")} → ${esc(displayCity(route.unload) || compactRouteLocationLabel(route.unload) || "-")}
               </div>
               ${detailsHidden ? "" : `
                 ${orderStopsSummary(route)}
@@ -105921,10 +106149,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             <section class="section">
               <div class="grid-2">
-                ${canEdit ? `<details class="details-inline-collapse">
-                  <summary>Data: ${esc(formatDateForInput(route.date || START_DATE))}</summary>
-                  ${renderDateStepper(route.date || START_DATE, `shiftRouteDate('${attr(route.id)}', -1)`, `shiftRouteDate('${attr(route.id)}', 1)`, "Data relacji")}
-                </details>` : `<div><label class="field-label" style="margin-top:0;">Data</label><div class="input" aria-readonly="true">${esc(formatDateForInput(route.date || START_DATE))}</div></div>`}
+                ${canEdit ? `<div><label class="field-label" style="margin-top:0;">Data załadunku</label><input class="input" type="date" value="${attr(route.loadDate || route.date || START_DATE)}" onchange="updateRouteScheduleDate('${attr(route.id)}','load',this.value)" /></div><div><label class="field-label" style="margin-top:0;">Data rozładunku</label><input class="input" type="date" value="${attr(route.endDate || addDaysToIso(route.loadDate || route.date || START_DATE, 1))}" onchange="updateRouteScheduleDate('${attr(route.id)}','unload',this.value)" /></div>` : `<div><label class="field-label" style="margin-top:0;">Załadunek</label><div class="input" aria-readonly="true">${esc(formatDateForInput(route.loadDate || route.date || START_DATE))}</div></div><div><label class="field-label" style="margin-top:0;">Rozładunek</label><div class="input" aria-readonly="true">${esc(formatDateForInput(route.endDate || addDaysToIso(route.loadDate || route.date || START_DATE, 1)))}</div></div>`}
                 ${state.user.role === "rozliczenia" ? `
                 <div>
                   <label class="field-label" style="margin-top:0;">Status rozliczeń</label>
@@ -105945,6 +106170,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <details class="optional-text-details" ${String(route.notes || "").trim() ? "open" : ""}>
                 <summary>Uwagi do zlecenia</summary>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
+              </details>
+              <details class="optional-text-details" ${String(route.routeComment || "").trim() ? "open" : ""}>
+                <summary>Komentarz do relacji</summary>
+                <textarea id="details-route-comment-${attr(route.id)}" class="textarea" ${disabled} placeholder="Komentarz widoczny w historii klienta" oninput="updateRouteField('${attr(route.id)}','routeComment',this.value,false)">${esc(route.routeComment || "")}</textarea>
               </details>
               ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}
             </section>
@@ -106072,6 +106301,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <input id="new-future-group" class="input" placeholder="np. Ładunki z klienta A / tydzień 26" value="${attr(prefill.futureGroup || prefill.groupId || "")}" />
                 </details>
               ` : `<input id="new-future-group" type="hidden" value="" />`}
+
+              ${proposedMode || futureMode ? `<label class="route-military-toggle" title="Dopasowanie dopuści tylko kierowców z polską narodowością i ciągnikiem innym niż Volvo."><input id="new-military-transport" type="checkbox" ${prefill.militaryTransport ? "checked" : ""} /><span class="military-transport-icon" aria-hidden="true">♜</span><span><b>Wojsko</b><small>kierowca PL, ciągnik inny niż Volvo</small></span></label>` : ""}
 
               <div class="grid-2">
                 <div>
@@ -110200,12 +110431,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           route.emptyTile = false;
         }
       }
-      if (["client", "load", "unload", "date"].includes(field)) scheduleRouteHistoryCapture(route);
+      if (["client", "load", "unload", "date", "endDate", "loadDate", "routeComment"].includes(field)) scheduleRouteHistoryCapture(route);
       if (["load", "secondLoad", "unload", "secondUnload", "loadAddress", "secondLoadAddress", "unloadAddress", "secondUnloadAddress", "date"].includes(field)) {
         window.refreshQueueRouteMatchesV226?.();
       }
       invalidateRouteSmsGeneration(route, true);
       scheduleUiSync({ board: true, unload: true, details: true });
+    }
+
+    function updateRouteScheduleDate(routeId, kind, value) {
+      const route = state.routes.find(item => item.id === routeId);
+      if (!route || !canEditBoardRoute(route)) return;
+      const fallback = kind === "load" ? (route.loadDate || route.date || currentAppDate()) : (route.endDate || addDaysToIso(route.date || currentAppDate(), 1));
+      const date = parseDateInput(value, fallback);
+      if (kind === "load") {
+        route.date = date;
+        route.loadDate = date;
+        if (!route.endDate || route.endDate < date) route.endDate = addDaysToIso(date, 1);
+      } else {
+        route.endDate = date < (route.date || date) ? (route.date || date) : date;
+      }
+      reconcileOrderStops(route);
+      scheduleRouteHistoryCapture(route);
+      invalidateRouteSmsGeneration(route, true);
+      scheduleCentralRelationsDiff(0);
+      scheduleUiSync({ board:true, unload:true, details:true });
     }
 
     function updateRouteOversizeFlag(routeId, checked) {
@@ -110476,6 +110726,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const oversizedCostValue = Number(formValue("new-oversized-cost") || 0);
       const oversizedTransportValue = Boolean(String(document.getElementById("new-oversized")?.value || "0") === "1" || oversizedCostValue > 0);
       const futureGroupValue = formValue("new-future-group").trim();
+      const militaryTransportValue = Boolean(document.getElementById("new-military-transport")?.checked);
       const visibilityScopeValue = proposedMode || futureMode ? (formValue("new-visibility-scope") === "branch" ? "branch" : "all") : "all";
       const selectedQueueBranchId = String(document.getElementById("new-queue-branch")?.value || state.prefill?.queueBranchId || state.prefill?._centralBranchId || state.user?.branchId || "");
       const selectedQueueBranchName = USERS.find(user => user.branchId === selectedQueueBranchId)?.branch || "";
@@ -110504,7 +110755,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         notesValue,
         driverNotesValue,
         clientValue
-      ].some(Boolean) || approachValue > 0 || loadedValue > 0 || baseValue > 0 || rateValue > 0 || costValue > 0 || oversizedCostValue > 0 || oversizedTransportValue || futureGroupValue || requirements.loadHeightM > 0 || requirements.requirePolishDriver;
+      ].some(Boolean) || approachValue > 0 || loadedValue > 0 || baseValue > 0 || rateValue > 0 || costValue > 0 || oversizedCostValue > 0 || oversizedTransportValue || futureGroupValue || militaryTransportValue || requirements.loadHeightM > 0 || requirements.requirePolishDriver;
 
       if (!hasAnyData) {
         closeAdd();
@@ -110566,6 +110817,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         oversizedTransport: oversizedTransportValue,
         oversizedCost: oversizedCostValue,
         futureGroup: futureGroupValue,
+        militaryTransport: militaryTransportValue,
         freeDay: freeDayValue,
         manualKmCost: Boolean(document.getElementById("new-approach")?.dataset.manualEdited || document.getElementById("new-loaded")?.dataset.manualEdited),
         loadHeightM: requirements.loadHeightM,
@@ -115530,7 +115782,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <label><span>Narodowość</span><input id="fleet-edit-nationality" class="input" value="${attr(driver.nationality || "PL")}" maxlength="3" /></label>
               <label class="wide"><span>Baza kierowcy</span><input id="fleet-edit-base" class="input" list="locations-list" value="${attr(driver.base || "")}" placeholder="miejscowość lub kod" /></label>
               <label><span>Marka ciągnika</span><input id="fleet-edit-brand" class="input" value="${attr(driver.vehicleBrand || "")}" placeholder="np. Volvo" /></label>
+              <label><span>Model ciągnika</span><input id="fleet-edit-model" class="input" value="${attr(driver.vehicleModel || "")}" placeholder="np. FH 500" /></label>
+              <label><span>Kolor ciągnika</span><input id="fleet-edit-color" class="input" value="${attr(driver.tractorColor || "")}" placeholder="np. biały" /></label>
               <label><span>Ciągnik / PL</span><input id="fleet-edit-tractor" class="input" value="${attr(driver.tractorReg || "")}" placeholder="nr rejestracyjny" /></label>
+              <label><span>Marka naczepy</span><input id="fleet-edit-trailer-brand" class="input" value="${attr(driver.trailerBrand || "")}" placeholder="np. Schmitz Cargobull" /></label>
               <label><span>Naczepa / PL</span><input id="fleet-edit-trailer" class="input" value="${attr(driver.trailerReg || "")}" placeholder="nr rejestracyjny" /></label>
               <label><span>Wysokość naczepy</span><input id="fleet-edit-height" class="input" type="number" min="1" max="4.3" step="0.05" value="${attr(Number(driver.trailerHeight || 1.3).toFixed(2))}" /></label>
             </div>
@@ -115553,7 +115808,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const baseLocationRaw = String(document.getElementById("fleet-edit-base")?.value || "").trim();
         const baseLocation = normalizeLocation(baseLocationRaw) || baseLocationRaw;
         const vehicleBrand = String(document.getElementById("fleet-edit-brand")?.value || "").trim();
+        const vehicleModel = String(document.getElementById("fleet-edit-model")?.value || "").trim();
+        const tractorColor = String(document.getElementById("fleet-edit-color")?.value || "").trim();
         const vehicleRegistrationNo = String(document.getElementById("fleet-edit-tractor")?.value || "").trim().toUpperCase();
+        const trailerBrand = String(document.getElementById("fleet-edit-trailer-brand")?.value || "").trim();
         const trailerRegistrationNo = String(document.getElementById("fleet-edit-trailer")?.value || "").trim().toUpperCase();
         const trailerHeightM = Number(document.getElementById("fleet-edit-height")?.value || 0);
 
@@ -115571,7 +115829,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
 
         if (!driver.supabaseFleet || !driver.dbAssignmentId) {
-          Object.assign(driver, { driver:driverName, phone, idCard:identityDocumentNumber, nationality, base:baseLocation, vehicleBrand, tractorReg:vehicleRegistrationNo, trailerReg:trailerRegistrationNo, trailerHeight:trailerHeightM || null });
+          Object.assign(driver, { driver:driverName, phone, idCard:identityDocumentNumber, nationality, base:baseLocation, vehicleBrand, vehicleModel, tractorColor, tractorReg:vehicleRegistrationNo, trailerBrand, trailerReg:trailerRegistrationNo, trailerHeight:trailerHeightM || null });
           invalidateFleetCaches();
           window.closeFleetEdit();
           syncBoardOnly();
@@ -121878,7 +122136,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v253-current-time-line-cache">
+  <style id="targeted-v256-route-swap-analyzer-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122017,9 +122275,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v253-current-time-line" />
-  <script src="/order-entry.js?build=v253-current-time-line"></script>
-  <style id="targeted-v253-current-time-line">
+  <link rel="stylesheet" href="/order-entry.css?build=v256-route-swap-analyzer" />
+  <script src="/order-entry.js?build=v256-route-swap-analyzer"></script>
+  <style id="targeted-v256-route-swap-analyzer">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122235,15 +122493,47 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* v252: wspólny, widoczny fokus i identyfikacja projektu wieloautowego. */
     .app :is(button,a,input,select,textarea,[data-keyboard-activate-v252],[role="button"]):focus-visible,
     .mobile-nav-toggle-v205:focus-visible { outline:3px solid #2563eb !important; outline-offset:2px !important; box-shadow:0 0 0 5px rgba(37,99,235,.22) !important; }
-    .route-project-badge { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; min-width:24px; padding:1px 3px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:7px; font-weight:950; line-height:1.15; }
+    .route-project-badge { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; min-width:46px; padding:2px 5px; border-radius:999px; background:#1d4ed8; color:#fff; font-size:8px; letter-spacing:.02em; font-weight:950; line-height:1.15; }
     .app.dark-mode .route-project-badge { background:#1e3a8a; color:#dbeafe; }
+    .military-transport-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #75885c; border-radius:999px; background:#eef3e6; color:#48552f; font-size:10px; font-weight:900; white-space:nowrap; }
+    .route-military-toggle { display:flex; align-items:center; gap:9px; margin-top:10px; padding:9px 11px; border:1px solid #c9d4ba; border-radius:11px; background:#f7faf3; color:#334155; cursor:pointer; }
+    .route-military-toggle input { inline-size:18px; block-size:18px; accent-color:#647a43; }
+    .route-military-toggle small { display:block; color:var(--muted); font-size:11px; font-weight:700; }
+    .military-transport-icon { display:grid; place-items:center; inline-size:28px; block-size:28px; border-radius:8px; background:#dce8cb; color:#44562d; font-size:17px; }
+    .app.dark-mode .military-transport-badge { background:#25321f; border-color:#657853; color:#e2edcf; }
+    .app.dark-mode .route-military-toggle { background:#1f2a1b; border-color:#526143; color:#e2edcf; }
+    .route-swap-notice { position:fixed; right:14px; bottom:70px; z-index:7421; display:flex; align-items:flex-end; gap:8px; flex-direction:column; }
+    .route-swap-dock { width:40px; height:40px; display:grid; place-items:center; position:relative; border:1px solid #bae6fd; border-radius:50%; background:#0e7490; color:#fff; box-shadow:0 10px 28px rgba(14,116,144,.28); cursor:pointer; font:900 18px/1 system-ui,sans-serif; }
+    .route-swap-dock b { position:absolute; right:-4px; top:-4px; min-width:16px; height:16px; display:grid; place-items:center; padding:0 2px; border:2px solid var(--card); border-radius:999px; background:#f59e0b; color:#1f2937; font-size:9px; }
+    .route-swap-panel { width:min(330px,calc(100vw - 28px)); max-height:min(420px,62vh); overflow:auto; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text); box-shadow:0 16px 38px rgba(15,23,42,.22); }
+    .route-swap-panel header { display:flex; justify-content:space-between; align-items:center; padding:10px 11px 7px; border-bottom:1px solid var(--border); }
+    .route-swap-panel header button { width:25px; height:25px; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; font-size:20px; line-height:1; }
+    .route-swap-panel-note { padding:7px 11px; color:var(--muted); font-size:10px; font-weight:750; }
+    .route-swap-row { display:grid; gap:2px; padding:8px 11px; border-top:1px solid var(--border); }
+    .route-swap-row b { color:#0e7490; font-size:12px; }
+    .route-swap-row span { font-size:11px; font-weight:850; }
+    .route-swap-row small { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    .app.dark-mode .route-swap-dock { border-color:#155e75; background:#155e75; }
+    .app.dark-mode .route-swap-row b { color:#67e8f9; }
+    @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v253-current-time-line-script">
+  <script id="targeted-v256-route-swap-analyzer-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
       let lastMobileTabV202 = 'plan';
+
+      // Modal jest renderowany dynamicznie; przechwytujemy Enter na dokumencie,
+      // dzięki czemu potwierdzenie działa także po natychmiastowym otwarciu okna.
+      document.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' || !state.deleteConfirmRouteId) return;
+        const target = event.target;
+        if (target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        confirmDeleteRoute();
+      }, true);
 
       function closeMobileMoreV200() {
         document.querySelector('.mobile-more-backdrop-v200')?.remove();
