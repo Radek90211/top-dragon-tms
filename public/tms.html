@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v263-feature-access"></script>
-  <script src="/planning-core.js?build=v263-feature-access"></script>
-  <script src="/order-stops.js?build=v263-feature-access"></script>
+  <script src="/xlsx-lite.js?v=v265-fleet-military"></script>
+  <script src="/planning-core.js?build=v265-fleet-military"></script>
+  <script src="/order-stops.js?build=v265-fleet-military"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -96156,11 +96156,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function driverLoadCompatibility(driver, route = {}) {
       const loadHeight = routeLoadHeightValue(route);
       const requirePolish = routeRequiresPolishDriver(route);
-      const militaryTransport = routeIsMilitaryTransport(route);
+      const militaryTransport = Boolean(route?.militaryTransport);
       const maxLoadHeight = maxLoadHeightForDriver(driver);
       const heightOk = !loadHeight || loadHeight <= maxLoadHeight + 0.0001;
       const nationalityOk = !requirePolish || isPolishNationality(driverNationality(driver));
-      const nonVolvoOk = !militaryTransport || !/^volvo\b/i.test(String(driver?.vehicleBrand || "").trim());
+      const nonVolvoOk = !militaryTransport || !/\bvolvo\b/i.test(String(driver?.vehicleBrand || "").trim());
       const problems = [];
 
       if (!heightOk) {
@@ -114384,6 +114384,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             dispatcher,
             homeDispatcher: creatorDispatcher || dispatcher,
             carrier: String(row.carrier?.name || ""),
+            carrierNip: String(row.carrier?.nip || ""),
             carrierRateHistory: carrierRateHistoryForCarrier(String(row.carrier?.id || "")),
             driver: String(row.driver?.fullName || ""),
             phone: String(row.driver?.phone || ""),
@@ -114392,7 +114393,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             base: String(row.driver?.baseLocation || ""),
             tractorReg: String(row.vehicle?.registrationNo || "").toUpperCase(),
             vehicleBrand: String(row.vehicle?.brand || ""),
+            vehicleModel: String(row.vehicle?.model || ""),
+            tractorColor: String(row.vehicle?.tractorColor || ""),
             trailerReg: String(row.trailer?.registrationNo || "").toUpperCase(),
+            trailerBrand: String(row.trailer?.brand || ""),
             trailerHeight: Number(row.trailer?.heightM || 1.3),
             customFleet: true,
             supabaseFleet: true,
@@ -114633,12 +114637,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px;"><div><b>Dodaj kierowcę / przewoźnika</b></div>${isAdminUser() ? `<span class="theme-pill">Administrator: wszystkie oddziały</span>` : isBranchManagerUser() ? `<span class="theme-pill">Kierownik: ${esc(state.user.branch || "własny oddział")}</span>` : `<span class="theme-pill">Przypisanie do: ${esc(state.user.login)}</span>`}</div>
             <form class="fleet-form-grid" onsubmit="addFleetDriver(event)">
               ${renderFleetDispatcherField()}
-              <div class="wide"><label class="field-label" style="margin-top:0;">Przewoźnik</label><input id="fleet-carrier" class="input" required placeholder="np. Trans ABC" /></div>
+              <div><label class="field-label" style="margin-top:0;">Przewoźnik</label><input id="fleet-carrier" class="input" required placeholder="np. Trans ABC" /></div>
+              <div><label class="field-label" style="margin-top:0;">NIP przewoźnika</label><input id="fleet-carrier-nip" class="input" required inputmode="numeric" maxlength="13" placeholder="0000000000" /></div>
               <div class="wide"><label class="field-label" style="margin-top:0;">Kierowca</label><input id="fleet-driver-name" class="input" required placeholder="imię i nazwisko" /></div>
               <div><label class="field-label" style="margin-top:0;">Telefon</label><input id="fleet-phone" class="input" inputmode="tel" placeholder="numer telefonu" /></div>
               <div><label class="field-label" style="margin-top:0;">Nr dowodu osobistego</label><input id="fleet-id-card" class="input" placeholder="numer dokumentu" /></div>
               <div><label class="field-label" style="margin-top:0;">Marka pojazdu</label><input id="fleet-vehicle-brand" class="input" placeholder="np. Volvo" /></div>
+              <div><label class="field-label" style="margin-top:0;">Model ciągnika</label><input id="fleet-vehicle-model" class="input" placeholder="np. FH 500" /></div>
+              <div><label class="field-label" style="margin-top:0;">Kolor ciągnika</label><input id="fleet-tractor-color" class="input" placeholder="np. biały" /></div>
               <div><label class="field-label" style="margin-top:0;">Ciągnik / PL</label><input id="fleet-tractor" class="input" placeholder="nr rejestracyjny" /></div>
+              <div><label class="field-label" style="margin-top:0;">Marka naczepy</label><input id="fleet-trailer-brand" class="input" placeholder="np. Schmitz Cargobull" /></div>
               <div><label class="field-label" style="margin-top:0;">Naczepa / PL</label><input id="fleet-trailer" class="input" placeholder="nr rejestracyjny" /></div>
               <div><label class="field-label" style="margin-top:0;">Wysokość naczepy</label><input id="fleet-height" class="input" type="number" min="1" max="4.3" step="0.05" placeholder="opcjonalnie" /></div>
               <div><label class="field-label" style="margin-top:0;">Narodowość kierowcy</label><select id="fleet-nationality" class="select"><option>PL</option><option>UA</option><option>BY</option><option>LT</option><option>SK</option><option>CZ</option></select></div>
@@ -114768,12 +114776,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           : state.user.login;
         const dispatcherUser = USERS.find(user => user.role === "spedytor" && user.login === dispatcher);
         const carrier = String(document.getElementById("fleet-carrier")?.value || "").trim();
+        const carrierNip = String(document.getElementById("fleet-carrier-nip")?.value || "").replace(/\D/g, "");
         const driverName = String(document.getElementById("fleet-driver-name")?.value || "").trim();
         const phone = String(document.getElementById("fleet-phone")?.value || "").trim();
         const identityDocumentNumber = String(document.getElementById("fleet-id-card")?.value || "").trim();
         const vehicleBrand = String(document.getElementById("fleet-vehicle-brand")?.value || "").trim();
+        const vehicleModel = String(document.getElementById("fleet-vehicle-model")?.value || "").trim();
+        const tractorColor = String(document.getElementById("fleet-tractor-color")?.value || "").trim();
         const tractorReg = String(document.getElementById("fleet-tractor")?.value || "").trim().toUpperCase();
         const trailerReg = String(document.getElementById("fleet-trailer")?.value || "").trim().toUpperCase();
+        const trailerBrand = String(document.getElementById("fleet-trailer-brand")?.value || "").trim();
         const trailerHeightValue = String(document.getElementById("fleet-height")?.value || "").trim();
         const trailerHeightM = trailerHeightValue ? Math.max(1, Math.min(4.3, Number(trailerHeightValue))) : null;
         const nationality = String(document.getElementById("fleet-nationality")?.value || "PL").trim().toUpperCase();
@@ -114785,6 +114797,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         if (!carrier || !driverName) {
           showAppMessage("Uzupełnij dane", "Podaj przewoźnika i imię oraz nazwisko kierowcy.", "error");
+          return;
+        }
+        if (!/^\d{10}$/.test(carrierNip)) {
+          showAppMessage("Uzupełnij NIP", "Podaj prawidłowy, 10-cyfrowy NIP przewoźnika.", "error");
           return;
         }
         if (tractorReg && !vehicleBrand) {
@@ -114815,12 +114831,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             assignedDispatcherId: dispatcherUser.supabaseId,
             branchId: dispatcherUser.branchId,
             carrierName: carrier,
+            carrierNip,
             driverName,
             phone,
             identityDocumentNumber,
             vehicleBrand,
+            vehicleModel,
+            tractorColor,
             vehicleRegistrationNo: tractorReg,
             trailerRegistrationNo: trailerReg,
+            trailerBrand,
             trailerHeightM,
             nationality,
             baseLocation
@@ -115967,7 +115987,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           type:"top-dragon-fleet-update",
           requestId:`fleet-update-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
           assignmentId:driver.dbAssignmentId || driver.id,
-          payload:{ driverName, phone, identityDocumentNumber, nationality, baseLocation, vehicleBrand, vehicleRegistrationNo, trailerRegistrationNo, trailerHeightM:trailerHeightM || null }
+          payload:{ driverName, phone, identityDocumentNumber, nationality, baseLocation, vehicleBrand, vehicleModel, tractorColor, vehicleRegistrationNo, trailerBrand, trailerRegistrationNo, trailerHeightM:trailerHeightM || null, carrierNip:driver.carrierNip || "" }
         }, window.location.origin);
       };
     })();
@@ -122259,7 +122279,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v263-feature-access-cache">
+  <style id="targeted-v265-fleet-military-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122398,9 +122418,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v263-feature-access" />
-  <script src="/order-entry.js?build=v263-feature-access"></script>
-  <style id="targeted-v263-feature-access">
+  <link rel="stylesheet" href="/order-entry.css?build=v265-fleet-military" />
+  <script src="/order-entry.js?build=v265-fleet-military"></script>
+  <style id="targeted-v265-fleet-military">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122646,7 +122666,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v263-feature-access-script">
+  <script id="targeted-v265-fleet-military-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
