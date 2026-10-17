@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v258-cutoff-oct18"></script>
-  <script src="/planning-core.js?build=v258-cutoff-oct18"></script>
-  <script src="/order-stops.js?build=v258-cutoff-oct18"></script>
+  <script src="/xlsx-lite.js?v=v259-central-relations"></script>
+  <script src="/planning-core.js?build=v259-central-relations"></script>
+  <script src="/order-stops.js?build=v259-central-relations"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -91366,8 +91366,12 @@
       const iso = String(route?.loadDate || route?.date || "").slice(0, 10);
       return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V258;
     }
-    function removeRelationsAfterCutoffV258(routes) {
-      return (Array.isArray(routes) ? routes : []).filter(relationStartsByCutoffV258);
+    function removeSampleRelationsAfterCutoffV259(routes) {
+      // Data graniczna dotyczy wyłącznie danych demonstracyjnych. Rzeczywiste
+      // relacje użytkowników muszą pozostać na tablicy niezależnie od terminu.
+      return (Array.isArray(routes) ? routes : []).filter(route => {
+        return !route?.sampleRelationV167 || relationStartsByCutoffV258(route);
+      });
     }
 
     function sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex) {
@@ -91493,7 +91497,7 @@
 
     function ensureSeptemberRelationsV167(routes = [], drivers = DRIVERS) {
       const target = Array.isArray(routes) ? routes : [];
-      const allowed = removeRelationsAfterCutoffV258(target);
+      const allowed = removeSampleRelationsAfterCutoffV259(target);
       if (allowed.length !== target.length) target.splice(0, target.length, ...allowed);
       const realRoutes = target.filter(route => !route?.sampleRelationV167);
       const rebuilt = [];
@@ -93302,6 +93306,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const now = new Date().toISOString();
       if (!route.createdAt) route.createdAt = now;
       route.addedToBoardAt = now;
+      // Zabezpiecza nową relację do chwili, gdy Supabase potwierdzi jej zapis.
+      // Bez tego pierwszy, starszy snapshot z drugiej sesji mógł ją usunąć.
+      route._centralLocalCreatedAt = route._centralLocalCreatedAt || Date.now();
       // Każdy świeżo dodany kafelek startuje w trybie +30% szerokości.
       // Po pierwszym ręcznym resize przechodzi do trybu manualnego.
       if (!route.timelineWidthMode) route.timelineWidthMode = "auto30";
@@ -111703,7 +111710,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const localFingerprint = localRoute ? centralRouteFingerprint(localRoute) : "";
         const hasBaseline = CENTRAL_RELATION_BASELINE.has(key);
         const baselineFingerprint = CENTRAL_RELATION_BASELINE.get(key);
-        const localDirty = Boolean(localRoute) && hasBaseline && localFingerprint !== baselineFingerprint;
+        const localCreatedRecently = Boolean(localRoute?._centralLocalCreatedAt);
+        // Nowy kafelek nie ma jeszcze baseline. Chronimy go do czasu odpowiedzi
+        // RPC, aby spóźniony snapshot z drugiej sesji nie usunął go z tablicy.
+        const localDirty = Boolean(localRoute) && (localCreatedRecently || !hasBaseline || localFingerprint !== baselineFingerprint);
         const localPending = CENTRAL_RELATION_PENDING_UPSERT.has(key);
         const accountingViewer = String(state.user?.supabaseRole || "") === "accounting" || state.user?.role === "rozliczenia";
         const pendingAccountingPatch = pendingCentralAccountingPatchForKey(key);
@@ -111727,16 +111737,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         merged.push(route);
 
+        if (localRoute && localFingerprint === centralRouteFingerprint(payload)) {
+          delete localRoute._centralLocalCreatedAt;
+          CENTRAL_RELATION_BASELINE.set(key, localFingerprint);
+        }
         if (!CENTRAL_RELATION_PENDING_UPSERT.has(key) && (accountingViewer || !localDirty)) {
           CENTRAL_RELATION_BASELINE.set(key, centralRouteFingerprint(payload));
         }
       });
 
-      for (const key of CENTRAL_RELATION_PENDING_UPSERT) {
-        if (remoteKeys.has(key)) continue;
-        const local = currentByKey.get(key);
-        if (local) merged.push(local);
-      }
+      currentByKey.forEach((local, key) => {
+        if (remoteKeys.has(key) || CENTRAL_RELATION_PENDING_DELETE.has(key)) return;
+        if (Boolean(local?._centralLocalCreatedAt) || CENTRAL_RELATION_PENDING_UPSERT.has(key)) merged.push(local);
+      });
 
       for (const key of Array.from(CENTRAL_RELATION_BASELINE.keys())) {
         if (!remoteKeys.has(key) && !CENTRAL_RELATION_PENDING_UPSERT.has(key) && !CENTRAL_RELATION_PENDING_DELETE.has(key)) {
@@ -112011,8 +112024,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
 
-      state.futureRoutes = removeRelationsAfterCutoffV258(mergedFuture);
-      state.proposedLoads = removeRelationsAfterCutoffV258(mergedProposed);
+      state.futureRoutes = mergedFuture;
+      state.proposedLoads = mergedProposed;
       CENTRAL_LOAD_QUEUE_READY = true;
       const afterFingerprint = centralLoadQueueSetFingerprint();
       const expiredStatsChanged = expiredStatsBefore !== JSON.stringify(state.expiredProposedLoadStats || []);
@@ -122176,7 +122189,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v258-cutoff-oct18-cache">
+  <style id="targeted-v259-central-relations-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122315,9 +122328,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v258-cutoff-oct18" />
-  <script src="/order-entry.js?build=v258-cutoff-oct18"></script>
-  <style id="targeted-v258-cutoff-oct18">
+  <link rel="stylesheet" href="/order-entry.css?build=v259-central-relations" />
+  <script src="/order-entry.js?build=v259-central-relations"></script>
+  <style id="targeted-v259-central-relations">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122563,7 +122576,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v258-cutoff-oct18-script">
+  <script id="targeted-v259-central-relations-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
