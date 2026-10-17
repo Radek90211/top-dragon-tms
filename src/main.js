@@ -41,17 +41,8 @@ let workflowReloadTimer = null
 let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
-let boardEntryMode = 'excel'
-let boardPreferencesAvailable = false
 let featurePermissionsRefreshTimer = null
 
-async function loadBoardEntryMode() {
-  try {
-    const { data, error } = await supabase.from('tms_board_preferences').select('entry_mode').eq('id', 'global').maybeSingle()
-    boardPreferencesAvailable = !error && ['excel', 'classic'].includes(data?.entry_mode)
-    if (boardPreferencesAvailable) boardEntryMode = data.entry_mode
-  } catch { boardPreferencesAvailable = false }
-}
 let auditedSessionUserId = ''
 // Administrator może przełączyć wyłącznie kontekst podglądu interfejsu. Konto,
 // token Supabase i uprawnienia do operacji administracyjnych pozostają bez zmian.
@@ -828,7 +819,7 @@ function adminAuditActorBadge(row, users) {
   const actorName = String(row?.actorName || 'Nieznany użytkownik')
   const user = users.find((item) => String(item?.id || '') === actorId)
     || users.find((item) => String(item?.display_name || '').toLocaleLowerCase('pl') === actorName.toLocaleLowerCase('pl'))
-  const color = String(user?.ui_color || (row?.actorRole === 'admin' ? '#FCA5A5' : '#E2E8F0'))
+  const color = String(user?.ui_color || '#E2E8F0')
   return `<span class="admin-user-badge" style="background:${escapeHtml(color)}">${escapeHtml(actorName)}</span>`
 }
 
@@ -903,19 +894,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       ${renderAdminPreviewBar()}
       ${renderAdminRoleGuide()}
       ${renderAdminTools(auditRows, users)}
-
-      <section class="admin-card" style="margin:16px 0">
-        <h2>Sposób pracy na planie kierowców</h2>
-        <p class="muted">Ustawienie dla wszystkich spedytorów, stosowane po ponownym otwarciu aplikacji. Zmiana trybu zachowuje relacje i oba rozładunki.</p>
-        <label>Tryb tablicy
-          <select id="board-entry-mode" ${boardPreferencesAvailable ? '' : 'disabled'}>
-            <option value="excel" ${boardEntryMode === 'excel' ? 'selected' : ''}>Szybka edycja — jak w Excelu</option>
-            <option value="classic" ${boardEntryMode === 'classic' ? 'selected' : ''}>Dotychczasowy widok</option>
-          </select>
-        </label>
-        <button type="button" id="board-entry-mode-save" ${boardPreferencesAvailable ? '' : 'disabled'}>Zapisz tryb tablicy</button>
-        <p id="board-entry-mode-status" role="status">${boardPreferencesAvailable ? '' : 'Uruchom plik supabase/board-entry-mode.sql w Supabase SQL Editor, aby aktywować przełącznik.'}</p>
-      </section>
 
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
@@ -1030,7 +1008,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           ${users.length ? users.map((item) => {
             const ownPrimaryAccount = primaryAdmin && String(item.id || '') === String(currentUser?.id || '')
             const lockedAdmin = item.role === 'admin' && (!primaryAdmin || ownPrimaryAccount)
-            const userColor = item.role === 'admin' ? '#EF4444' : (item.ui_color || '#E2E8F0')
+            const userColor = item.ui_color || '#E2E8F0'
             return `
               <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
                 <div class="user-identity">
@@ -1072,21 +1050,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   `
 
   document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
-  document.querySelector('#board-entry-mode-save')?.addEventListener('click', async (event) => {
-    if (!isActualAdmin()) return
-    const mode = document.querySelector('#board-entry-mode')?.value
-    if (!['excel', 'classic'].includes(mode)) return
-    const button = event.currentTarget
-    const status = document.querySelector('#board-entry-mode-status')
-    button.disabled = true
-    try {
-      const { data, error } = await supabase.from('tms_board_preferences').update({ entry_mode: mode }).eq('id', 'global').select('entry_mode').single()
-      if (error || data?.entry_mode !== mode) throw error || new Error('Nie potwierdzono zapisu ustawienia.')
-      boardEntryMode = mode
-      status.textContent = 'Zapisano. Spedytorzy zobaczą wybrany tryb po ponownym otwarciu aplikacji.'
-    } catch (error) { status.textContent = `Nie zapisano: ${error.message || error}` }
-    finally { button.disabled = false }
-  })
   wireAdminPreviewControls()
   document.querySelector('#admin-data-transfer')?.addEventListener('click', () => {
     if (!isActualAdmin()) return
@@ -1105,10 +1068,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       inviteBranch.required = !selectedAdmin
       if (selectedAdmin) inviteBranch.value = ''
     }
-    if (inviteColor) {
-      inviteColor.disabled = selectedAdmin
-      if (selectedAdmin) inviteColor.value = '#ef4444'
-    }
+    if (inviteColor) inviteColor.disabled = false
   }
   inviteRole?.addEventListener('change', syncAdminInviteFields)
   syncAdminInviteFields()
@@ -1311,9 +1271,6 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   // przy powrocie utworzy je ponownie i pobierze świeży snapshot.
   const viewLease=hostViews.begin('admin')
   suspendTmsRuntimeForAdminPanel()
-  await loadBoardEntryMode()
-  if (!hostViews.isCurrent(viewLease)) return
-
   if (adminCache && !forceReload) {
     if (!Array.isArray(adminCache.audit)) {
       let audit=[]
@@ -1390,7 +1347,7 @@ async function loadVisibleUserDirectory() {
     branchId: profile.branch_id || '',
     branch: profile.branch_name || '',
     login: normalizedTmsLogin(profile),
-    uiColor: profile.role === 'admin' ? '#EF4444' : (profile.ui_color || '#E2E8F0'),
+    uiColor: profile.ui_color || '#E2E8F0',
   }))
 }
 
@@ -4450,7 +4407,7 @@ function buildTmsAuthMessage(user = currentUser, profile = currentProfile) {
       permissionPreview: previewActive,
       actualUserId: user?.id || '',
       branchId: profile?.branch_id || '',
-      uiColor: profile?.role === 'admin' ? '#EF4444' : (profile?.ui_color || '#E2E8F0'),
+      uiColor: profile?.ui_color || '#E2E8F0',
       featurePermissions: normalizedFeaturePermissions(profile?.feature_permissions),
       branch: role === 'accounting' ? 'Wszystkie oddziały' : (previewActive ? 'Podgląd kategorii' : branchName),
     },
@@ -4544,8 +4501,6 @@ async function renderDashboard(user) {
   if (!hostViews.isCurrent(viewLease)) return
   currentUser = user
   currentProfile = profile
-  await loadBoardEntryMode()
-  if (!hostViews.isCurrent(viewLease)) return
   if (auditedSessionUserId !== String(user.id || '')) {
     auditedSessionUserId = String(user.id || '')
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
@@ -4560,7 +4515,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v265-fleet-military"
+          src="/tms.html?embedded=1&build=request-workflow-v270-admin-audit-color"
         title="Top Dragon TMS"
       ></iframe>
     </main>
