@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v262-feature-toggles"></script>
-  <script src="/planning-core.js?build=v262-feature-toggles"></script>
-  <script src="/order-stops.js?build=v262-feature-toggles"></script>
+  <script src="/xlsx-lite.js?v=v263-feature-access"></script>
+  <script src="/planning-core.js?build=v263-feature-access"></script>
+  <script src="/order-stops.js?build=v263-feature-access"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94038,6 +94038,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
     function showFeatureDisabledMessageV261() {
       showAppMessage("Funkcja wyłączona", "Administrator nie udostępnił tej funkcji dla Twojego konta.", "info");
+    }
+
+    function applyFeatureVisibilityV263() {
+      const hide = (feature, selector) => {
+        if (tmsFeatureEnabledV261(feature)) return;
+        document.querySelectorAll(selector).forEach(element => { element.hidden = true; });
+      };
+      hide("plannedRelations", ".future-tab,.future-drawer,[data-mobile-tab-v202=\"future\"]");
+      hide("freeLoads", ".proposed-tab,.proposed-drawer,[data-mobile-tab-v202=\"proposed\"]");
+      hide("statistics", ".stats-tab,.stats-drawer");
+      hide("routeOptimization", ".route-swap-notice,.route-swap-panel");
+      hide("multiVehicleProjects", ".route-project-badge,.route-project-fields");
+      hide("militaryTransport", ".military-transport-badge,.route-military-toggle");
+      if (!tmsAnyAssistantFeatureEnabledV261()) document.querySelectorAll(".commercial-intelligence").forEach(element => { element.hidden = true; });
     }
 
     function routeProjectBadge(route) {
@@ -106650,6 +106664,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.statsCustomDraftTo = currentAppDate();
       state.statsDispatcherFilter = role === "spedytor" ? loginValue : "all";
       render();
+      requestAnimationFrame(applyFeatureVisibilityV263);
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         if (!state.user.permissionPreview) {
@@ -122244,7 +122259,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v262-feature-toggles-cache">
+  <style id="targeted-v263-feature-access-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122383,9 +122398,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v262-feature-toggles" />
-  <script src="/order-entry.js?build=v262-feature-toggles"></script>
-  <style id="targeted-v262-feature-toggles">
+  <link rel="stylesheet" href="/order-entry.css?build=v263-feature-access" />
+  <script src="/order-entry.js?build=v263-feature-access"></script>
+  <style id="targeted-v263-feature-access">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122631,7 +122646,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v262-feature-toggles-script">
+  <script id="targeted-v263-feature-access-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -122921,7 +122936,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     })();
   </script>
-  <style id="targeted-v261-user-feature-permissions-style">
+  <style id="targeted-v263-user-feature-permissions-style">
     html[data-tms-disabled-features~="plannedRelations"] .future-tab,
     html[data-tms-disabled-features~="freeLoads"] .proposed-tab,
     html[data-tms-disabled-features~="statistics"] .stats-tab,
@@ -122929,6 +122944,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     html[data-tms-disabled-features~="multiVehicleProjects"] .route-project-badge,
     html[data-tms-disabled-features~="militaryTransport"] .military-transport-badge,
     html[data-tms-disabled-features~="militaryTransport"] .route-military-toggle { display:none !important; }
+    html[data-tms-disabled-features~="plannedRelations"] .future-drawer,
+    html[data-tms-disabled-features~="freeLoads"] .proposed-drawer,
+    html[data-tms-disabled-features~="statistics"] .stats-drawer,
+    html[data-tms-disabled-features~="routeOptimization"] .route-swap-panel { display:none !important; }
   </style>
 </body>
 </html>
