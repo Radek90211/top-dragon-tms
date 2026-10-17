@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v251-scroll-smoothness"></script>
-  <script src="/planning-core.js?build=v251-scroll-smoothness"></script>
-  <script src="/order-stops.js?build=v251-scroll-smoothness"></script>
+  <script src="/xlsx-lite.js?v=v253-current-time-line"></script>
+  <script src="/planning-core.js?build=v253-current-time-line"></script>
+  <script src="/order-stops.js?build=v253-current-time-line"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -91398,13 +91398,33 @@
       };
     }
 
+    const SAMPLE_TRANSPORT_PROJECTS_V252 = Object.freeze([
+      { dayIndex:2, drivers:[0,1,2], code:"P-2026-01", name:"Projekt Warszawa → Gdańsk", load:"Warszawa", unload:"Gdańsk", client:"Baltic Retail Sp. z o.o." },
+      { dayIndex:9, drivers:[4,5,6,7], code:"P-2026-02", name:"Projekt Katowice → Szczecin", load:"Katowice", unload:"Szczecin", client:"Nord Cargo Polska S.A." }
+    ]);
+
+    function applySampleTransportProjectV252(route, driverIndex, dayIndex) {
+      const project = SAMPLE_TRANSPORT_PROJECTS_V252.find(item => item.dayIndex === dayIndex && item.drivers.includes(driverIndex));
+      if (!project) return route;
+      const vehicleNo = project.drivers.indexOf(driverIndex) + 1;
+      Object.assign(route, {
+        load:locationWithPostal(project.load), loadAddress:sampleRouteStreetAddressV223(project.load),
+        unload:locationWithPostal(project.unload), unloadAddress:sampleRouteStreetAddressV223(project.unload),
+        client:project.client, projectCode:project.code, projectName:project.name,
+        projectVehicleNo:vehicleNo, projectVehicleTotal:project.drivers.length, projectTransport:true,
+        notes:`${project.name} · auto ${vehicleNo}/${project.drivers.length}`
+      });
+      return route;
+    }
+
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = septemberRelationDatesV167();
       return (drivers || []).flatMap((driver, driverIndex) => {
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
+          applySampleTransportProjectV252(route, driverIndex, dayIndex);
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 235;
+          route.sampleScheduleVersion = 252;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91449,7 +91469,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 235 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 252 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -93939,8 +93959,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Relacja przeniesiona od: ${attr(dispatcher)}">${esc(dispatcher)}</span>`;
     }
 
+    function routeProjectBadge(route) {
+      if (!route?.projectTransport || !route?.projectName) return "";
+      const vehicleNo = Number(route.projectVehicleNo || 0);
+      const vehicleTotal = Number(route.projectVehicleTotal || 0);
+      const label = vehicleNo && vehicleTotal ? `Projekt · auto ${vehicleNo}/${vehicleTotal}` : "Projekt transportowy";
+      return `<span class="route-project-badge" title="${attr(`${route.projectName}${route.projectCode ? ` · ${route.projectCode}` : ""} · ${label}`)}">P ${vehicleNo || "–"}/${vehicleTotal || "–"}</span>`;
+    }
+
     function renderBoardRouteTitle(route, fallbackDriver = null) {
-      const indicators = `${routeDispatcherChip(route, fallbackDriver)}${routeOrderTileIcon(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}`;
+      const indicators = `${routeDispatcherChip(route, fallbackDriver)}${routeProjectBadge(route)}${routeOrderTileIcon(route)}${routeCommercialWarningBadge(route)}${routeFutureGroupBadge(route)}${routeOversizeBadge(route)}`;
       if (excelBoardMode() && route.boardExcelSplit) {
         return `<span class="route-title-indicators">${indicators}</span><span class="excel-stops-v171"><span class="route-unload-label" data-excel-stop="unload" title="Pierwszy rozładunek — dwuklik, aby edytować">${esc(displayCity(route.unload) || route.unload || 'Pierwszy rozładunek')}</span><span class="route-unload-label" data-excel-stop="secondUnload" title="Drugi rozładunek — dwuklik, aby edytować">${esc(displayCity(route.secondUnload) || route.secondUnload || 'Drugi rozładunek')}</span></span>`;
       }
@@ -121850,7 +121878,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v251-scroll-smoothness-cache">
+  <style id="targeted-v253-current-time-line-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -121989,9 +122017,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v251-scroll-smoothness" />
-  <script src="/order-entry.js?build=v251-scroll-smoothness"></script>
-  <style id="targeted-v251-scroll-smoothness">
+  <link rel="stylesheet" href="/order-entry.css?build=v253-current-time-line" />
+  <script src="/order-entry.js?build=v253-current-time-line"></script>
+  <style id="targeted-v253-current-time-line">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122203,8 +122231,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .board-scroll.board-scroll-moving-v161 .board *,
     .board-scroll.board-scroll-moving-v161 .board *::before,
     .board-scroll.board-scroll-moving-v161 .board *::after { animation-play-state:paused !important; }
+
+    /* v252: wspólny, widoczny fokus i identyfikacja projektu wieloautowego. */
+    .app :is(button,a,input,select,textarea,[data-keyboard-activate-v252],[role="button"]):focus-visible,
+    .mobile-nav-toggle-v205:focus-visible { outline:3px solid #2563eb !important; outline-offset:2px !important; box-shadow:0 0 0 5px rgba(37,99,235,.22) !important; }
+    .route-project-badge { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; min-width:24px; padding:1px 3px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:7px; font-weight:950; line-height:1.15; }
+    .app.dark-mode .route-project-badge { background:#1e3a8a; color:#dbeafe; }
+    .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v251-scroll-smoothness-script">
+  <script id="targeted-v253-current-time-line-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -122352,6 +122387,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       window.addEventListener('resize', scheduleMobileBoardV200, { passive:true });
       window.addEventListener('orientationchange', () => setTimeout(() => scheduleMobileBoardV200(true), 80), { passive:true });
       requestAnimationFrame(() => scheduleMobileBoardV200(true));
+    })();
+  </script>
+  <script id="targeted-v252-keyboard-accessibility">
+    (() => {
+      let keyboardEnhanceFrameV252 = 0;
+      const keyboardRootsV252 = new Set();
+      function markKeyboardActionsV252(root = document) {
+        const selector = '[onclick]:not(button):not(a):not(input):not(select):not(textarea):not([role]):not([class*="backdrop"]):not(.app)';
+        const candidates = [];
+        if (root.matches?.(selector)) candidates.push(root);
+        root.querySelectorAll?.(selector).forEach(element => candidates.push(element));
+        candidates.forEach(element => {
+          const action = String(element.getAttribute('onclick') || '');
+          if (!action || /stopPropagation\s*\(/.test(action) || /target\s*===\s*this/.test(action)) return;
+          element.setAttribute('role', 'button'); element.setAttribute('tabindex', '0'); element.setAttribute('data-keyboard-activate-v252', '');
+        });
+      }
+      function scheduleKeyboardEnhanceV252(root = document) {
+        keyboardRootsV252.add(root);
+        if (keyboardEnhanceFrameV252) return;
+        keyboardEnhanceFrameV252 = requestAnimationFrame(() => {
+          keyboardEnhanceFrameV252 = 0;
+          keyboardRootsV252.forEach(node => markKeyboardActionsV252(node));
+          keyboardRootsV252.clear();
+        });
+      }
+      document.addEventListener('keydown', event => {
+        const target = event.target;
+        if (target?.matches?.('[data-keyboard-activate-v252]') && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); target.click(); return; }
+        if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && target?.closest?.('.time-route[data-route-id]')) {
+          event.preventDefault(); const tile = target.closest('.time-route[data-route-id]'); const rect = tile.getBoundingClientRect();
+          openRouteContextMenu({ preventDefault(){}, stopPropagation(){}, clientX:rect.left + rect.width / 2, clientY:rect.top + rect.height / 2 }, tile.dataset.routeId);
+        }
+      }, true);
+      new MutationObserver(records => {
+        for (const record of records) for (const node of record.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE && (node.matches?.('[onclick]') || node.querySelector?.('[onclick]'))) { scheduleKeyboardEnhanceV252(node); return; }
+        }
+      }).observe(document.body, { childList:true, subtree:true });
+      scheduleKeyboardEnhanceV252();
     })();
   </script>
 </body>
