@@ -77,6 +77,7 @@ const USER_FEATURES = Object.freeze([
   ['freeLoads', 'Wolne ładunki'],
   ['relationChat', 'Czat dotyczący relacji'],
   ['clientDatabase', 'Baza klientów'],
+  ['excelBoardMode', 'Tryb Excelowy'],
 ])
 
 function normalizedFeaturePermissions(value) {
@@ -87,7 +88,7 @@ function normalizedFeaturePermissions(value) {
 function renderUserFeatureControls(user) {
   if (String(user?.role || '') === 'admin') return '<div class="user-feature-admin-note">Administrator ma zawsze pełny dostęp.</div>'
   const permissions = normalizedFeaturePermissions(user?.feature_permissions)
-  return `<details class="user-features"><summary>Funkcje użytkownika</summary><div class="user-feature-grid">${USER_FEATURES.map(([key, label]) => `<label><input class="user-feature-toggle" type="checkbox" data-feature-key="${key}" ${permissions[key] ? 'checked' : ''} />${escapeHtml(label)}</label>`).join('')}</div></details>`
+  return `<details class="user-features"><summary>Funkcje użytkownika</summary><div class="user-feature-grid">${USER_FEATURES.map(([key, label]) => `<label class="user-feature-switch"><span>${escapeHtml(label)}</span><input class="user-feature-toggle" type="checkbox" data-feature-key="${key}" ${permissions[key] ? 'checked' : ''} /><span class="user-feature-switch-track" aria-hidden="true"></span></label>`).join('')}</div></details>`
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -673,8 +674,13 @@ function adminPanelLayoutStyles() {
       .user-features,.user-feature-admin-note { grid-column:1/-1; margin:0; padding:9px 10px; border:1px solid #dbe3ee; border-radius:10px; background:#f8fafc; }
       .user-features summary { cursor:pointer; font-size:11px; font-weight:850; color:#334155; }
       .user-feature-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px 12px; margin-top:9px; }
-      .user-feature-grid label { display:flex; align-items:center; gap:6px; min-height:28px; font-size:11px; font-weight:700; color:#334155; }
-      .user-feature-grid input { width:16px; height:16px; accent-color:#0f766e; }
+      .user-feature-grid .user-feature-switch { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; font-size:11px; font-weight:750; color:#334155; cursor:pointer; user-select:none; }
+      .user-feature-switch input { position:absolute; inline-size:1px; block-size:1px; overflow:hidden; opacity:0; pointer-events:none; }
+      .user-feature-switch-track { position:relative; flex:0 0 42px; inline-size:42px; block-size:24px; border:1px solid #94a3b8; border-radius:999px; background:#cbd5e1; box-shadow:inset 0 1px 2px rgba(15,23,42,.16); transition:background-color .16s ease,border-color .16s ease; }
+      .user-feature-switch-track::after { position:absolute; top:3px; left:3px; inline-size:16px; block-size:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.35); content:""; transition:transform .16s ease; }
+      .user-feature-switch input:checked + .user-feature-switch-track { border-color:#0f766e; background:#14b8a6; }
+      .user-feature-switch input:checked + .user-feature-switch-track::after { transform:translateX(18px); }
+      .user-feature-switch input:focus-visible + .user-feature-switch-track { outline:3px solid rgba(37,99,235,.36); outline-offset:2px; }
       .user-feature-admin-note { color:#64748b; font-size:11px; font-weight:700; }
       .compact-form { padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
       .admin-tools-grid { display:grid; grid-template-columns:minmax(240px,.55fr) minmax(0,1.45fr); gap:14px; margin-bottom:16px; }
@@ -4482,7 +4488,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v261-feature-permissions"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v262-feature-toggles"
         title="Top Dragon TMS"
       ></iframe>
     </main>
