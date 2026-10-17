@@ -674,7 +674,7 @@ function adminPanelLayoutStyles() {
       .user-features,.user-feature-admin-note { grid-column:1/-1; margin:0; padding:9px 10px; border:1px solid #dbe3ee; border-radius:10px; background:#f8fafc; }
       .user-features summary { cursor:pointer; font-size:11px; font-weight:850; color:#334155; }
       .user-feature-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px 12px; margin-top:9px; }
-      .user-feature-grid .user-feature-switch { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; font-size:11px; font-weight:750; color:#334155; cursor:pointer; user-select:none; }
+      .user-feature-grid .user-feature-switch { display:flex; align-items:center; justify-content:flex-start; gap:8px; min-height:34px; font-size:11px; font-weight:750; color:#334155; cursor:pointer; user-select:none; }
       .user-feature-switch input { position:absolute; inline-size:1px; block-size:1px; overflow:hidden; opacity:0; pointer-events:none; }
       .user-feature-switch-track { position:relative; flex:0 0 42px; inline-size:42px; block-size:24px; border:1px solid #94a3b8; border-radius:999px; background:#cbd5e1; box-shadow:inset 0 1px 2px rgba(15,23,42,.16); transition:background-color .16s ease,border-color .16s ease; }
       .user-feature-switch-track::after { position:absolute; top:3px; left:3px; inline-size:16px; block-size:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.35); content:""; transition:transform .16s ease; }
@@ -4488,7 +4488,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v262-feature-toggles"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v263-feature-access"
         title="Top Dragon TMS"
       ></iframe>
     </main>
