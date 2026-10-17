@@ -43,6 +43,7 @@ let currentUser = null
 let currentProfile = null
 let boardEntryMode = 'excel'
 let boardPreferencesAvailable = false
+let featurePermissionsRefreshTimer = null
 
 async function loadBoardEntryMode() {
   try {
@@ -269,6 +270,10 @@ function renderLogin(message = '') {
   activeAuditMessage = null
   activeWeeklySettlementMessage = null
   activeWorkflowMessage = null
+  if (featurePermissionsRefreshTimer) {
+    clearInterval(featurePermissionsRefreshTimer)
+    featurePermissionsRefreshTimer = null
+  }
   workflowSchemaAvailable = null
   if (fleetReloadTimer) {
     clearTimeout(fleetReloadTimer)
@@ -555,6 +560,36 @@ async function saveUserFeaturePermissions(userId, permissions) {
     p_permissions: permissions || {},
   })
   if (error) throw error
+}
+
+function featurePermissionsFingerprint(value) {
+  return JSON.stringify(normalizedFeaturePermissions(value))
+}
+
+async function readCurrentFeaturePermissions(userId, fallback = {}) {
+  const fallbackPermissions = fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {}
+  try {
+    const { data, error } = await supabase.rpc('get_tms_feature_permissions')
+    if (error) return fallbackPermissions
+    const row = (data || []).find((item) => String(item?.user_id || '') === String(userId || ''))
+    return row?.feature_permissions && typeof row.feature_permissions === 'object' ? row.feature_permissions : fallbackPermissions
+  } catch {
+    return fallbackPermissions
+  }
+}
+
+async function refreshCurrentFeaturePermissions() {
+  if (document.hidden || !currentUser?.id || !currentProfile || !activeTmsFrame?.contentWindow) return
+  const currentPermissions = await readCurrentFeaturePermissions(currentUser.id, currentProfile.feature_permissions)
+  if (featurePermissionsFingerprint(currentPermissions) === featurePermissionsFingerprint(currentProfile.feature_permissions)) return
+  currentProfile.feature_permissions = currentPermissions
+  activeAuthMessage = buildTmsAuthMessage(currentUser, currentProfile)
+  activeTmsFrame.contentWindow.postMessage(activeAuthMessage, window.location.origin)
+}
+
+function startFeaturePermissionsRefresh() {
+  if (featurePermissionsRefreshTimer) clearInterval(featurePermissionsRefreshTimer)
+  featurePermissionsRefreshTimer = setInterval(refreshCurrentFeaturePermissions, 30000)
 }
 
 function branchOptions(branches, selectedId = '') {
@@ -1417,6 +1452,13 @@ async function loadFleetData() {
 
   const usageRows = usage || []
 
+  let fleetExtraRows = []
+  try {
+    const { data, error } = await supabase.rpc('get_tms_fleet_extra_details')
+    if (!error) fleetExtraRows = Array.isArray(data) ? data : []
+  } catch {}
+  const fleetExtrasByAssignment = new Map(fleetExtraRows.map((item) => [String(item?.assignment_id || ''), item || {}]))
+
   let preferenceRows = []
   if (['dispatcher', 'admin'].includes(currentRole()) && currentActorId()) {
     const { data: preferences, error: preferencesError } = await supabase
@@ -1469,6 +1511,7 @@ async function loadFleetData() {
     const driver = firstRelated(assignment.driver)
     const vehicle = firstRelated(assignment.vehicle)
     const trailer = firstRelated(assignment.trailer)
+    const extra = fleetExtrasByAssignment.get(String(assignment.id || '')) || {}
 
     const relationLocked = usageRows.some((item) =>
       item.fleet_assignment_id === assignment.id ||
@@ -1489,6 +1532,7 @@ async function loadFleetData() {
       carrier: carrier ? {
         id: carrier.id,
         name: carrier.name || '',
+        nip: extra.carrier_nip || '',
         rateHistory: ratesByCarrier.get(String(carrier.id || '')) || [],
       } : null,
       driver: driver ? {
@@ -1504,6 +1548,8 @@ async function loadFleetData() {
         id: vehicle.id,
         registrationNo: vehicle.registration_no || '',
         brand: vehicle.brand || '',
+        model: extra.vehicle_model || '',
+        tractorColor: extra.tractor_color || '',
         description: vehicle.description || '',
         createdBy: vehicle.created_by || '',
       } : null,
@@ -1512,10 +1558,22 @@ async function loadFleetData() {
         registrationNo: trailer.registration_no || '',
         heightM: trailer.height_m == null ? null : Number(trailer.height_m),
         description: trailer.description || '',
+        brand: extra.trailer_brand || '',
         createdBy: trailer.created_by || '',
       } : null,
     }
   })
+}
+
+async function saveFleetExtraDetails(assignmentId, payload = {}) {
+  const { error } = await supabase.rpc('set_tms_fleet_extra_details', {
+    p_assignment_id: String(assignmentId || ''),
+    p_carrier_nip: String(payload.carrierNip || '').replace(/\D/g, '') || null,
+    p_vehicle_model: String(payload.vehicleModel || '').trim() || null,
+    p_tractor_color: String(payload.tractorColor || '').trim() || null,
+    p_trailer_brand: String(payload.trailerBrand || '').trim() || null,
+  })
+  if (error) throw error
 }
 
 let syncFleetDataToTmsGenerationV154=0;
@@ -3033,6 +3091,7 @@ async function createFleetSetFromTms(message) {
   }
 
   try {
+    const carrierNip = String(payload.carrierNip || '').replace(/\D/g, '')
     let assignedDispatcherId = String(payload.assignedDispatcherId || '').trim()
     let branchId = String(payload.branchId || '').trim()
     if (hasRole('dispatcher')) {
@@ -3054,6 +3113,9 @@ async function createFleetSetFromTms(message) {
     if (!isValidUuid(assignedDispatcherId) || !isValidUuid(branchId)) {
       throw new Error('Nieprawidłowy spedytor lub oddział dla nowego zestawu.')
     }
+    if (!/^\d{10}$/.test(carrierNip)) {
+      throw new Error('Podaj prawidłowy, 10-cyfrowy NIP przewoźnika.')
+    }
     const { error } = await supabase.rpc('create_fleet_set', {
       p_carrier_name: String(payload.carrierName || '').trim(),
       p_driver_name: String(payload.driverName || '').trim(),
@@ -3070,6 +3132,13 @@ async function createFleetSetFromTms(message) {
     })
 
     if (error) throw error
+
+    const createdRows = await loadFleetData()
+    const created = createdRows
+      .filter((row) => String(row.assignedDispatcherId || '') === assignedDispatcherId && String(row.branchId || '') === branchId && String(row.carrier?.name || '').trim() === String(payload.carrierName || '').trim() && String(row.driver?.fullName || '').trim() === String(payload.driverName || '').trim())
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]
+    if (!created?.id) throw new Error('Zestaw został zapisany, ale nie udało się odczytać jego danych dodatkowych.')
+    await saveFleetExtraDetails(created.id, { ...payload, carrierNip })
 
     await syncFleetDataToTms()
     sendFleetOperationResult(requestId, true, 'create', 'Kierowca zapisany')
@@ -3108,6 +3177,7 @@ async function updateFleetSetFromTms(message) {
       p_base_location: String(payload.baseLocation || '').trim() || null,
     })
     if (error) throw error
+    await saveFleetExtraDetails(assignmentId, payload)
 
     await syncFleetDataToTms()
     sendFleetOperationResult(requestId, true, 'update', 'Dane pojazdu i kierowcy zostały uzupełnione w centralnej flocie.')
@@ -4470,6 +4540,8 @@ async function renderDashboard(user) {
     return
   }
 
+  profile.feature_permissions = await readCurrentFeaturePermissions(user.id, profile.feature_permissions)
+  if (!hostViews.isCurrent(viewLease)) return
   currentUser = user
   currentProfile = profile
   await loadBoardEntryMode()
@@ -4488,7 +4560,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v263-feature-access"
+          src="/tms.html?embedded=1&boardMode=${boardEntryMode}&build=request-workflow-v265-fleet-military"
         title="Top Dragon TMS"
       ></iframe>
     </main>
@@ -4497,6 +4569,7 @@ async function renderDashboard(user) {
   const frame = document.querySelector('#tms-frame')
   activeTmsFrame = frame
   activeAuthMessage = buildTmsAuthMessage(user, profile)
+  startFeaturePermissionsRefresh()
 
   const sendIdentityToTms = () => {
     if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)frame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
@@ -4581,6 +4654,11 @@ async function routeSession(session) {
 
 async function bootstrap() {
   if (!app) throw new Error('Brak elementu #app w pliku index.html.')
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshCurrentFeaturePermissions()
+  })
+  window.addEventListener('focus', refreshCurrentFeaturePermissions)
 
   window.addEventListener('message', async (event) => {
     if (event.origin !== window.location.origin) return
