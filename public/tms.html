@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v260-tablet-scroll"></script>
-  <script src="/planning-core.js?build=v260-tablet-scroll"></script>
-  <script src="/order-stops.js?build=v260-tablet-scroll"></script>
+  <script src="/xlsx-lite.js?v=v261-feature-permissions"></script>
+  <script src="/planning-core.js?build=v261-feature-permissions"></script>
+  <script src="/order-stops.js?build=v261-feature-permissions"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94016,8 +94016,32 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<span class="route-dispatcher-chip ${dispatcherBadgeClass(dispatcher)}" title="Relacja przeniesiona od: ${attr(dispatcher)}">${esc(dispatcher)}</span>`;
     }
 
+    const TMS_USER_FEATURES_V261 = Object.freeze([
+      "routeOptimization", "routeHistory", "multiVehicleProjects", "militaryTransport",
+      "statistics", "loadRequests", "nearbyClients", "plannedRelations", "freeLoads",
+      "relationChat", "clientDatabase"
+    ]);
+    const TMS_COMMERCIAL_FEATURES_V261 = Object.freeze({
+      rates:"routeHistory", region:"nearbyClients", requests:"loadRequests", database:"clientDatabase", fleet:null
+    });
+    function tmsFeatureEnabledV261(key) {
+      if (!key || !state.user) return true;
+      if (String(state.user.actualSupabaseRole || state.user.supabaseRole || "") === "admin" && !state.user.permissionPreview) return true;
+      return state.user.featurePermissions?.[key] !== false;
+    }
+    function tmsCommercialViewEnabledV261(view) {
+      const feature = TMS_COMMERCIAL_FEATURES_V261[String(view || "")];
+      return feature ? tmsFeatureEnabledV261(feature) : true;
+    }
+    function tmsAnyAssistantFeatureEnabledV261() {
+      return ["routeHistory", "nearbyClients", "loadRequests", "clientDatabase"].some(tmsFeatureEnabledV261);
+    }
+    function showFeatureDisabledMessageV261() {
+      showAppMessage("Funkcja wyłączona", "Administrator nie udostępnił tej funkcji dla Twojego konta.", "info");
+    }
+
     function routeProjectBadge(route) {
-      if (!route?.projectTransport) return "";
+      if (!tmsFeatureEnabledV261("multiVehicleProjects") || !route?.projectTransport) return "";
       const vehicleNo = Number(route.projectVehicleNo || 0);
       const vehicleTotal = Number(route.projectVehicleTotal || 0);
       const label = vehicleNo && vehicleTotal ? `Projekt · auto ${vehicleNo}/${vehicleTotal}` : "Projekt transportowy";
@@ -96108,7 +96132,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeIsMilitaryTransport(route) {
-      return Boolean(route?.militaryTransport);
+      return tmsFeatureEnabledV261("militaryTransport") && Boolean(route?.militaryTransport);
     }
 
     function maxLoadHeightForDriver(driver) {
@@ -97304,11 +97328,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function toggleCommercialIntelligence() {
+      if (!tmsAnyAssistantFeatureEnabledV261()) {
+        showFeatureDisabledMessageV261();
+        return;
+      }
       state.commercialPanelOpen = !state.commercialPanelOpen;
       syncCommercialIntelligenceSection();
     }
 
     function setCommercialView(view) {
+      if (!tmsCommercialViewEnabledV261(view)) {
+        showFeatureDisabledMessageV261();
+        return;
+      }
       const allowed = new Set(["rates", "region", "clients", "requests"]);
       state.commercialView = allowed.has(view) ? view : "rates";
       state.commercialPanelOpen = true;
@@ -98027,6 +98059,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function sendRegionClientLoadRequest(clientId, location = state.regionOpportunityQuery) {
+      if (!tmsFeatureEnabledV261("loadRequests")) {
+        showFeatureDisabledMessageV261();
+        return false;
+      }
       const sourceClient = (state.clients || []).find(item => String(item.id) === String(clientId));
       const resolvedClient = quickRequestClientOwner(sourceClient);
       const client = (state.clients || []).find(item => String(item.id) === String(resolvedClient.requestClientId)) || resolvedClient.client || sourceClient;
@@ -100525,6 +100561,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function toggleProposedPanel(force = null) {
+      if (force !== false && !tmsFeatureEnabledV261("freeLoads")) {
+        showFeatureDisabledMessageV261();
+        return;
+      }
       state.proposedPanelOpen = force === null ? !state.proposedPanelOpen : Boolean(force);
       if (state.proposedPanelOpen) state.futurePanelOpen = false;
       setDrawerOpenFast(".future-drawer", ".future-tab", false);
@@ -100533,6 +100573,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function openProposedAdd(event) {
+      if (!tmsFeatureEnabledV261("freeLoads")) { showFeatureDisabledMessageV261(); return; }
       if (!["spedytor","kierownik","admin"].includes(state.user?.role)) return;
       if (event) event.stopPropagation();
       state.proposedEditId = null;
@@ -101526,6 +101567,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeSwapSuggestionsForUser() {
+      if (!tmsFeatureEnabledV261("routeOptimization")) return [];
       const login = String(state.user?.login || "");
       if (isAdminUser()) return state.routeSwapSuggestions || [];
       return (state.routeSwapSuggestions || []).filter(item => item.firstDispatcher === login || item.secondDispatcher === login);
@@ -103033,6 +103075,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function toggleFuturePanel(force = null) {
+      if (force !== false && !tmsFeatureEnabledV261("plannedRelations")) {
+        showFeatureDisabledMessageV261();
+        return;
+      }
       state.futurePanelOpen = force === null ? !state.futurePanelOpen : Boolean(force);
       if (state.futurePanelOpen) state.proposedPanelOpen = false;
       setDrawerOpenFast(".proposed-drawer", ".proposed-tab", false);
@@ -103041,6 +103087,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function openFutureAdd(event) {
+      if (!tmsFeatureEnabledV261("plannedRelations")) { showFeatureDisabledMessageV261(); return; }
       if (!["spedytor","kierownik","admin"].includes(state.user?.role)) return;
       if (event) event.stopPropagation();
       const driver = DRIVERS.find(item => item.dispatcher === state.user.login) || DRIVERS[0] || null;
@@ -105470,6 +105517,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function showRouteNearbyClients(routeId) {
+      if (!tmsFeatureEnabledV261("nearbyClients")) {
+        showFeatureDisabledMessageV261();
+        return;
+      }
       if (!state.contextMenu || state.contextMenu.routeId !== routeId) return;
       state.contextMenu.view = "clients";
       const route = state.routes.find(item => item.id === routeId);
@@ -106577,8 +106628,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         name: String(user.displayName || loginValue),
         supabaseId: String(user.id || ""),
         email: String(user.email || ""),
-        uiColor: String(user.uiColor || '#E2E8F0')
+        uiColor: String(user.uiColor || '#E2E8F0'),
+        featurePermissions: user.featurePermissions && typeof user.featurePermissions === "object" ? user.featurePermissions : {}
       };
+      const disabledFeatures = TMS_USER_FEATURES_V261.filter(key => !tmsFeatureEnabledV261(key));
+      document.documentElement.dataset.tmsDisabledFeatures = disabledFeatures.join(" ");
       beginBoardStartupV188();
       state.detailsOpen = false;
       state.addOpen = false;
@@ -110762,10 +110816,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const oversizedCostValue = Number(formValue("new-oversized-cost") || 0);
       const oversizedTransportValue = Boolean(String(document.getElementById("new-oversized")?.value || "0") === "1" || oversizedCostValue > 0);
       const futureGroupValue = formValue("new-future-group").trim();
-      const militaryTransportValue = Boolean(document.getElementById("new-military-transport")?.checked);
-      const projectNameValue = formValue("new-project-name").trim();
-      const projectVehicleNoValue = Math.max(0, Math.floor(Number(formValue("new-project-vehicle-no") || 0)) || 0);
-      const projectVehicleTotalValue = Math.max(0, Math.floor(Number(formValue("new-project-vehicle-total") || 0)) || 0);
+      const militaryTransportValue = tmsFeatureEnabledV261("militaryTransport") && Boolean(document.getElementById("new-military-transport")?.checked);
+      const projectNameValue = tmsFeatureEnabledV261("multiVehicleProjects") ? formValue("new-project-name").trim() : "";
+      const projectVehicleNoValue = tmsFeatureEnabledV261("multiVehicleProjects") ? Math.max(0, Math.floor(Number(formValue("new-project-vehicle-no") || 0)) || 0) : 0;
+      const projectVehicleTotalValue = tmsFeatureEnabledV261("multiVehicleProjects") ? Math.max(0, Math.floor(Number(formValue("new-project-vehicle-total") || 0)) || 0) : 0;
       const projectColorRaw = formValue("new-project-color").trim();
       const projectColorValue = /^#[0-9a-f]{6}$/i.test(projectColorRaw) ? projectColorRaw : "#2563eb";
       const projectTransportValue = Boolean(projectNameValue || projectVehicleNoValue || projectVehicleTotalValue);
@@ -114868,7 +114922,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
 
       renderCommercialIntelligence = function() {
-        const tabs = [["rates","Historia"],["region","Klienci w rejonie"],["requests","Zapytania o ładunek"],["database","Baza klientów"]];
+        const tabs = [["rates","Historia"],["region","Klienci w rejonie"],["requests","Zapytania o ładunek"],["database","Baza klientów"]].filter(([key]) => tmsCommercialViewEnabledV261(key));
         if (["spedytor","kierownik","admin"].includes(state.user?.role)) tabs.push(["fleet","+ Kierowca / pojazd"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
         return `<div class="commercial-intelligence workspace-inline-panel ${state.commercialPanelOpen ? "is-open" : ""}" id="commercial-intelligence"><div class="commercial-head"><h3>Asystent spedytora</h3><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
@@ -114878,6 +114932,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       setCommercialView = function(view) {
         const allowed = new Set(["rates","region","clients","requests","database","fleet"]);
         const next = allowed.has(view) ? view : "rates";
+        if (!tmsCommercialViewEnabledV261(next)) { showFeatureDisabledMessageV261(); return; }
         if (next === "audit" && !isAdminUser()) return;
         if (next === "fleet" && !["spedytor","kierownik","admin"].includes(state.user?.role)) return;
         if (next === "rates") state.commercialRatesSearched = false;
@@ -122189,7 +122244,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v260-tablet-scroll-cache">
+  <style id="targeted-v261-feature-permissions-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122328,9 +122383,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v260-tablet-scroll" />
-  <script src="/order-entry.js?build=v260-tablet-scroll"></script>
-  <style id="targeted-v260-tablet-scroll">
+  <link rel="stylesheet" href="/order-entry.css?build=v261-feature-permissions" />
+  <script src="/order-entry.js?build=v261-feature-permissions"></script>
+  <style id="targeted-v261-feature-permissions">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }
@@ -122576,7 +122631,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
   </style>
-  <script id="targeted-v260-tablet-scroll-script">
+  <script id="targeted-v261-feature-permissions-script">
     (() => {
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
@@ -122832,6 +122887,49 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }, true);
     })();
   </script>
+  <script id="targeted-v261-user-feature-permissions">
+    (() => {
+      const originalSetAppViewV261 = setAppView;
+      setAppView = function(view) {
+        if (view === "clients" && !tmsFeatureEnabledV261("clientDatabase")) {
+          showFeatureDisabledMessageV261();
+          return;
+        }
+        return originalSetAppViewV261.apply(this, arguments);
+      };
+
+      const originalToggleStatsPanelV261 = window.toggleStatsPanel;
+      if (typeof originalToggleStatsPanelV261 === "function") {
+        window.toggleStatsPanel = function(force = null) {
+          if (force !== false && !tmsFeatureEnabledV261("statistics")) {
+            showFeatureDisabledMessageV261();
+            return;
+          }
+          return originalToggleStatsPanelV261.apply(this, arguments);
+        };
+      }
+
+      const originalOpenQueueChatV261 = window.openQueueRelationChat3L52;
+      if (typeof originalOpenQueueChatV261 === "function") {
+        window.openQueueRelationChat3L52 = function() {
+          if (!tmsFeatureEnabledV261("relationChat")) {
+            showFeatureDisabledMessageV261();
+            return;
+          }
+          return originalOpenQueueChatV261.apply(this, arguments);
+        };
+      }
+    })();
+  </script>
+  <style id="targeted-v261-user-feature-permissions-style">
+    html[data-tms-disabled-features~="plannedRelations"] .future-tab,
+    html[data-tms-disabled-features~="freeLoads"] .proposed-tab,
+    html[data-tms-disabled-features~="statistics"] .stats-tab,
+    html[data-tms-disabled-features~="routeOptimization"] .route-swap-notice { display:none !important; }
+    html[data-tms-disabled-features~="multiVehicleProjects"] .route-project-badge,
+    html[data-tms-disabled-features~="militaryTransport"] .military-transport-badge,
+    html[data-tms-disabled-features~="militaryTransport"] .route-military-toggle { display:none !important; }
+  </style>
 </body>
 </html>
 
