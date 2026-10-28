@@ -1,3 +1,56 @@
+AKTUALIZACJA v287 - ikony dostawców trasy
+Build/cache: v287-route-provider-icons
+
+- W szczegółach zlecenia przyciski otwierające trasę mają teraz rozpoznawalną pinezkę Google Maps oraz graficzny znak Impargo.
+- Ujednolicono rozmiar, obramowanie, fokus klawiaturowy i wygląd w jasnym oraz ciemnym motywie.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v286 - funkcje klawiaturowe planu
+Build/cache: v286-board-keyboard-actions
+
+- Enter otwiera szczegóły zaznaczonej relacji, a Esc je zamyka.
+- Ctrl+C i Ctrl+V działają dla zaznaczonych kafelków także poza Trybem Excelowym.
+- Delete otwiera potwierdzenie usunięcia; Enter zatwierdza, Esc anuluje, a przyciski są dostępne kursorem.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v285 - dymki i trasy na mapie
+Build/cache: v285-map-popups-and-routes
+
+- Każde otwarcie dymka automatycznie przesuwa mapę tak, aby cały dymek był widoczny.
+- Zmniejszono i uporządkowano treść dymków bez usuwania kluczowych danych.
+- Podgląd trasy ma teraz profesjonalną, wielowarstwową linię z wyraźnym kierunkiem oraz punktami załadunku i rozładunku.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v284 - stabilny start mapy mobilnej
+Build/cache: v284-mobile-map-start
+
+- Mapa awaryjna nie jest już renderowana przed załadowaniem Leaflet; pojawia się tylko po rzeczywistym błędzie ładowania mapy drogowej.
+- Dodano lekki stan „Ładowanie mapy” oraz ładowanie Leaflet w czasie bezczynności po starcie aplikacji.
+- Mobilne centrum i powiększenie pokazują Polskę bliżej, bez pierwszego widoku na Bałtyk.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v283 - minimalistyczny ekran ustawiania hasła
+Build/cache: v283-password-setup-clean
+
+- Usunięto opis aktywacji oraz nagłówek „Ustaw hasło” nad formularzem.
+- Logo zachowuje dokładnie wspólne wymiary ekranu logowania i jest wyśrodkowane.
+- Przycisk „Ustaw hasło” pozostaje akcją zapisującą formularz.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v282 - niezawodne otwieranie szczegółów na telefonie
+Build/cache: v282-mobile-route-details-fallback
+
+- Dodano niezależną obsługę kliknięcia po tapnięciu kafelka relacji.
+- Szczegóły zlecenia otwierają się również wtedy, gdy przeglądarka przejmie wcześniejsze zdarzenie dotykowe do przewijania.
+- Gest przewijania pozostaje zablokowany przed przypadkowym otwarciem kafelka.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v281 - uproszczony ekran ustawiania hasła
 Build/cache: v281-password-setup-minimal
 
