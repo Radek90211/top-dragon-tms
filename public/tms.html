@@ -90152,9 +90152,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v290-mobile-map-and-tap"></script>
-  <script src="/planning-core.js?build=v290-mobile-map-and-tap"></script>
-  <script src="/order-stops.js?build=v290-mobile-map-and-tap"></script>
+  <script src="/xlsx-lite.js?v=v291-project-vehicle-progress"></script>
+  <script src="/planning-core.js?build=v291-project-vehicle-progress"></script>
+  <script src="/order-stops.js?build=v291-project-vehicle-progress"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -94101,13 +94101,53 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!tmsAnyAssistantFeatureEnabledV261()) document.querySelectorAll(".commercial-intelligence").forEach(element => { element.hidden = true; });
     }
 
+    function projectGroupKey(route) {
+      if (!route?.projectTransport) return "";
+      const identity = String(route.projectCode || route.projectName || [route.client, route.load, route.unload].filter(Boolean).join(" · "))
+        .trim().toLocaleLowerCase("pl");
+      const date = String(route.loadDate || route.date || "").trim();
+      return identity && date ? `${date}\u001f${identity}` : "";
+    }
+
+    function projectDriverOrder(route) {
+      const id = String(route?.driverId || "");
+      const stableIndex = (state.boardDriverOrderV192 || []).findIndex(driverId => String(driverId) === id);
+      if (stableIndex >= 0) return stableIndex;
+      const driverIndex = DRIVERS.findIndex(driver => String(driver.id) === id);
+      return driverIndex >= 0 ? driverIndex : Number.MAX_SAFE_INTEGER;
+    }
+
+    function routeProjectProgress(route) {
+      const savedNo = Number(route?.projectVehicleNo || 0);
+      const savedTotal = Number(route?.projectVehicleTotal || 0);
+      const key = projectGroupKey(route);
+      if (!key) return { vehicleNo:savedNo, vehicleTotal:savedTotal, prepared:0 };
+
+      const oneRoutePerDriver = new Map();
+      activeRoutes().forEach(item => {
+        if (!item?.driverId || !driverOperationallyVisible(driverById(item.driverId))) return;
+        if (projectGroupKey(item) !== key) return;
+        const driverId = String(item.driverId);
+        const previous = oneRoutePerDriver.get(driverId);
+        if (!previous || routeGlobalStart(item) < routeGlobalStart(previous)) oneRoutePerDriver.set(driverId, item);
+      });
+      const preparedRoutes = Array.from(oneRoutePerDriver.values()).sort((left, right) =>
+        projectDriverOrder(left) - projectDriverOrder(right)
+        || routeGlobalStart(left) - routeGlobalStart(right)
+        || String(left.id).localeCompare(String(right.id))
+      );
+      const vehicleNo = preparedRoutes.findIndex(item => String(item.driverId) === String(route.driverId)) + 1;
+      const vehicleTotal = Math.max(savedTotal, ...preparedRoutes.map(item => Number(item.projectVehicleTotal || 0)), preparedRoutes.length);
+      return { vehicleNo:vehicleNo || savedNo, vehicleTotal, prepared:preparedRoutes.length };
+    }
+
     function routeProjectBadge(route) {
       if (!tmsFeatureEnabledV261("multiVehicleProjects") || !route?.projectTransport) return "";
-      const vehicleNo = Number(route.projectVehicleNo || 0);
-      const vehicleTotal = Number(route.projectVehicleTotal || 0);
-      const label = vehicleNo && vehicleTotal ? `Projekt · auto ${vehicleNo}/${vehicleTotal}` : "Projekt transportowy";
+      const { vehicleNo, vehicleTotal, prepared } = routeProjectProgress(route);
+      const label = vehicleNo && vehicleTotal ? `${vehicleNo}/${vehicleTotal}` : "Projekt transportowy";
+      const progress = vehicleTotal ? ` · przygotowano ${prepared}/${vehicleTotal}` : "";
       const color = /^#[0-9a-f]{6}$/i.test(String(route.projectColor || "")) ? route.projectColor : "#2563eb";
-      return `<span class="route-project-badge" style="--project-color:${attr(color)}" title="${attr(`${route.projectName || "Projekt"}${route.projectCode ? ` · ${route.projectCode}` : ""} · ${label}`)}">${vehicleNo || "–"}/${vehicleTotal || "–"}</span>`;
+      return `<span class="route-project-badge" style="--project-color:${attr(color)}" title="${attr(`${route.projectName || "Projekt"}${route.projectCode ? ` · ${route.projectCode}` : ""} · ${label}${progress}`)}">${vehicleNo || "–"}/${vehicleTotal || "–"}</span>`;
     }
 
     function renderBoardRouteTitle(route, fallbackDriver = null) {
@@ -122525,7 +122565,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v290-mobile-map-and-tap-cache">
+  <style id="targeted-v291-project-vehicle-progress-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122664,8 +122704,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v290-mobile-map-and-tap" />
-  <script src="/order-entry.js?build=v290-mobile-map-and-tap"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v291-project-vehicle-progress" />
+  <script src="/order-entry.js?build=v291-project-vehicle-progress"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
