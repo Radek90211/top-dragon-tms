@@ -639,8 +639,13 @@ function setAdminBusy(busy) {
 
 function adminPanelLayoutStyles() {
   return `
-    <style id="admin-panel-layout-v117">
+    <style id="admin-panel-layout-v294">
       .admin-shell { width:min(1480px,calc(100% - 40px)); margin:0 auto; padding:24px 0 48px; }
+      .admin-loading-shell { width:100%; min-height:100dvh; display:grid; place-items:center; padding:24px; }
+      .admin-loading-card { width:min(100%,390px); display:grid; justify-items:center; gap:15px; padding:30px 28px; border:1px solid #dbe3ee; border-radius:18px; background:#fff; box-shadow:0 16px 42px rgba(15,23,42,.11); text-align:center; }
+      .admin-loading-card img { width:132px; height:78px; object-fit:contain; }
+      .admin-loading-card h1 { margin:0; color:#0f172a; font-size:21px; }
+      .admin-loading-card p { margin:5px 0 0; color:#64748b; font-size:13px; }
       .admin-header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 22px; margin-bottom:16px; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 8px 28px rgba(15,23,42,.07); }
       .admin-header-identity { display:flex; align-items:center; gap:18px; min-width:0; }
       .admin-header-identity h1 { margin:0 0 4px; }
@@ -674,7 +679,7 @@ function adminPanelLayoutStyles() {
       .admin-section-title h2 { margin:0; font-size:18px; color:#0f172a; }
       .admin-section-title p { margin:4px 0 0; }
       .admin-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch; }
-      .admin-card { margin:0; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 5px 18px rgba(15,23,42,.055); }
+      .admin-card { min-width:0; margin:0; padding:16px; overflow:hidden; border:1px solid #dbe3ee; border-radius:16px; background:#fff; box-shadow:0 5px 18px rgba(15,23,42,.055); }
       .admin-grid > .admin-card { height:100%; }
       .admin-card .section-heading { min-height:72px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid #e8edf4; }
       .admin-card .section-heading h2 { margin:0 0 5px; font-size:17px; }
@@ -698,12 +703,28 @@ function adminPanelLayoutStyles() {
       .admin-shell .primary:focus-visible, .admin-shell .secondary:focus-visible, .admin-shell .danger-button:focus-visible { outline:3px solid rgba(37,99,235,.34); outline-offset:2px; }
       .admin-shell .primary:disabled, .admin-shell .secondary:disabled, .admin-shell .danger-button:disabled { cursor:not-allowed; opacity:.48; transform:none; box-shadow:none; }
       .admin-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
-      .admin-row-main { display:flex; align-items:center; gap:7px; min-width:180px; }
+      .admin-row-main { display:flex; align-items:center; gap:7px; min-width:0; }
+      .admin-row-main strong { min-width:0; overflow-wrap:anywhere; }
       .admin-row .row-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; }
       .user-row { display:grid; grid-template-columns:minmax(180px,1.35fr) minmax(130px,1fr) minmax(135px,1fr) minmax(145px,1fr) minmax(105px,.7fr) auto auto; gap:12px; align-items:end; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
       .user-identity { align-self:center; min-width:0; }
+      .user-identity strong { display:block; overflow-wrap:anywhere; }
       .user-identity span { display:block; overflow:hidden; color:#64748b; text-overflow:ellipsis; white-space:nowrap; }
-      .user-row label { margin:0; }
+      .admin-shell .compact-form.two-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .admin-shell .compact-form label, .admin-shell .user-row > label { display:grid; gap:6px; min-width:0; margin:0; color:#475569; font-size:11px; font-weight:850; line-height:1.25; }
+      .admin-shell .compact-form input:not([type="color"]), .admin-shell .compact-form select, .admin-shell .user-row input:not([type="checkbox"]):not([type="color"]), .admin-shell .user-row select { width:100%; min-width:0; height:40px; margin:0; padding:0 11px; border:1px solid #cbd5e1; border-radius:9px; outline:0; background:#fff; color:#0f172a; font:700 13px/1.2 Inter,ui-sans-serif,system-ui,sans-serif; box-shadow:inset 0 1px 1px rgba(15,23,42,.025); transition:border-color .14s ease,box-shadow .14s ease,background .14s ease; }
+      .admin-shell .compact-form select, .admin-shell .user-row select { padding-right:31px; cursor:pointer; }
+      .admin-shell .compact-form input:focus, .admin-shell .compact-form select:focus, .admin-shell .user-row input:focus, .admin-shell .user-row select:focus { border-color:#60a5fa; box-shadow:0 0 0 3px rgba(37,99,235,.14); }
+      .admin-shell .compact-form input:disabled, .admin-shell .compact-form select:disabled, .admin-shell .user-row input:disabled, .admin-shell .user-row select:disabled { cursor:not-allowed; background:#f1f5f9; color:#94a3b8; }
+      .admin-shell .compact-form .wide { grid-column:1 / -1; width:100%; }
+      .user-color-field { display:flex; align-items:center; gap:8px; min-width:0; height:40px; padding:5px 9px; border:1px solid #cbd5e1; border-radius:9px; background:#fff; box-shadow:inset 0 1px 1px rgba(15,23,42,.025); }
+      .user-color-field > span { min-width:0; overflow:hidden; color:#475569; font:800 11px/1 Inter,ui-sans-serif,system-ui,sans-serif; text-overflow:ellipsis; white-space:nowrap; }
+      .admin-shell input[type="color"] { inline-size:29px; block-size:29px; flex:0 0 29px; margin:0; padding:2px; border:1px solid #cbd5e1; border-radius:7px; background:#fff; cursor:pointer; }
+      .admin-shell .user-color-input { width:100%; inline-size:100%; block-size:40px; padding:4px; }
+      .admin-shell .active-check { display:flex !important; align-items:center; gap:8px; min-height:40px; padding:0 2px; white-space:nowrap; }
+      .admin-shell .active-check input { inline-size:18px; block-size:18px; margin:0; accent-color:#2563eb; }
+      .status-pill { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; min-height:22px; padding:0 8px; border:1px solid #bbf7d0; border-radius:999px; background:#f0fdf4; color:#15803d; font-size:10px; font-weight:850; }
+      .status-pill.inactive { border-color:#fed7aa; background:#fff7ed; color:#c2410c; }
       .user-row .active-check { align-self:center; }
       .user-row .user-save { min-height:40px; }
       .user-features,.user-feature-admin-note { grid-column:1/-1; margin:0; padding:9px 10px; border:1px solid #dbe3ee; border-radius:10px; background:#f8fafc; }
@@ -723,7 +744,8 @@ function adminPanelLayoutStyles() {
       .admin-tool-card .section-heading { min-height:0; }
       .admin-tool-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
       .admin-audit-list { display:grid; gap:7px; max-height:420px; overflow:auto; margin-top:10px; padding-right:4px; }
-      .admin-audit-row { display:grid; grid-template-columns:145px minmax(120px,.7fr) minmax(150px,.8fr) minmax(220px,1.5fr); gap:10px; align-items:center; padding:9px 10px; border:1px solid #e2e8f0; border-radius:10px; background:#fbfdff; font-size:12px; }
+      .admin-audit-row { display:grid; grid-template-columns:minmax(0,145px) minmax(0,.7fr) minmax(0,.8fr) minmax(0,1.5fr); gap:10px; align-items:center; padding:9px 10px; border:1px solid #e2e8f0; border-radius:10px; background:#fbfdff; font-size:12px; }
+      .admin-audit-row > * { min-width:0; overflow-wrap:anywhere; }
       .admin-user-badge { display:inline-flex; align-items:center; width:max-content; max-width:100%; padding:3px 8px; border:1px solid rgba(15,23,42,.14); border-radius:999px; color:#0f172a; font-weight:850; }
       .admin-audit-details { min-width:0; overflow:hidden; color:#52627a; text-overflow:ellipsis; white-space:nowrap; }
       #admin-message-box { position:sticky; top:12px; z-index:20; margin-bottom:16px; box-shadow:0 6px 18px rgba(15,23,42,.12); }
@@ -755,6 +777,7 @@ function adminPanelLayoutStyles() {
         .admin-role-guide > summary { align-items:flex-start; }
         .admin-role-guide-summary-copy { display:grid; gap:2px; }
         .admin-row { align-items:flex-start; flex-direction:column; }
+        .admin-shell .compact-form.two-columns { grid-template-columns:1fr; }
         .user-row { grid-template-columns:1fr; }
         .user-identity { grid-column:auto; }
         .user-feature-grid { grid-template-columns:1fr; }
@@ -901,8 +924,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         </div>
       </header>
 
-      ${renderAdminPreviewBar()}
-      ${renderAdminRoleGuide()}
       ${renderAdminTools(auditRows, users)}
 
       <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
@@ -1060,7 +1081,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   `
 
   document.querySelector('#admin-logo-home')?.addEventListener('click', () => renderDashboard(currentUser))
-  wireAdminPreviewControls()
   document.querySelector('#admin-data-transfer')?.addEventListener('click', () => {
     if (!isActualAdmin()) return
     openAdminDataTransferAfterAuth = true
@@ -1305,18 +1325,12 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
     return
   }
 
-  app.innerHTML = `
-    <main class="admin-shell">
-      <header class="admin-header">
-        <div style="display:flex;align-items:center;gap:18px;">
-          <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
-          <div>
-          <h1>Administracja</h1>
-          <p class="muted">Użytkownicy i oddziały</p>
-          </div>
-        </div>
-      </header>
-      <section class="admin-loading">Pobieranie danych…</section>
+  app.innerHTML = `${adminPanelLayoutStyles()}
+    <main class="admin-shell admin-loading-shell">
+      <section class="admin-loading-card" aria-live="polite">
+        <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
+        <div><h1>Administracja</h1><p>Pobieranie danych…</p></div>
+      </section>
     </main>
   `
 
@@ -4538,7 +4552,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v293-admin-button-style"
+          src="/tms.html?embedded=1&build=request-workflow-v294-admin-layout-fields"
         title="Top Dragon TMS"
       ></iframe>
     </main>
