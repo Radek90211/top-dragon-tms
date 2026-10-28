@@ -385,20 +385,30 @@ function renderSetPassword(user, message = '') {
 
   app.innerHTML = `
     <main class="login-shell">
-      <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
-        <h1>Ustaw hasło</h1>
-        <p class="muted">Twoje konto zostało utworzone przez administratora. Ustaw własne hasło, aby zakończyć aktywację.</p>
+      <section class="login-card password-setup-card" aria-labelledby="password-setup-title">
+        <div class="login-brand">
+          <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
+          <span class="login-brand-label">TMS</span>
+        </div>
+        <div class="password-setup-heading">
+          <span class="password-setup-icon" aria-hidden="true">⌁</span>
+          <div>
+            <p class="login-eyebrow">AKTYWACJA KONTA</p>
+            <h1 id="password-setup-title">Ustaw hasło</h1>
+          </div>
+        </div>
+        <p class="login-intro">Twoje konto zostało utworzone przez administratora. Ustaw własne hasło, aby zakończyć aktywację.</p>
         <form id="password-setup-form">
           <label>Nowe hasło
-            <input id="new-password" type="password" autocomplete="new-password" required minlength="8" />
+            <input id="new-password" type="password" autocomplete="new-password" placeholder="Minimum 8 znaków" required minlength="8" />
           </label>
           <label>Powtórz hasło
-            <input id="confirm-password" type="password" autocomplete="new-password" required minlength="8" />
+            <input id="confirm-password" type="password" autocomplete="new-password" placeholder="Wpisz hasło ponownie" required minlength="8" />
           </label>
           ${message ? `<div class="error">${escapeHtml(message)}</div>` : ''}
           <button class="primary" type="submit">Ustaw hasło i przejdź do TMS</button>
         </form>
+        <p class="login-help">Hasło pozostaje prywatne. W razie problemów skontaktuj się z administratorem.</p>
       </section>
     </main>
   `
@@ -4546,7 +4556,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v276-sample-projects-oct29"
+          src="/tms.html?embedded=1&build=request-workflow-v278-mobile-route-details"
         title="Top Dragon TMS"
       ></iframe>
     </main>
