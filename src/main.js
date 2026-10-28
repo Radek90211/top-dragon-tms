@@ -385,17 +385,10 @@ function renderSetPassword(user, message = '') {
 
   app.innerHTML = `
     <main class="login-shell">
-      <section class="login-card password-setup-card" aria-labelledby="password-setup-title">
+      <section class="login-card password-setup-card">
         <div class="login-brand login-brand--centered">
           <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         </div>
-        <div class="password-setup-heading">
-          <div>
-            <p class="login-eyebrow">AKTYWACJA KONTA</p>
-            <h1 id="password-setup-title">Ustaw hasło</h1>
-          </div>
-        </div>
-        <p class="login-intro">Twoje konto zostało utworzone przez administratora. Ustaw własne hasło, aby zakończyć aktywację.</p>
         <form id="password-setup-form">
           <label>Nowe hasło
             <input id="new-password" type="password" autocomplete="new-password" placeholder="Minimum 8 znaków" required minlength="8" />
@@ -4553,7 +4546,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v278-mobile-route-details"
+          src="/tms.html?embedded=1&build=request-workflow-v287-route-provider-icons"
         title="Top Dragon TMS"
       ></iframe>
     </main>
