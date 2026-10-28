@@ -231,7 +231,7 @@ function renderFatalError(error) {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.jpg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
         <h1>Nie udało się uruchomić aplikacji</h1>
         <div class="error">${escapeHtml(message)}</div>
         <p class="muted">
@@ -341,7 +341,7 @@ function renderLogin(message = '') {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.jpg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
         <h1>Logowanie</h1>
         <form id="login-form">
           <label>E-mail
@@ -386,7 +386,7 @@ function renderSetPassword(user, message = '') {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.jpg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
         <h1>Ustaw hasło</h1>
         <p class="muted">Twoje konto zostało utworzone przez administratora. Ustaw własne hasło, aby zakończyć aktywację.</p>
         <form id="password-setup-form">
@@ -879,7 +879,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       <header class="admin-header">
         <div class="admin-header-identity">
           <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
-            <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+            <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
           </button>
           <div>
           <h1>Administracja</h1>
@@ -1033,13 +1033,14 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   </select>
                 </label>
                 <label>Kolor
-                  <span class="user-color-field"><input class="user-ui-color" type="color" value="${escapeHtml(userColor)}" ${lockedAdmin ? 'disabled' : ''} /><span>${escapeHtml(userColor)}</span></span>
+                  <span class="user-color-field"><input class="user-ui-color" type="color" value="${escapeHtml(userColor)}" /><span>${escapeHtml(userColor)}</span></span>
                 </label>
                 <label class="active-check">
                   <span>Aktywny</span>
                   <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
                 </label>
                 <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled data-locked="true"' : ''}>Zapisz</button>
+                ${item.role === 'admin' ? '<button type="button" class="secondary user-color-save">Zapisz kolor</button>' : ''}
                 ${renderUserFeatureControls(item)}
               </article>
             `
@@ -1214,6 +1215,36 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   })
 
   document.querySelectorAll('.user-row').forEach((row) => {
+    row.querySelector('.user-color-save')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+      const userId = row.dataset.userId
+      const existing = users.find((item) => item.id === userId)
+      const uiColor = String(row.querySelector('.user-ui-color')?.value || '').toUpperCase()
+      if (!/^#[0-9A-F]{6}$/.test(uiColor)) {
+        showAdminMessage('Wybierz prawidłowy kolor.', 'error')
+        return
+      }
+
+      setAdminBusy(true)
+      try {
+        const result = await adminApi('/api/admin/users', {
+          method: 'PATCH',
+          body: JSON.stringify({ userId, uiColor }),
+        })
+        writeCurrentUserAudit('Zmieniono kolor użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${uiColor}`)
+        updateAdminCacheUser({ ...existing, ...result.user, ui_color: result.user?.ui_color || uiColor })
+        if (String(currentUser?.id || '') === String(userId)) {
+          currentProfile = { ...currentProfile, ui_color: result.user?.ui_color || uiColor }
+          activeAuthMessage = buildTmsAuthMessage()
+          activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+        }
+        renderAdminPanelFromCache('Kolor administratora został zapisany.')
+      } catch (error) {
+        showAdminMessage(error.message || 'Nie udało się zapisać koloru administratora.', 'error')
+        setAdminBusy(false)
+      }
+    })
+
     row.querySelector('.user-save')?.addEventListener('click', async () => {
       if (adminPanelBusy) return
 
@@ -1286,7 +1317,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
     <main class="admin-shell">
       <header class="admin-header">
         <div style="display:flex;align-items:center;gap:18px;">
-          <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+          <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
           <div>
           <h1>Administracja</h1>
           <p class="muted">Użytkownicy i oddziały</p>
@@ -1309,7 +1340,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
         <header class="admin-header">
           <div style="display:flex;align-items:center;gap:18px;">
             <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
-              <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+              <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
             </button>
             <h1>Administracja</h1>
           </div>
@@ -4509,13 +4540,13 @@ async function renderDashboard(user) {
   app.innerHTML = `
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite" style="position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#fff;text-align:center;">
-        <img src="/top-dragon-logo.jpg" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
+        <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
         <span>Uruchamianie panelu…</span>
       </div>
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v270-admin-audit-color"
+          src="/tms.html?embedded=1&build=request-workflow-v273-complete-package"
         title="Top Dragon TMS"
       ></iframe>
     </main>
