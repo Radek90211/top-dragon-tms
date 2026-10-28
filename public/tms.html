@@ -90152,9 +90152,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v292-project-badge-center"></script>
-  <script src="/planning-core.js?build=v292-project-badge-center"></script>
-  <script src="/order-stops.js?build=v292-project-badge-center"></script>
+  <script src="/xlsx-lite.js?v=v295-route-swap-header-panel"></script>
+  <script src="/planning-core.js?build=v295-route-swap-header-panel"></script>
+  <script src="/order-stops.js?build=v295-route-swap-header-panel"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -101693,7 +101693,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!suggestions.length) return "";
       const open = Boolean(state.routeSwapPanelOpen);
       return `<div class="route-swap-notice ${open ? "open" : ""}">
-        ${open ? `<section class="route-swap-panel" aria-label="Propozycje zamiany tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij">×</button></header>${suggestions.map(item => `<div class="route-swap-row" role="button" tabindex="0" onclick="highlightRouteSwapSuggestion(event,'${attr(item.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){highlightRouteSwapSuggestion(event,'${attr(item.id)}')}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><b>${esc(routeSwapShortLine(item))}</b><span>${esc(item.firstDriver)} ${item.kind === "swap" ? "↔" : "→"} ${esc(item.secondDriver)}</span><div class="route-swap-dispatchers"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><small>${esc(item.firstRoute)}${item.secondRoute ? ` / ${esc(item.secondRoute)}` : ""}</small></div>`).join("")}</section>` : ""}
+        ${open ? `<section class="route-swap-panel" aria-label="Propozycje zamiany tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij">×</button></header>${suggestions.map(item => `<button type="button" class="route-swap-row" data-route-swap-suggestion="${attr(item.id)}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><b>${esc(routeSwapShortLine(item))}</b><span>${esc(item.firstDriver)} ${item.kind === "swap" ? "↔" : "→"} ${esc(item.secondDriver)}</span><div class="route-swap-dispatchers"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><small>${esc(item.firstRoute)}${item.secondRoute ? ` / ${esc(item.secondRoute)}` : ""}</small></button>`).join("")}</section>` : ""}
         <button type="button" class="route-swap-dock" onclick="toggleRouteSwapPanel(event)" title="${attr(`${suggestions.length} propozycji wymiany tras`)}" aria-label="Propozycje wymiany tras"><span>↔</span><b>${suggestions.length}</b></button>
       </div>`;
     }
@@ -101719,16 +101719,32 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.routeSwapHighlightIds = ids;
       state.routeSwapHighlightUntil = Date.now() + 5200;
       clearTimeout(state.routeSwapHighlightTimer);
-      document.querySelectorAll(".time-route.route-swap-pulse").forEach(tile => tile.classList.remove("route-swap-pulse"));
-      const tiles = routeSwapTilesForIds(ids);
-      tiles.forEach(tile => { void tile.offsetWidth; tile.classList.add("route-swap-pulse"); });
-      tiles[0]?.scrollIntoView?.({ behavior:"smooth", block:"nearest", inline:"nearest" });
+      // Część tablicy może być właśnie odtworzona po synchronizacji. Jeden
+      // celowy render samej tablicy daje klasę pulsowania obu kafelkom także
+      // wtedy, gdy nie były wcześniej w aktualnym fragmencie DOM.
+      syncBoardOnly();
+      requestAnimationFrame(() => {
+        document.querySelectorAll(".time-route.route-swap-pulse").forEach(tile => tile.classList.remove("route-swap-pulse"));
+        const tiles = routeSwapTilesForIds(ids);
+        tiles.forEach(tile => { void tile.offsetWidth; tile.classList.add("route-swap-pulse"); });
+        tiles[0]?.scrollIntoView?.({ behavior:"smooth", block:"nearest", inline:"nearest" });
+      });
       state.routeSwapHighlightTimer = setTimeout(() => {
         state.routeSwapHighlightIds = [];
         state.routeSwapHighlightUntil = 0;
         routeSwapTilesForIds(ids).forEach(tile => tile.classList.remove("route-swap-pulse"));
       }, 5200);
     }
+
+    // Panel jest odtwarzany dynamicznie, dlatego obsługa delegowana pozostaje
+    // aktywna po każdej synchronizacji i nie zależy od inline handlerów.
+    document.addEventListener("click", event => {
+      const row = event.target.closest?.(".route-swap-row[data-route-swap-suggestion]");
+      if (!row) return;
+      highlightRouteSwapSuggestion(event, row.dataset.routeSwapSuggestion || "");
+    });
+    window.toggleRouteSwapPanel = toggleRouteSwapPanel;
+    window.highlightRouteSwapSuggestion = highlightRouteSwapSuggestion;
 
     function scheduleRouteSwapAnalysis() {
       if (!state.user || document.hidden) return;
@@ -104192,7 +104208,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const POLAND_MOBILE_HOME_ZOOM = 6;
     const POLAND_MAP_BOUNDS = [[48.5, 13.5], [55.2, 24.5]];
     const POLAND_MAP_MIN_ZOOM = 4;
-    const POLAND_MAP_MAX_ZOOM = 13;
+    const POLAND_MAP_MAX_ZOOM = 19;
     const POLAND_MAP_POPUP_OPTIONS = {
       minWidth: 168,
       maxWidth: 224,
@@ -104202,6 +104218,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       autoPanPaddingTopLeft: [16, 16],
       autoPanPaddingBottomRight: [18, 18],
       offset: [0, 18]
+    };
+    const POLAND_CLIENT_LIST_POPUP_OPTIONS = {
+      ...POLAND_MAP_POPUP_OPTIONS,
+      minWidth: 270,
+      maxWidth: 360,
+      maxHeight: 320
     };
 
     function leafletPolandBounds() {
@@ -105214,6 +105236,45 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function clientPeriodSummary(point) {
+      const client = point?.client || {};
+      const clientId = String(client.id || "");
+      const clientNameKey = removePolishChars(client.name || "");
+      const cutoff = addDaysToIso(currentAppDate(), -(currentClientMapHistoryDays() - 1));
+      const rows = clientMapOrderHistory().filter(item => {
+        const date = String(item?.date || "").slice(0, 10);
+        return date >= cutoff && date <= currentAppDate()
+          && ((clientId && String(item?.clientId || "") === clientId)
+            || removePolishChars(item?.clientName || "") === clientNameKey);
+      });
+      const total = field => rows.reduce((sum, row) => sum + Number(row?.[field] || 0), 0);
+      const margin = rows.reduce((sum, row) => sum + Number(row?.margin || (Number(row?.rate || 0) - Number(row?.cost || 0))), 0);
+      return {
+        id: clientId || clientNameKey,
+        client,
+        count: rows.length || Number(client.orderCount || 0),
+        averageMargin: rows.length ? margin / rows.length : 0,
+        averageRate: rows.length ? total("rate") / rows.length : 0
+      };
+    }
+
+    function renderClientPeriodPopup(points) {
+      const summaries = Array.from(new Map((points || [])
+        .filter(point => point?.client?.orderedInPeriod)
+        .map(point => {
+          const summary = clientPeriodSummary(point);
+          return [summary.id || `${point.client.name}:${point.id}`, summary];
+        })).values())
+        .sort((left, right) => right.count - left.count || String(left.client.name || "").localeCompare(String(right.client.name || ""), "pl"));
+      if (!summaries.length) return "";
+      const days = currentClientMapHistoryDays();
+      return `<div class="map-client-period-popup"><b>Klienci z relacją · ${days} dni</b><div class="map-client-period-list">${summaries.map(summary => {
+        const clientId = String(summary.client.id || "");
+        const name = String(summary.client.name || "Klient");
+        return `<button type="button" class="map-client-period-row" onclick="openClientDetails('${attr(clientId)}','${attr(encodeURIComponent(name))}')"><strong>${esc(name)}</strong><span>Marża: <b>${summary.averageMargin ? money(summary.averageMargin) : "-"}</b> · Stawka: <b>${summary.averageRate ? money(summary.averageRate) : "-"}</b> · Realizacje: <b>${summary.count}</b></span></button>`;
+      }).join("")}</div></div>`;
+    }
+
     function deleteClientFromMap(clientId) {
       if (!isAdminUser()) return;
       try { state.leafletMap?.closePopup?.(); } catch (error) {}
@@ -105310,12 +105371,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function leafletClientDisplayGroups(points) {
       const source = Array.isArray(points) ? points.filter(point => Array.isArray(point?.coords)) : [];
       const map = state.leafletMap;
-      if (!map || source.length <= LEAFLET_CLIENT_MARKER_LIMIT) {
+      const zoom = Number(map?.getZoom?.() || POLAND_MAP_MIN_ZOOM);
+      const markerLimit = zoom >= 16 ? 900 : zoom >= 13 ? 520 : LEAFLET_CLIENT_MARKER_LIMIT;
+      if (!map || source.length <= markerLimit) {
         return source.map(point => ({ id:`client:${point.id}`, coords:point.coords, points:[point] }));
       }
 
-      const zoom = Number(map.getZoom?.() || POLAND_MAP_MIN_ZOOM);
-      let cellSize = zoom >= 11 ? 38 : zoom >= 9 ? 52 : zoom >= 7 ? 74 : 104;
+      let cellSize = zoom >= 17 ? 12 : zoom >= 15 ? 20 : zoom >= 13 ? 30 : zoom >= 11 ? 38 : zoom >= 9 ? 52 : zoom >= 7 ? 74 : 104;
       let groups = [];
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const buckets = new Map();
@@ -105352,7 +105414,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const bounds = L.latLngBounds(group.points.map(point => point.coords));
       state.leafletMap.fitBounds(bounds.pad(0.28), {
         animate: false,
-        maxZoom: Math.min(14, Number(state.leafletMap.getZoom?.() || POLAND_MAP_MIN_ZOOM) + 3)
+        maxZoom: Math.min(POLAND_MAP_MAX_ZOOM, Number(state.leafletMap.getZoom?.() || POLAND_MAP_MIN_ZOOM) + 4)
       });
     }
 
@@ -105364,10 +105426,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       leafletClientDisplayGroups(clientMapPoints()).forEach(group => {
         if (group.points.length > 1) {
           const count = group.points.length;
+          const periodPopup = renderClientPeriodPopup(group.points);
           const marker = L.marker(group.coords, { icon:leafletClientClusterIcon(count), keyboard:false, zIndexOffset:1800 })
             .addTo(state.leafletClientLayer)
-            .bindTooltip(`${count} lokalizacji klientów — kliknij, aby przybliżyć`, { direction:"top", offset:[0,-14], opacity:.92 });
-          marker.on("click", () => zoomToLeafletClientCluster(group));
+            .bindTooltip(`${count} lokalizacji klientów${periodPopup ? " — kliknij, aby zobaczyć listę" : " — kliknij, aby przybliżyć"}`, { direction:"top", offset:[0,-14], opacity:.92 });
+          if (periodPopup) {
+            marker.bindPopup(periodPopup, POLAND_CLIENT_LIST_POPUP_OPTIONS);
+            marker.on("dblclick", () => zoomToLeafletClientCluster(group));
+          } else {
+            marker.on("click", () => zoomToLeafletClientCluster(group));
+          }
           state.leafletClientMarkers.set(group.id, marker);
           return;
         }
@@ -105389,7 +105457,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const marker = L.marker(point.coords, { icon, zIndexOffset: assigned ? 2200 : 1700 })
           .addTo(state.leafletClientLayer)
           .bindTooltip(tooltip, { direction: "top", offset: [0, assigned ? -10 : -8], opacity: 0.92 })
-          .bindPopup(renderClientMapPopup(point.client), POLAND_MAP_POPUP_OPTIONS);
+          .bindPopup(point.client.orderedInPeriod ? renderClientPeriodPopup([point]) : renderClientMapPopup(point.client), point.client.orderedInPeriod ? POLAND_CLIENT_LIST_POPUP_OPTIONS : POLAND_MAP_POPUP_OPTIONS);
         state.leafletClientMarkers.set(group.id, marker);
       });
     }
@@ -121486,6 +121554,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .client-base-form { display:grid; grid-template-columns:minmax(150px,.7fr) minmax(260px,1.5fr) auto; gap:8px; align-items:end; }
     .client-base-form .btn { min-height:40px; }
     .map-client-popup-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+    .map-client-period-popup { min-width:240px; color:var(--text); font-size:12px; line-height:1.25; }
+    .map-client-period-list { display:grid; gap:5px; max-height:232px; margin-top:8px; overflow:auto; overscroll-behavior:contain; }
+    .map-client-period-row { width:100%; display:grid; gap:3px; padding:7px 8px; border:1px solid var(--border); border-radius:8px; background:var(--soft); color:var(--text); text-align:left; cursor:pointer; font:inherit; }
+    .map-client-period-row:hover, .map-client-period-row:focus-visible { border-color:#60a5fa; background:#eff6ff; outline:none; }
+    .map-client-period-row strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+    .map-client-period-row span { color:var(--muted); font-size:10px; line-height:1.32; }
+    .map-client-period-row span b { color:var(--text); font-weight:900; }
+    .app.dark-mode .map-client-period-row:hover, .app.dark-mode .map-client-period-row:focus-visible { background:#1e3a5f; border-color:#60a5fa; }
 
     @media (max-width:760px) {
       .details-finance-grid,
@@ -122565,7 +122641,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v292-project-badge-center-cache">
+  <style id="targeted-v295-route-swap-header-panel-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122704,8 +122780,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v292-project-badge-center" />
-  <script src="/order-entry.js?build=v292-project-badge-center"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v295-route-swap-header-panel" />
+  <script src="/order-entry.js?build=v295-route-swap-header-panel"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -122715,9 +122791,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       /* 5 cm = ok. 189 px przy standardowej gęstości CSS. */
       .app > .header { width:189px !important; margin:0 auto !important; }
       .app > .header::after { border-radius:0 0 10px 10px; }
-      .app > .header .header-inner { left:50% !important; right:auto !important; width:min(980px,calc(100vw - 24px)); transform:translate(-50%,calc(-100% + 11px)); }
+      .app > .header .header-inner { left:50% !important; right:auto !important; width:min(980px,calc(100vw - 24px)); transform:translate(-50%,calc(-100% + 11px)); will-change:transform; pointer-events:auto; }
       .app > .header:hover .header-inner,
-      .app > .header:focus-within .header-inner { transform:translate(-50%,0); }
+      .app > .header:focus-within .header-inner,
+      .app > .header.desktop-header-open-v295 .header-inner { transform:translate(-50%,0); }
     }
     .main { max-width:none !important; width:100%; }
     .queue-add-menu { display:grid; gap:7px; }
@@ -122937,7 +123014,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .route-swap-panel { width:min(330px,calc(100vw - 28px)); max-height:min(420px,62vh); overflow:auto; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text); box-shadow:0 16px 38px rgba(15,23,42,.22); }
     .route-swap-panel header { display:flex; justify-content:space-between; align-items:center; padding:10px 11px 7px; border-bottom:1px solid var(--border); }
     .route-swap-panel header button { width:25px; height:25px; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; font-size:20px; line-height:1; }
-    .route-swap-row { display:grid; gap:3px; padding:8px 11px; border-top:1px solid var(--border); cursor:pointer; }
+    .route-swap-row { width:100%; display:grid; gap:3px; padding:8px 11px; border:0; border-top:1px solid var(--border); background:transparent; color:inherit; text-align:left; cursor:pointer; font:inherit; }
     .route-swap-row:hover,.route-swap-row:focus-visible { background:var(--soft); outline:none; }
     .route-swap-row b { color:#0e7490; font-size:12px; }
     .route-swap-row span { font-size:11px; font-weight:850; }
@@ -122957,6 +123034,41 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
       let lastMobileTabV202 = 'plan';
+      let desktopHeaderCloseTimerV295 = 0;
+
+      // Górny uchwyt ma tylko 11 px wysokości. Stan klasy utrzymuje panel
+      // otwarty podczas przejścia kursorem z uchwytu na jego przyciski,
+      // zamiast polegać wyłącznie na krótkotrwałym :hover.
+      function setDesktopHeaderOpenV295(header, open) {
+        if (!header || window.matchMedia('(max-width:720px)').matches) return;
+        window.clearTimeout(desktopHeaderCloseTimerV295);
+        if (open) {
+          header.classList.add('desktop-header-open-v295');
+          return;
+        }
+        desktopHeaderCloseTimerV295 = window.setTimeout(() => {
+          if (!header.matches(':hover') && !header.contains(document.activeElement)) {
+            header.classList.remove('desktop-header-open-v295');
+          }
+        }, 180);
+      }
+
+      document.addEventListener('pointerover', event => {
+        const header = event.target.closest?.('.app > .header');
+        if (header) setDesktopHeaderOpenV295(header, true);
+      }, true);
+      document.addEventListener('pointerout', event => {
+        const header = event.target.closest?.('.app > .header');
+        if (header && !header.contains(event.relatedTarget)) setDesktopHeaderOpenV295(header, false);
+      }, true);
+      document.addEventListener('focusin', event => {
+        const header = event.target.closest?.('.app > .header');
+        if (header) setDesktopHeaderOpenV295(header, true);
+      });
+      document.addEventListener('focusout', event => {
+        const header = event.target.closest?.('.app > .header');
+        if (header && !header.contains(event.relatedTarget)) setDesktopHeaderOpenV295(header, false);
+      });
 
       // Modal jest renderowany dynamicznie; przechwytujemy Enter na dokumencie,
       // dzięki czemu potwierdzenie działa także po natychmiastowym otwarciu okna.
