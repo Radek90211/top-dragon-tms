@@ -1,3 +1,33 @@
+AKTUALIZACJA v279 - spójny ekran ustawiania hasła
+Build/cache: v279-password-setup-style
+
+- Przeprojektowano ekran aktywacji konta po zaproszeniu administracyjnym.
+- Dodano spójne logo, hierarchię informacji, pola formularza, komunikat błędu i pełną responsywność telefonu.
+- Zmieniono wyłącznie wygląd; mechanizm zaproszenia i ustawiania hasła pozostaje ten sam.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v278 - szczegóły relacji po dotknięciu kafelka
+Build/cache: v278-mobile-route-details
+
+- Pojedyncze dotknięcie kafelka relacji w telefonie natychmiast otwiera szczegóły.
+- Gest przewijania oraz zmiana szerokości kafelka nie otwierają szczegółów.
+- Dotychczasowa obsługa myszy, klawiatury, przeciągania i Trybu Excelowego pozostaje bez zmian.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v277 - mapa i zakładki mobilne
+Build/cache: v277-mobile-map-and-tabs
+
+- Mapa w wersji mobilnej po każdym otwarciu pokazuje stabilny widok Polski, zamiast automatycznie przesuwać środek na północ przy niepełnych danych.
+- Usunięto ograniczenie pobierania kafelków mapy do prostokąta Polski; eliminuje to szare, puste pola na obrzeżach widoku.
+- Zakładki desktopowe po prawej stronie nie są już renderowane na telefonie. Wczesny styl ochronny eliminuje ich chwilowe mignięcie.
+
+WERYFIKACJA v277
+- Kontrola inicjalizacji Leaflet, centrum mobilnej mapy, ładowania kafelków i warunkowego renderu zakładek.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v276 - przykładowe relacje do 29.10
 Build/cache: v276-sample-projects-oct29
 
