@@ -90152,9 +90152,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v291-project-vehicle-progress"></script>
-  <script src="/planning-core.js?build=v291-project-vehicle-progress"></script>
-  <script src="/order-stops.js?build=v291-project-vehicle-progress"></script>
+  <script src="/xlsx-lite.js?v=v292-project-badge-center"></script>
+  <script src="/planning-core.js?build=v292-project-badge-center"></script>
+  <script src="/order-stops.js?build=v292-project-badge-center"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -122565,7 +122565,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v291-project-vehicle-progress-cache">
+  <style id="targeted-v292-project-badge-center-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122704,8 +122704,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v291-project-vehicle-progress" />
-  <script src="/order-entry.js?build=v291-project-vehicle-progress"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v292-project-badge-center" />
+  <script src="/order-entry.js?build=v292-project-badge-center"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -122922,7 +122922,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* v252: wspólny, widoczny fokus i identyfikacja projektu wieloautowego. */
     .app :is(button,a,input,select,textarea,[data-keyboard-activate-v252],[role="button"]):focus-visible,
     .mobile-nav-toggle-v205:focus-visible { outline:3px solid #2563eb !important; outline-offset:2px !important; box-shadow:0 0 0 5px rgba(37,99,235,.22) !important; }
-    .route-project-badge { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; min-width:24px; padding:2px 5px; border-radius:999px; background:var(--project-color,#2563eb); color:#fff; font-size:9px; letter-spacing:.02em; font-weight:950; line-height:1.15; }
+    .route-project-badge { flex:0 0 auto; display:inline-grid; place-items:center; box-sizing:border-box; min-width:30px; height:16px; padding:0 6px; border-radius:999px; background:var(--project-color,#2563eb); color:#fff; font-size:9px; letter-spacing:0; font-weight:950; line-height:1; text-align:center; font-variant-numeric:tabular-nums; }
     .app.dark-mode .route-project-badge { background:var(--project-color,#2563eb); color:#fff; }
     .military-transport-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #75885c; border-radius:999px; background:#eef3e6; color:#48552f; font-size:10px; font-weight:900; white-space:nowrap; }
     .route-military-toggle { display:flex; align-items:center; gap:9px; margin-top:10px; padding:9px 11px; border:1px solid #c9d4ba; border-radius:11px; background:#f7faf3; color:#334155; cursor:pointer; }
