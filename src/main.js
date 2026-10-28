@@ -386,12 +386,10 @@ function renderSetPassword(user, message = '') {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card password-setup-card" aria-labelledby="password-setup-title">
-        <div class="login-brand">
+        <div class="login-brand login-brand--centered">
           <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
-          <span class="login-brand-label">TMS</span>
         </div>
         <div class="password-setup-heading">
-          <span class="password-setup-icon" aria-hidden="true">⌁</span>
           <div>
             <p class="login-eyebrow">AKTYWACJA KONTA</p>
             <h1 id="password-setup-title">Ustaw hasło</h1>
@@ -406,9 +404,8 @@ function renderSetPassword(user, message = '') {
             <input id="confirm-password" type="password" autocomplete="new-password" placeholder="Wpisz hasło ponownie" required minlength="8" />
           </label>
           ${message ? `<div class="error">${escapeHtml(message)}</div>` : ''}
-          <button class="primary" type="submit">Ustaw hasło i przejdź do TMS</button>
+          <button class="primary" type="submit">Ustaw hasło</button>
         </form>
-        <p class="login-help">Hasło pozostaje prywatne. W razie problemów skontaktuj się z administratorem.</p>
       </section>
     </main>
   `
@@ -1050,7 +1047,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
                 </label>
                 <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled data-locked="true"' : ''}>Zapisz</button>
-                ${item.role === 'admin' ? '<button type="button" class="secondary user-color-save">Zapisz kolor</button>' : ''}
+                ${item.role === 'admin' ? '<button type="button" class="secondary user-color-save">Zapisz kolor administratora</button>' : ''}
                 ${renderUserFeatureControls(item)}
               </article>
             `

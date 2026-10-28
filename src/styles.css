@@ -36,34 +36,10 @@ button { touch-action: manipulation; }
 .password-setup-card { overflow: hidden; }
 
 .login-brand { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.login-brand--centered { justify-content: center; }
 .login-logo { display: block; width: auto; height: 40px; max-width: 150px; object-fit: contain; object-position: left center; }
-.login-brand-label {
-  display: inline-flex;
-  align-items: center;
-  min-height: 23px;
-  padding: 0 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  color: #475569;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: .1em;
-}
 
-.password-setup-heading { display: flex; align-items: center; gap: 12px; margin: 30px 0 8px; }
-.password-setup-icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 13px;
-  background: #172033;
-  color: #fff;
-  font-size: 29px;
-  font-weight: 800;
-  line-height: 1;
-  box-shadow: 0 7px 16px rgba(15, 23, 42, .16);
-}
+.password-setup-heading { display: flex; align-items: center; justify-content: center; margin: 30px 0 8px; text-align: center; }
 .login-eyebrow { margin: 0 0 3px; color: #64748b; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
 .login-card h1 { margin: 0; color: #0f172a; font-size: clamp(25px, 7vw, 32px); line-height: 1.1; letter-spacing: -.03em; }
 .login-card > h1 { margin: 28px 0 22px; }
@@ -103,8 +79,6 @@ button { touch-action: manipulation; }
 .login-card .primary:focus-visible { outline: 3px solid rgba(37, 99, 235, .35); outline-offset: 2px; }
 .login-card .primary:disabled { cursor: wait; opacity: .7; transform: none; }
 .login-card .error { padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fff1f2; color: #b91c1c; font-size: 13px; font-weight: 700; line-height: 1.4; }
-.login-help { margin: 18px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; text-align: center; }
-
 @media (max-width: 520px) {
   .login-shell { padding: 16px; align-items: start; }
   .login-card { margin-top: max(20px, env(safe-area-inset-top)); padding: 24px 20px; border-radius: 18px; }
