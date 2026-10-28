@@ -688,9 +688,18 @@ function adminPanelLayoutStyles() {
       .admin-card--rate > .muted { margin:8px 0 0; font-size:11px; }
       .admin-card--users { margin-top:0; }
       .admin-list, .user-list { display:grid; gap:10px; margin-top:14px; }
-      .admin-row { gap:12px; padding:12px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
-      .admin-row-main { min-width:180px; }
-      .admin-row .row-actions { justify-content:flex-end; }
+      .admin-shell .primary, .admin-shell .secondary, .admin-shell .danger-button { appearance:none; display:inline-flex; align-items:center; justify-content:center; min-height:38px; padding:0 13px; border:1px solid transparent; border-radius:9px; cursor:pointer; font:800 12px/1.1 Inter,ui-sans-serif,system-ui,sans-serif; white-space:nowrap; transition:transform .14s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease,color .14s ease; }
+      .admin-shell .primary { border-color:#172033; background:#172033; color:#fff; box-shadow:0 3px 8px rgba(15,23,42,.14); }
+      .admin-shell .primary:hover { border-color:#243047; background:#243047; transform:translateY(-1px); box-shadow:0 6px 13px rgba(15,23,42,.18); }
+      .admin-shell .secondary { border-color:#cbd5e1; background:#fff; color:#1e293b; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+      .admin-shell .secondary:hover { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; transform:translateY(-1px); box-shadow:0 4px 10px rgba(37,99,235,.12); }
+      .admin-shell .danger-button { border-color:#fecaca; background:#fff; color:#b91c1c; box-shadow:0 1px 2px rgba(127,29,29,.04); }
+      .admin-shell .danger-button:hover { border-color:#f87171; background:#fef2f2; color:#991b1b; transform:translateY(-1px); box-shadow:0 4px 10px rgba(220,38,38,.1); }
+      .admin-shell .primary:focus-visible, .admin-shell .secondary:focus-visible, .admin-shell .danger-button:focus-visible { outline:3px solid rgba(37,99,235,.34); outline-offset:2px; }
+      .admin-shell .primary:disabled, .admin-shell .secondary:disabled, .admin-shell .danger-button:disabled { cursor:not-allowed; opacity:.48; transform:none; box-shadow:none; }
+      .admin-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
+      .admin-row-main { display:flex; align-items:center; gap:7px; min-width:180px; }
+      .admin-row .row-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; }
       .user-row { display:grid; grid-template-columns:minmax(180px,1.35fr) minmax(130px,1fr) minmax(135px,1fr) minmax(145px,1fr) minmax(105px,.7fr) auto auto; gap:12px; align-items:end; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#fbfdff; }
       .user-identity { align-self:center; min-width:0; }
       .user-identity span { display:block; overflow:hidden; color:#64748b; text-overflow:ellipsis; white-space:nowrap; }
@@ -745,6 +754,7 @@ function adminPanelLayoutStyles() {
         .admin-role-card p { min-height:0; }
         .admin-role-guide > summary { align-items:flex-start; }
         .admin-role-guide-summary-copy { display:grid; gap:2px; }
+        .admin-row { align-items:flex-start; flex-direction:column; }
         .user-row { grid-template-columns:1fr; }
         .user-identity { grid-column:auto; }
         .user-feature-grid { grid-template-columns:1fr; }
@@ -4528,7 +4538,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v291-project-vehicle-progress"
+          src="/tms.html?embedded=1&build=request-workflow-v293-admin-button-style"
         title="Top Dragon TMS"
       ></iframe>
     </main>
