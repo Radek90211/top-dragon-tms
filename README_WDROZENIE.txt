@@ -1,3 +1,854 @@
+AKTUALIZACJA v273 - kompletna paczka wdrożeniowa
+Build/cache: v273-complete-package
+
+- Paczka zawiera aktualną aplikację v272 oraz wymagane pliki wspólne: moduły formularza, planowania, importu, endpointy serwerowe, bibliotekę HTTP i zasoby graficzne.
+- Można ją wdrożyć jako pełny katalog projektu Vite/Vercel. Ustaw przed wdrożeniem VITE_SUPABASE_URL oraz VITE_SUPABASE_PUBLISHABLE_KEY (lub VITE_SUPABASE_ANON_KEY); dla analizatora zachowaj OPENAI_API_KEY.
+- Usunięto zależność od nieistniejących plików JPG/PNG logo. Logo i favicon są dołączone jako SVG.
+
+WERYFIKACJA v273
+- Kontrola kompletności importów modułów i wszystkich lokalnych zasobów HTML.
+- Kontrola składni JavaScript aplikacji, endpointów i skryptów inline.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v272 - dodawanie relacji z planu kierowców
+Build/cache: v272-board-add
+
+- Dwuklik pustego dnia przy własnym kierowcy ponownie otwiera formularz dodawania relacji także bez indywidualnego Trybu Excelowego.
+- Użytkownik z włączonym Trybem Excelowym zachowuje szybkie dodawanie kafelka; pozostałe osoby otrzymują pełny formularz relacji.
+
+WERYFIKACJA v272
+- Kontrola składni aplikacji, uprawnień własnego kierowcy i obu sposobów dodawania relacji.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v271 - edycja koloru administratora
+Build/cache: v271-admin-color-edit
+
+- W wierszu administratora dostępny jest aktywny wybór koloru i osobny przycisk „Zapisz kolor”.
+- Zapis odświeża kolor konta oraz przekazuje go od razu do uruchomionego planu i historii operacji.
+
+WERYFIKACJA v271
+- Kontrola składni aplikacji, walidacji koloru i zapisu koloru administratora.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v270 - kolor administratora w historii operacji
+Build/cache: v270-admin-audit-color
+
+- Historia operacji pokazuje administratora z jego ustawionym kolorem użytkownika.
+- Usunięto wymuszanie czerwonego koloru administratora z katalogu użytkowników, danych sesji i listy zespołu.
+
+WERYFIKACJA v270
+- Kontrola składni aplikacji oraz przekazywania indywidualnego koloru administratora do historii operacji.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v269 - Asystent spedytora i indywidualny tryb planu
+Build/cache: v269-assistant-access
+
+- Asystent spedytora pozostaje dostępny niezależnie od włączonych modułów opcjonalnych, dzięki czemu można zawsze przejść do „+ Kierowca / pojazd”.
+- Usunięto globalną sekcję „Sposób pracy na planie kierowców”. Tryb Excelowy jest od teraz określany wyłącznie indywidualnym uprawnieniem użytkownika.
+
+WERYFIKACJA v269
+- Kontrola składni aplikacji, dostępu do Asystenta oraz usunięcia globalnego przełącznika trybu planu.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v268 - płynne przewijanie planu
+Build/cache: v268-smooth-board-scroll
+
+- Podczas przewijania planu przez kółko, palec lub uchwyt paska synchronizacja nie wymienia już tablicy w trakcie ruchu.
+- Aktualizacje zebrane podczas przewijania są wykonywane tylko raz, 160 ms po zatrzymaniu.
+
+WERYFIKACJA v268
+- Kontrola składni aplikacji oraz ochrony przewijania przed przebudową tablicy.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v267 - obraz w wiadomości SMS/MMS
+Build/cache: v267-sms-image
+
+- W szczegółach zlecenia dodano „Wyślij obraz / MMS”. Przycisk pozwala wskazać uprzednio wycięty zrzut ekranu w PNG, JPG lub WEBP.
+- Na telefonie obraz i gotowa treść SMS otwierają systemowy panel udostępniania, z którego można wybrać aplikację Wiadomości.
+- Na urządzeniach bez systemowego udostępniania obraz jest kopiowany do schowka, a następnie otwierana jest wiadomość SMS do kierowcy.
+
+WERYFIKACJA v267
+- Kontrola składni aplikacji oraz obsługi wyboru obrazu, udostępniania MMS i bezpiecznego zapasowego kopiowania obrazu.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v266 - nawigacja i minimalny rozmiar relacji
+Build/cache: v266-navigation-resize
+
+- Ręczne zmniejszanie kafelka zachowuje minimalny czas trwania 3 godziny.
+- Skróty Google Maps i Impargo są ikonami w nagłówku „Szczegóły zlecenia”; zachowują opisy dla czytników ekranu i po najechaniu kursorem.
+- Linki przekazują pełne adresy punktów. Gdy kierowca rozładował dzień wcześniej, jego ostatni rozładunek jest pierwszym punktem trasy. Google Maps otwiera trasę w trybie samochodowym.
+
+WERYFIKACJA v266
+- Kontrola składni aplikacji, ograniczenia 3 godzin, budowania punktów trasy i skrótów nawigacji.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v265 - dane floty i transport wojskowy
+Build/cache: v265-fleet-military
+
+- Formularz dodawania kierowcy wymaga 10-cyfrowego NIP-u przewoźnika oraz udostępnia: model ciągnika, kolor ciągnika i markę naczepy.
+- Dane dodatkowe floty są zapisywane centralnie i widoczne po odświeżeniu oraz dla pozostałych pracowników.
+- Przy transporcie wojskowym sprawdzana jest polska narodowość kierowcy oraz wykluczenie każdej marki ciągnika zawierającej „Volvo”. Niezgodny kierowca nie może zostać dopasowany ani przypisany do relacji.
+- Dodano migrację `supabase/034_fleet_extended_details.sql`.
+
+WERYFIKACJA v265
+- Kontrola składni aplikacji, walidacji NIP-u, zapisu danych dodatkowych floty oraz reguł zgodności transportu wojskowego.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v264 - wymuszenie aktualnych uprawnień
+Build/cache: v264-feature-enforcement
+
+- Przy starcie plan pobiera uprawnienia bezpośrednio z centralnego zapisu, zamiast polegać na kopii danych z poprzedniego logowania.
+- Otwarte sesje użytkowników sprawdzają zmianę co 30 sekund oraz od razu po powrocie do karty lub okna.
+- Dodano samowystarczalną migrację `supabase/033_feature_permissions_enforcement.sql`, która tworzy pełny mechanizm uprawnień, jeśli wcześniejsze migracje nie zostały wykonane.
+- Profile bez ustawień otrzymują komplet wyłączonych funkcji. Po wdrożeniu administrator powinien zapisać ustawienia użytkownika ponownie, aby ustawić wybrane moduły.
+
+WERYFIKACJA v264
+- Kontrola składni aplikacji, odczytu centralnych uprawnień, odświeżania aktywnej sesji i kompletności migracji SQL.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v263 - domyślne blokowanie funkcji
+Build/cache: v263-feature-access
+
+- Suwak znajduje się bezpośrednio przy nazwie funkcji, także w szerokich kolumnach panelu administratora.
+- Zablokowane funkcje są usuwane z dostępnych zakładek i paneli, a ich bezpośrednie wywołanie pokazuje komunikat o braku dostępu.
+- Nowe konta otrzymują wszystkie funkcje wyłączone. Administrator włącza tylko potrzebne moduły dla danego użytkownika.
+- Dodano migrację `supabase/032_default_feature_permissions_off.sql` ustawiającą bezpieczny zestaw domyślnych uprawnień dla nowych profili. Istniejące konta zachowują obecne ustawienia.
+
+WERYFIKACJA v263
+- Kontrola składni aplikacji, skryptów inline, domyślnego zestawu uprawnień oraz ograniczeń widoczności paneli.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v262 - przełączniki funkcji i Tryb Excelowy
+Build/cache: v262-feature-toggles
+
+- Przełączniki indywidualnych funkcji użytkownika mają formę okrągłych suwaków w stylu Androida, z wyraźnym stanem włączenia i wyłączenia.
+- Dodano osobne uprawnienie „Tryb Excelowy”. Użytkownik z wyłączoną opcją pracuje na zwykłym planie kierowców, także wtedy, gdy globalnym ustawieniem jest tryb Excelowy.
+- Nowe uprawnienie korzysta z istniejącego centralnego zapisu uprawnień; migracja z v261 pozostaje aktualna.
+
+WERYFIKACJA v262
+- Kontrola składni aplikacji i wszystkich skryptów inline oraz sprawdzenie działania uprawnienia w wyborze sposobu pracy planu.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v261 - indywidualne uprawnienia funkcji
+Build/cache: v261-feature-permissions
+
+- Administrator ma przy każdym użytkowniku rozwijaną sekcję „Funkcje użytkownika” z niezależnymi przełącznikami: Optymalizacja tras, Historia tras, Projekty wieloautowe, Transporty wojskowe, Statystyki, Zapytania o ładunek, Klienci w rejonie, Planowane relacje, Wolne ładunki, Czat dotyczący relacji i Baza klientów.
+- Wyłączona funkcja nie jest dostępna z panelu, zakładki ani bezpośredniego wywołania. Administrator zachowuje pełny dostęp.
+- Dodano migrację `supabase/031_user_feature_permissions.sql`, która zapisuje ustawienia centralnie w profilu użytkownika.
+
+WERYFIKACJA v261
+- Kontrola składni aplikacji i skryptów inline oraz kontrola mapy funkcji, zabezpieczeń wejść i migracji SQL.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v260 - płynny plan na tablecie
+Build/cache: v260-tablet-scroll
+
+- Na ekranach dotykowych kafelki i wiersze planu nie używają już `content-visibility`, które powodowało ich krótkie znikanie podczas szybkiego przewijania na Surface.
+- Przesuwanie jednym palcem działa także bezpośrednio po kafelkach, w pionie i poziomie. Ruch palca nie otworzy przypadkowo szczegółów relacji.
+- Optymalizacja renderowania pustych pól pozostaje aktywna na komputerach bez ekranu dotykowego.
+
+WERYFIKACJA v260
+- Kontrola składni aplikacji i skryptów inline oraz kontrola reguł tabletowego przewijania i blokady przypadkowego kliknięcia po przesunięciu.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v259 - trwały zapis relacji między komputerami
+Build/cache: v259-central-relations
+
+- Nowy kafelek relacji jest lokalnie chroniony do chwili potwierdzenia zapisu przez Supabase. Pierwszy snapshot z drugiej sesji nie może już usunąć go przed wysłaniem zapisu.
+- Kafelek pozostaje widoczny podczas zapisu i po potwierdzeniu przechodzi na wspólny stan dostępny na wszystkich zalogowanych komputerach.
+- Usunięcie przykładowych danych po 18.10 dotyczy tylko relacji demonstracyjnych. Nie usuwa już relacji, Wolnych ładunków ani Planowanych relacji użytkowników z późniejszym terminem.
+
+WERYFIKACJA v259
+- Kontrola składni modułu aplikacji oraz statyczna kontrola ochrony lokalnego zapisu, odbioru snapshotu i filtra danych demonstracyjnych.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v254 - statystyki, daty i komentarze
+Build/cache: v254-route-dates-comments
+
+- W statystykach opcja „Wszyscy spedytorzy” obejmuje pełną listę spedytorów oraz ich relacje, także gdy zalogowany jest spedytor.
+- Szczegóły relacji mają osobne pola daty załadunku i rozładunku. Nowa data załadunku przesuwa rozładunek na następny dzień tylko wtedy, gdy dotychczasowa data byłaby wcześniejsza.
+- Oś czasu wykorzystuje datę załadunku i rozładunku, dlatego kafelek obejmuje cały okres relacji i aktualizuje się bezpośrednio po zmianie daty.
+- Dodano komentarz do relacji; jest zapisywany w historii klienta oraz do synchronizacji Supabase jako `route_comment`.
+
+WERYFIKACJA v254
+- Kontrola składni aplikacji i skryptów inline oraz kontrola filtrowania statystyk, edycji dat i zapisu komentarza do historii.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v253 - linia bieżącej godziny
+Build/cache: v253-current-time-line
+
+- Czerwona linia wskazująca bieżącą godzinę ma szerokość 4 px zamiast 2 px. Jej środek pozostaje w tym samym miejscu na osi czasu.
+
+WERYFIKACJA v253
+- Kontrola składni aplikacji, skryptów inline oraz szerokości i centrowania linii bieżącej godziny.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v252 - klawiatura i projekty wieloautowe
+Build/cache: v252-keyboard-projects
+
+- Dynamiczne elementy uruchamiane kliknięciem otrzymują fokus oraz obsługę Enter i Spacji. Wszystkie natywne przyciski i pola pozostają dostępne klawiszem Tab.
+- Fokus klawiatury jest wyraźnie oznaczony. Na kafelku relacji skrót Shift+F10 albo klawisz Menu otwiera menu relacji bez myszy.
+- Przykładowe relacje zawierają dwa projekty transportowe: Warszawa → Gdańsk na 3 auta oraz Katowice → Szczecin na 4 auta. Kafelki mają oznaczenie P 1/3, P 2/3 itd.
+
+WERYFIKACJA v252
+- Kontrola składni aplikacji i skryptów inline oraz statyczna kontrola obsługi Enter, Spacji, Shift+F10 i danych projektów.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v251 - płynne przewijanie planu
+Build/cache: v251-scroll-smoothness
+
+- Pozycjonowanie listy miejscowości podczas szybkiej edycji jest grupowane do jednej operacji na klatkę animacji zamiast wykonywać obliczenia dla każdego zdarzenia scroll.
+- W trakcie przewijania tablicy, na komputerze i telefonie, tymczasowo wyłączane są cienie, filtry, przejścia i animacje kafelków. Pełny wygląd wraca po zatrzymaniu ruchu.
+- Obsługa scrollowania tablicy nie blokuje już przeglądarki aktywnym nasłuchem zdarzenia.
+
+WERYFIKACJA v251
+- Kontrola składni aplikacji i skryptów inline oraz kontrola grupowania pozycji sugestii i trybu przewijania planu.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v250 - mobilny panel i kolumna kierowcy
+Build/cache: v250-mobile-panel-identity
+
+- W wysuwanym panelu mobilnym wyświetlana jest nazwa aktualnie zalogowanego spedytora.
+- Uchwyt panelu przesuwa się w lewo po jego otwarciu, więc nie nachodzi na panel ani jego przyciski.
+- W mobilnej tabeli wymuszono widoczny nagłówek kolumny „Kierowca”.
+
+WERYFIKACJA v250
+- Kontrola składni aplikacji i skryptów inline oraz kontrola selektorów panelu, uchwytu i nagłówka kolumny.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v249 - mobilny widok tabeli relacji
+Build/cache: v249-mobile-table-focus
+
+- Na telefonie usunięto górny nagłówek oraz wiersz „Plan kierowców”, dzięki czemu tabela wykorzystuje pełną wysokość ekranu.
+- Strzałka wysuwająca panel znajduje się na środku prawej krawędzi. Sam panel jest domyślnie ukryty i wysuwa się z tej strony.
+- Do panelu dodano działania konta: „Administracja” z ikoną tarczy dla administratora oraz „Wyloguj” z ikoną wyjścia. Nie zajmują już miejsca nad tabelą.
+
+WERYFIKACJA v249
+- Kontrola składni aplikacji i skryptów inline oraz kontrola mobilnych selektorów nagłówka, tabeli, panelu i akcji konta.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v248 - promienie tras w Historii
+Build/cache: v248-history-route-radius
+
+- W Asystencie spedytora → Historia dodano niezależne filtry: „Załadunek w promieniu” i „Rozładunek w promieniu”.
+- Wprowadź np. Warszawę i promień załadunku oraz Kraków i promień rozładunku. Wynik musi spełniać oba warunki jednocześnie.
+- W wynikach z aktywnym promieniem wyświetlana jest odległość odpowiednio od punktu załadunku i rozładunku. Lista miejscowości i kodów pozostaje dostępna w polach wyszukiwania.
+
+WERYFIKACJA v248
+- Kontrola składni aplikacji i skryptów inline oraz walidacja obu filtrów promienia, ich połączenia i renderowania odległości.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v247 - płynne uruchamianie planu
+Build/cache: v247-coalesced-startup
+
+- Po zalogowaniu plan jest nadal widoczny od razu, ale snapshoty użytkowników, floty, relacji i kolejek nie przebudowują już kolejno całej tablicy.
+- Pierwszy pełny render danych z Supabase następuje raz po otrzymaniu podstawowych snapshotów, z bezpiecznym limitem 2,2 s na brakującą odpowiedź.
+- Dane tygodniowych rozliczeń nie blokują startu, a snapshot kolejki nie wymusza renderu w trakcie grupowania startowego.
+
+WERYFIKACJA v247
+- Kontrola składni aplikacji i skryptów inline oraz statyczna kontrola jednego końcowego renderu startowego.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v246 - zwijane dopasowania pojazdów
+Build/cache: v246-match-details-toggle
+
+- Lista pojazdów, lokalizacji i kilometrów z dopasowania jest domyślnie ukryta.
+- Kliknięcie przycisku „Dopasowane” lub „Dopasowany pojazd” rozwija listę; kolejne kliknięcie ją zwija.
+- Przycisk ma czytelny stan rozwinięcia i zachowuje działanie szybkiego pobrania relacji na tablicę.
+
+WERYFIKACJA v246
+- Kontrola składni aplikacji i skryptów inline oraz sprawdzenie przycisku i warunkowego renderowania listy dopasowań.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v245 - jawne archiwizowanie kolejek
+Build/cache: v245-explicit-queue-archive
+
+- Usunięto automatyczne archiwizowanie wpisów z centralnej kolejki podczas uruchamiania aplikacji. Brak relacji w lokalnym widoku usuwa teraz wyłącznie lokalny punkt synchronizacji.
+- Archiwizacja centralnego wpisu jest wysyłana wyłącznie po świadomym działaniu użytkownika: usunięciu, przeniesieniu między kolejkami albo pobraniu planowanej relacji na tablicę.
+- Eliminuje to komunikat „Nie możesz usunąć wpisu należącego do innego spedytora.” pojawiający się bez działania użytkownika po uruchomieniu strony.
+
+WERYFIKACJA v245
+- Kontrola składni aplikacji i skryptów inline oraz sprawdzenie, że startowa synchronizacja nie wysyła żądania `top-dragon-load-queue-archive`.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v244 - synchronizacja kolejek i uproszczone karty
+Build/cache: v244-queue-sync-and-cards
+
+- Synchronizacja w tle nie próbuje archiwizować relacji utworzonej przez innego spedytora; eliminuje to błędny komunikat o braku prawa do usunięcia wpisu.
+- Menu „+ Dodaj relację” w Wolnych ładunkach zawiera ręczne dodawanie relacji, tak jak w Planowanych relacjach.
+- Karty Wolnych ładunków i Planowanych relacji pokazują na liście tylko miasta. Daty, adresy, punkty pośrednie, statusy i pozostałe dane są dostępne po „Pokaż szczegóły”.
+
+WERYFIKACJA v244
+- Kontrola składni aplikacji i skryptów inline oraz kontroli autorstwa przy automatycznej archiwizacji.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v243 - wielopunktowe zlecenia z AI
+Build/cache: v243-multistop-ai-mapping
+
+- Formularz buduje kolejność punktów z `stops`: pierwszy załadunek, drugi załadunek, pierwszy rozładunek oraz drugi rozładunek.
+- Nie powiela ostatniego rozładunku w polu drugiego rozładunku; dla przykładu z TR/10/268 zapisze Radom, a następnie Płock.
+- Jawne polskie daty, dni tygodnia i godziny z wiadomości stanowią bezpieczne uzupełnienie odpowiedzi AI, gdy model pominie te dane.
+
+WERYFIKACJA v243
+- Kontrola składni endpointu, aplikacji i skryptów inline oraz danych trasy wielopunktowej.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v242 - normalizacja odpowiedzi analizatora AI
+Build/cache: v242-ai-route-normalization
+
+- Analiza tekstu akceptuje relację zapisaną przez model w `routes` oraz poprawną pojedynczą relację zapisaną w polach głównych odpowiedzi.
+- Endpoint wymusza umieszczenie każdej rozpoznanej relacji tekstowej w `routes`, również gdy wiadomość opisuje tylko jedną trasę.
+- Chroni to przed komunikatem „Nie rozpoznano relacji” dla kompletnego zlecenia z wieloma punktami załadunku i rozładunku.
+
+WERYFIKACJA v242
+- Kontrola składni endpointu, aplikacji i skryptów inline oraz dwóch wariantów odpowiedzi AI.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v241 - walidacja adresu Supabase
+Build/cache: v241-supabase-url-validation
+
+- Endpoint rozpoznaje błędną wartość adresu Supabase i zwraca jasny błąd konfiguracji 503 zamiast błędu 500.
+- Wartość `sb_publishable_…` jest kluczem publikowalnym i nie może znajdować się w `VITE_SUPABASE_URL` ani `SUPABASE_URL`.
+
+WERYFIKACJA v241
+- Kontrola składni endpointu, aplikacji i skryptów inline oraz sprawdzenie aktualnego identyfikatora cache.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v240 - diagnostyka analizatora OpenAI
+Build/cache: v240-openai-diagnostics
+
+- Endpoint zapisuje w logach Vercel wyłącznie etap oraz komunikat błędu; nie zapisuje tekstu zlecenia, tokenu ani klucza API.
+- Walidacja sesji i profilu Supabase nie zakłada już poprawnej tablicy w odpowiedzi API, więc wadliwa odpowiedź nie powoduje błędu 500.
+- Gdy działa parser lokalny, komunikat w aplikacji zawiera skrót faktycznej przyczyny błędu AI zamiast ogólnego ostrzeżenia.
+
+WERYFIKACJA v240
+- Kontrola składni endpointu, aplikacji i skryptów inline oraz sprawdzenie aktualnego identyfikatora cache.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v239 - OpenAI i wyrównanie wyboru spedytora
+Build/cache: v239-openai-picker-align
+
+- Etykieta spedytora i strzałka rozwijania w polu wyboru są wyrównane pionowo przez wspólny układ flex oraz stałą linię elementów.
+- Poprawka obejmuje wybór głównego opiekuna klienta i pozostałe pola korzystające z tego samego komponentu.
+- Paczka zawiera również pełny endpoint OpenAI oraz zgodność z aktualnymi zmiennymi `VITE_SUPABASE_*`, dlatego może zostać wdrożona samodzielnie.
+
+WERYFIKACJA v239
+- Kontrola składni skryptów inline, stylu selektora oraz aktualnego identyfikatora cache.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v238 - wyrównanie wyboru spedytora
+Build/cache: v238-dispatcher-picker-align
+
+- Etykieta spedytora i strzałka rozwijania w polu wyboru są wyrównane pionowo przez wspólny układ flex oraz stałą linię elementów.
+- Poprawka obejmuje wybór głównego opiekuna klienta i pozostałe pola korzystające z tego samego komponentu.
+
+WERYFIKACJA v238
+- Kontrola składni skryptów inline, stylu selektora oraz aktualnego identyfikatora cache.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v237 - konfiguracja Supabase dla OpenAI
+Build/cache: v237-openai-supabase-env
+
+- Endpoint OpenAI obsługuje także istniejące zmienne `VITE_SUPABASE_URL` i `VITE_SUPABASE_PUBLISHABLE_KEY`, wykryte w konfiguracji wdrożenia projektu.
+- Nie trzeba tworzyć dodatkowych kopii zmiennych Supabase w Vercel. Endpoint nadal używa ich tylko serwerowo do weryfikacji aktywnej sesji i roli.
+
+WERYFIKACJA v237
+- Kontrola pobierania adresu i klucza publikowalnego Supabase z obu poprawnych nazw środowiskowych, składni endpointu oraz zawartości paczki.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v236 - analizator zleceń OpenAI
+Build/cache: v236-openai-order-analysis
+
+- Analizator AI dla tekstu, PDF, Word, RTF, ODT i TXT korzysta z jednego serwerowego endpointu `api/openai-order-analysis.js` oraz Responses API OpenAI ze Structured Outputs.
+- Zlecenia tekstowe zwracają osobne relacje, a dokumenty uzupełniają obecny formularz bez zmiany procesu sprawdzania i zapisu przez spedytora.
+- Endpoint sprawdza sesję Supabase, aktywność konta i rolę użytkownika przed wysłaniem danych do AI. Klucz `OPENAI_API_KEY` pozostaje wyłącznie w zmiennych środowiskowych Vercel.
+- Dokumenty są ograniczone do 4 MB, a tekst do 180 kB, co zapobiega niekontrolowanemu wykorzystaniu zasobów funkcji. PDF jest analizowany w trybie oszczędnym obrazu; dane można nadal poprawić przed zapisem.
+
+Wdrożenie V236:
+1. Wgraj pliki z paczki do katalogu głównego projektu, zachowując foldery `api`, `public` i `src`.
+2. W Vercel → Settings → Environment Variables dodaj `OPENAI_API_KEY` dla Production, Preview i Development.
+3. Opcjonalnie ustaw `OPENAI_IMPORT_MODEL`; bez tej zmiennej endpoint użyje `gpt-6-astra`.
+4. Pozostaw istniejące `SUPABASE_URL` oraz `SUPABASE_ANON_KEY` albo `SUPABASE_PUBLISHABLE_KEY`, ponieważ endpoint używa ich wyłącznie do potwierdzenia sesji i roli.
+5. Wdróż ponownie projekt i wykonaj pełne odświeżenie strony.
+
+WERYFIKACJA v236
+- Kontrola składni endpointu, obsługi plików i tekstu, limitów wejścia, weryfikacji użytkownika oraz zgodności formatu odpowiedzi z istniejącymi normalizatorami formularza.
+- Kontrola składni `src/main.js` i wszystkich skryptów inline `public/tms.html`.
+- Bez nowego pliku test-v.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v235 - menu, terminy i przykładowy plan
+Build/cache: v235-menu-expiry-october
+
+- Uchwyt wysuwanego menu komputerowego ma szerokość 5 cm i jest wyśrodkowany u góry ekranu.
+- Wolny ładunek jest archiwizowany po przekroczeniu daty i godziny załadunku; reguła działa w widoku lokalnym i podczas synchronizacji z Supabase.
+- Przycisk „✦ PDF, Word lub tekst” ma takie same wymiary jak „+ Dodaj relację” w obu kolejkach.
+- Przykładowe relacje planu kierowców obejmują okres od 28 września do 31 października.
+
+WERYFIKACJA v235
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola reguły archiwizacji dla terminu załadunku, szerokości uchwytu oraz przycisków kolejki.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v234 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v234 - dokładny wybór lokalizacji
+Build/cache: v234-exact-location-choice
+
+- Kliknięta sugestia przekazuje do relacji dokładnie wybraną miejscowość, pełny kod pocztowy oraz współrzędne.
+- Zapis nie wykonuje już wtórnego dopasowania po samej nazwie miejscowości, więc wybór konkretnego kodu nie może zostać nadpisany.
+
+WERYFIKACJA v234
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola przekazania danych klikniętej sugestii do relacji, drugiego rozładunku oraz danych mapy.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v233 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v233 - Enter otwiera szczegóły relacji
+Build/cache: v233-enter-route-details
+
+- W trybie pracy jak w Excelu Enter na zaznaczonym kafelku otwiera „Szczegóły relacji”.
+- Strzałki, kopiowanie, wklejanie i usuwanie kafelków zachowują dotychczasowe działanie.
+
+WERYFIKACJA v233
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola obsługi Enter wyłącznie dla zaznaczonej relacji oraz braku przejęcia klawisza w polach formularzy.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v232 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v232 - pełne sugestie na dolnych wierszach
+Build/cache: v232-unload-suggestion-viewport
+
+- Sugestie miejscowości i kodów przy dolnych wierszach planu otwierają się nad kafelkiem, gdy pod nim brakuje miejsca.
+- Szerokość listy dopasowuje się do ekranu i zachowuje widoczność pełnego kodu pocztowego.
+
+WERYFIKACJA v232
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola pozycjonowania listy nad oraz pod polem, ograniczenia jej do widocznego obszaru i widoczności kodu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v231 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v231 - Enter w potwierdzeniu usunięcia
+Build/cache: v231-enter-delete-confirm
+
+- Po otwarciu potwierdzenia usunięcia relacji fokus przechodzi na przycisk „Usuń relację”.
+- Klawisz Enter natychmiast zatwierdza usunięcie, a przycisk „Anuluj” nadal można wybrać myszą lub klawiaturą.
+
+WERYFIKACJA v231
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola fokusu przycisku potwierdzenia po otwarciu dialogu oraz jego wywołania klawiszem Enter.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v230 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v230 - widoczne sugestie rozładunku
+Build/cache: v230-quick-unload-suggestions
+
+- Lista miejscowości i kodów pocztowych podczas szybkiej edycji kafelka jest wyświetlana nad całą tablicą, bez przycinania przez siatkę lub kafelek.
+- Sugestie korzystają bezpośrednio z bazy PNA i pokazują pełny kod, z wyróżnionymi dwiema pierwszymi cyframi.
+- Kliknięcie sugestii nadal zapisuje miejscowość oraz pełny kod pocztowy w relacji.
+
+WERYFIKACJA v230
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola utworzenia listy poza kafelkiem, wyników bazy PNA i czyszczenia listy po zapisie lub anulowaniu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v229 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v229 - przełącznik motywu na komputerze
+Build/cache: v229-desktop-theme-menu
+
+- Przywrócono przełącznik „Tryb jasny / Tryb ciemny” w rozwijanym górnym pasku wersji komputerowej.
+- Przycisk pozostaje ukryty w nagłówku mobilnym, gdzie przełącznik jest dostępny przez „Więcej”.
+
+WERYFIKACJA v229
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola renderowania przycisku, zmiany etykiety oraz ukrywania go na ekranach mobilnych.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v228 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v228 - nawigacja strzałkami w planie
+Build/cache: v228-excel-arrow-navigation
+
+- W trybie pracy jak w Excelu strzałki klawiatury przechodzą do sąsiedniego dnia lub kierowcy.
+- Przejście zaznacza kafelek w docelowej komórce, a pusta komórka pozostaje gotowa do wklejenia relacji.
+- Widok automatycznie przewija się tylko do wskazywanej komórki; strzałki nie przejmują sterowania podczas wpisywania w formularzu.
+
+WERYFIKACJA v228
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola obsługi czterech strzałek, granic planu oraz wykluczenia pól formularzy.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v227 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v227 - kod pocztowy w szybkiej edycji rozładunku
+Build/cache: v227-quick-unload-postal
+
+- Podpowiedzi przy szybkim wpisywaniu rozładunku pokazują miejscowość oraz pełny kod pocztowy.
+- Dwie pierwsze cyfry kodu są wyróżnione, aby szybciej odróżniać miejscowości o tej samej nazwie.
+- Wybór podpowiedzi jednym kliknięciem nadal zapisuje pełny kod przy relacji.
+
+WERYFIKACJA v227
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola widoczności pełnego kodu i zapisu wybranej podpowiedzi w szybkiej edycji rozładunku.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v226 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v218 - przełączanie mapy, kolejki i wyniku AI
+Build/cache: request-workflow-v218-mobile-queue-ai-result
+
+- Otwarcie Wolnych ładunków lub Planowanych relacji zamyka wcześniej otwartą pełnoekranową mapę.
+- Dodano widoczny opis kolumny „Kierowca”: „Imię i nazwisko”.
+- Po analizie tekstu Analizator AI otwiera formularz pierwszej rozpoznanej relacji natychmiast, bez oczekiwania na dodatkowe potwierdzenia klienta.
+
+WERYFIKACJA v218
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola wykluczania mapy i kolejek, opisu kolumny kierowcy oraz natychmiastowego otwierania wyniku analizy tekstu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v217 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v217 - uproszczone menu i ikona motywu
+Build/cache: request-workflow-v217-more-theme-icon
+
+- Usunięto przycisk „Zamknij” z panelu „Więcej”. Panel zamyka się przez ponowne użycie ikony lub dotknięcie tła.
+- Usunięto przełącznik trybu jasnego/ciemnego z górnego nagłówka.
+- Przełącznik motywu w „Więcej” używa ikony księżyca w trybie jasnym i słońca w trybie ciemnym.
+
+WERYFIKACJA v217
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola braku przycisku zamknięcia w „Więcej”, braku przełącznika motywu w nagłówku i dynamicznej ikony motywu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v216 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v216 - stabilna siatka i wycentrowana mapa
+Build/cache: request-workflow-v216-grid-map-center
+
+- Dodano wewnętrzną linię poziomą komórek planu, aby linie siatki nie znikały przy ułamkowym skalowaniu przeglądarki.
+- Mobilna Mapa rozładunków po otwarciu odświeża wymiary i ustawia widok na środek Polski.
+- Usunięto niedziałającą ikonę Plan z prawego menu mobilnego.
+- Strzałka prawego menu ma półprzezroczysty wygląd i staje się pełna podczas dotknięcia.
+
+WERYFIKACJA v216
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola stabilnych linii siatki, centrowania mapy, braku ikony Plan i wyglądu strzałki.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v215 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v215 - zamykanie listy pojazdów i pełna szerokość planu
+Build/cache: request-workflow-v215-map-filter-fullwidth
+
+- Lista „Pojazdy” na Mapie rozładunków zamyka się po dotknięciu pustego obszaru poza listą, bez pełnego odświeżania mapy.
+- Plan kierowców nie ma już maksymalnej szerokości 1900 px. Przy pomniejszeniu przeglądarki wykorzystuje całą szerokość okna i pokazuje więcej relacji jednocześnie.
+
+WERYFIKACJA v215
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola zamykania listy pojazdów poza jej obszarem oraz braku limitu szerokości głównego planu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v214 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v214 - prawe menu i uporządkowana mapa mobilna
+Build/cache: request-workflow-v214-mobile-side-menu-map
+
+- Mobilne zakładki są wysuwanym, pionowym paskiem po prawej stronie; strzałka otwiera i ukrywa go bez ograniczania powierzchni planu.
+- Mapa rozładunków ma jednolity nagłówek, równe przyciski w układzie dwóch kolumn oraz pełną szerokość filtrów okresu i daty.
+- Ustawienia planu pozostają dostępne wyłącznie w panelu „Więcej”.
+
+WERYFIKACJA v214
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola wysuwanego prawego menu oraz mobilnego układu elementów Mapy rozładunków.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v213 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v213 - mobilny nagłówek i przypięty kierowca
+Build/cache: request-workflow-v213-mobile-header-driver-stick
+
+- Dolną strzałkę umieszczono wyżej w prawym dolnym rogu, ponad paskiem przeglądarki Brave.
+- Górny nagłówek jest stale widoczny; logo i przyciski konta są w jednym poziomym wierszu.
+- Na mobilnym planie kolumna „Kierowca” ma wymuszone przypięcie poziome i nie przesuwa się wraz z kafelkami relacji.
+- Mobilny plan używa stałej skali CSS, aby zachować działanie przypiętej kolumny w Chromium na telefonach.
+
+WERYFIKACJA v213
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola górnego nagłówka, pozycji dolnej strzałki oraz przypięcia kolumny kierowcy.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v212 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v212 - Brave, pełnoekranowa mapa i panele mobilne
+Build/cache: request-workflow-v212-mobile-brave-map
+
+- Dolna strzałka jest wyśrodkowana, ma kontrastowe obramowanie i stały dolny offset bez zależności od bezpiecznego obszaru Brave.
+- Zwinięty górny nagłówek jest przezroczysty: na ekranie widać wyłącznie strzałkę.
+- Mapa w telefonie wyświetla się pełnoekranowo, a dolne menu pozostaje nad nią do jej zamknięcia.
+- Usunięto przyciski „Zamknij” z Wolnych ładunków i Planowanych relacji. Panele zamykają się przez ponowne wybranie ikony.
+- Otwarcie innej ikony zamyka wcześniej otwarte Wolne ładunki, Planowane relacje albo Mapę. Ustawienia planu są dostępne w „Więcej”.
+
+WERYFIKACJA v212
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola stałej dolnej strzałki, przezroczystego zwiniętego nagłówka, pełnoekranowej mapy i wyłącznych paneli mobilnych.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v211 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v211 - stała dolna strzałka mobilna
+Build/cache: request-workflow-v211-mobile-visible-toggle
+
+- Dolna strzałka została przeniesiona poza kontener aplikacji i plan kierowców, do niezależnej warstwy ekranu.
+- Strzałka ma wymuszoną widoczność, pozycję fixed oraz wysoki priorytet warstw, więc pozostaje widoczna od uruchomienia strony.
+- Po zwinięciu górnej i dolnej części widoczne są wyłącznie dwie strzałki oraz Plan kierowców.
+
+WERYFIKACJA v211
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola niezależnego renderowania oraz widoczności dolnej strzałki.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v210 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v210 - otwieranie paneli z dolnego menu
+Build/cache: request-workflow-v210-mobile-panel-events
+
+- Kliknięcia ikon Plan, Wolne, Planowane, Mapa i Więcej zatrzymują propagację zdarzenia do powierzchni aplikacji.
+- Panele Wolne ładunki i Planowane relacje nie są już zamykane natychmiast po otwarciu na telefonie.
+- Zachowano ponowne kliknięcie aktywnej ikony jako zamknięcie wyświetlanego panelu.
+
+WERYFIKACJA v210
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola przekazywania i zatrzymywania zdarzeń dla pięciu mobilnych zakładek.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v209 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v209 - szybkie przełączniki mobilne
+Build/cache: request-workflow-v209-mobile-fast-toggle
+
+- Górna strzałka steruje wyłącznie klasą nagłówka zamiast klasy całej aplikacji, dzięki czemu nie wywołuje przeliczenia planu kierowców.
+- Ponowne naciśnięcie aktywnej zakładki Wolne, Planowane, Mapa albo Więcej zamyka wyświetlany element i przywraca Plan kierowców.
+- Ponowne naciśnięcie Planu nie resetuje zakresu dat ani położenia tablicy.
+
+WERYFIKACJA v209
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola izolowanego przełączania nagłówka oraz aktywacji/dezaktywacji wszystkich dolnych zakładek.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v208 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v208 - usunięcie pustych pól mobilnych
+Build/cache: request-workflow-v208-mobile-no-spacers
+
+- Usunięto mobilne puste pola nad i pod planem, w tym rezerwę pozostawioną przez ukryte menu.
+- Plan zaczyna się bezpośrednio pod stałym górnym przyciskiem; dolna strzałka pozostaje stale dostępna przy dolnej krawędzi ekranu.
+- Pokazanie lub ukrycie nagłówka nie zmienia już położenia planu i nie wymusza przeliczenia dużej tablicy.
+- Nagłówek po pokazaniu nakłada się tymczasowo na górę planu, pozostawiając go nieruchomym.
+
+WERYFIKACJA v208
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola usunięcia mobilnych odstępów, stałych przycisków oraz aktualnego build/cache ID.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v207 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v207 - plan kierowców jako widok startowy mobilny
+Build/cache: request-workflow-v207-mobile-plan-focus
+
+- Telefon otwiera teraz bezpośrednio Plan kierowców, bez widocznego górnego nagłówka i dolnego menu.
+- Górny przycisk pozostaje stale na ekranie i otwiera lub ukrywa cały nagłówek, łącznie z logo.
+- Dolny przycisk pozostaje stale na ekranie i otwiera lub ukrywa cały pasek zakładek.
+- Kierunek dolnej strzałki odpowiada działaniu: w dół przy widocznym menu, w górę przy ukrytym menu.
+
+WERYFIKACJA v207
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola domyślnie zwiniętego nagłówka i menu, obu strzałek oraz aktualnego build/cache ID.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v206 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v206 - stale widoczne sterowanie mobilne
+Build/cache: request-workflow-v206-mobile-fixed-controls
+
+- Górny nagłówek oraz dolne menu są przypięte do ekranu telefonu i nie znikają podczas przewijania.
+- Treść planu otrzymała odstęp od przypiętego nagłówka, dlatego przyciski i zawartość nie nakładają się na siebie.
+- Przełączniki ukrywania górnego nagłówka i dolnego menu działają bez ponownego renderowania aplikacji, więc ich stan nie jest resetowany.
+- Ukryte menu pozostawia widoczny przycisk do jego natychmiastowego ponownego pokazania.
+
+WERYFIKACJA v206
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola przypięcia obu pasków, działania obu przełączników oraz aktualnego build/cache ID.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v205 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v205 - sterowanie układem mobilnym
+Build/cache: request-workflow-v205-mobile-layout-controls
+
+- Przywrócono pełny dolny pasek zakładek: Plan, Wolne, Planowane, Mapa i Więcej.
+- Dodano osobny przycisk do zwijania oraz ponownego pokazania dolnego paska zakładek.
+- Górny nagłówek z logo i przyciskami konta jest domyślnie widoczny.
+- Dodano osobny przycisk w prawym górnym rogu do zwijania oraz ponownego pokazania górnej części nagłówka.
+- Zmiany dotyczą wyłącznie widoku mobilnego; układ desktopowy pozostaje bez zmian.
+
+WERYFIKACJA v205
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola obu mobilnych przełączników, pełnego paska zakładek oraz domyślnie rozwiniętego nagłówka.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v204 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v204 - nagłówek i pełny plan mobilny
+Build/cache: request-workflow-v204-mobile-header-tabs
+
+- Mobilny plan domyślnie używa pełnego desktopowego zakresu 13 dni. Przycisk „Widok 4 dni” pozostaje opcjonalnym trybem kompaktowym.
+- Nagłówki kolumn z datami są przyklejone nad kafelkami podczas pionowego przewijania planu.
+- Przyciski kontaktu i ustawień kierowcy są pod imieniem i nazwiskiem, zamiast obok niego.
+- W prawym górnym obszarze nagłówka dodano przycisk wysuwający ikony: Asystent, Najbliższy pojazd, Wolne ładunki, Planowane relacje, Mapa i Statystyki. Ten sam przycisk rozwija także nagłówek z kontem i akcjami użytkownika.
+- Logo i komunikat „Uruchamianie panelu…” są wyśrodkowane na ekranie ładowania.
+
+WERYFIKACJA v204
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola domyślnego zakresu 13 dni, wysuwanego nagłówka, ikon, przyklejonych dat i układu akcji kierowcy.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v203 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v203 - pełny zakres planu na telefonie
+Build/cache: request-workflow-v203-mobile-full-range
+
+- Telefon zachowuje domyślne cztery dni, ale przy Planie kierowców ma przycisk „Pełny zakres: 13 dni”. Po włączeniu pokazuje tyle samo dni co desktop: 2 dni wstecz, bieżący i 10 dni do przodu.
+- Przycisk po przełączeniu pokazuje „Widok 4 dni” i pozwala wrócić do kompaktowego układu.
+- Gest w lewo i prawo działa na kafelkach relacji oraz pustych komórkach, a nie tylko w nagłówku kolumn.
+
+WERYFIKACJA v203
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola zakresu 4/13 dni, handlera przełącznika oraz `touch-action` kafelków.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v202 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v202 - mobilna regulacja widoku i ikony
+Build/cache: request-workflow-v202-mobile-controls
+
+- Na telefonie kontroler „- / % / +” jest widoczny przy Planie kierowców. Pozwala pomniejszyć widok i wyświetlić więcej kafelków lub powiększyć go dla czytelności.
+- Dolna nawigacja otrzymała wymuszony, kontrastowy rendering SVG ikon oraz stan aktywnej zakładki.
+- Menu „Więcej” wyświetla ikony przy wszystkich narzędziach mobilnych.
+
+WERYFIKACJA v202
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola handlerów mobilnej nawigacji, kontroli skali i identyfikatorów cache.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v201 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v201 - naprawa przewijania na telefonie
+Build/cache: request-workflow-v201-mobile-scroll-fix
+
+- Kafelki relacji nie blokują już pionowego gestu na telefonie. Przeciąganie pozostaje możliwe poziomo, a ruch góra–dół przewija plan.
+- Mobilna tablica nie wykonuje już automatycznego ustawienia pozycji po każdym odświeżeniu. Ustawienie na dzisiejszym dniu działa tylko przy pierwszym uruchomieniu, obrocie telefonu albo świadomym wyborze „Plan”.
+- Przywrócono naturalne przekazywanie przewijania pomiędzy planem a stroną i wyłączono mobilne przyciąganie przewijania, które powodowało odczuwalne zacięcia.
+- Zamknięte panele mobilne nie przechwytują już dotyku.
+
+WERYFIKACJA v201
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola gestów dotykowych, automatycznego pozycjonowania i zamkniętych paneli.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v200 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v200 - wygodna praca na telefonie
+Build/cache: request-workflow-v200-mobile-workspace
+
+- Telefon domyślnie pokazuje dzień wstecz, dzień bieżący i dwa dni do przodu. Plan ustawia się na kolumnie bieżącego dnia, a przejście do wcześniejszego lub późniejszego zakresu zachowuje czterodniowe okno.
+- Dodano dolną nawigację: Plan, Wolne ładunki, Planowane relacje, Mapa i Więcej. W „Więcej” dostępne są Baza klientów, Najbliższy pojazd, ustawienia planu, Statystyki, Asystent i zmiana motywu.
+- Na telefonie kolumna kierowcy pozostaje widoczna, a drugorzędne kolumny są zwinięte tylko wizualnie. Kafelki, pola i przyciski mają obszar dotykowy co najmniej 44 px.
+- Szczegóły zlecenia, kolejki i Statystyki otwierają się od dołu jako panele; czat korzysta z mobilnego układu oraz pola wpisywania przy dolnej krawędzi.
+- Mapa jest domyślnie zwinięta na telefonie i jej runtime ładuje się dopiero po otwarciu mapy. Sugestie lokalizacji mają najwyższy priorytet warstwy nad planem.
+
+WERYFIKACJA v200
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola globalnych handlerów nawigacji mobilnej, zakresu dat i identyfikatorów cache.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v199 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v199 - pełny audyt i płynność kluczowych widoków
+Build/cache: request-workflow-v199-full-audit-smoothness
+
+- Mapa buduje grupy i statusy pojazdów jeden raz na cykl aktualizacji, zamiast wykonywać te same obliczenia podczas czyszczenia markerów, ich rysowania i dopasowania widoku.
+- Usunięto drugi, starszy listener przewijania Statystyk; pozostał aktualny mechanizm obsługujący pionowe i poziome gesty.
+- Usunięto potwierdzone pozostałości funkcji wycofanych z interfejsu: niewidoczne oznaczenia świeżości/ratingu/przyszłych relacji, stare puste ostrzeżenia dostępności, pusty panel wspólnej bazy, puste medale Statystyk i martwe pomocnicze funkcje mapy.
+- Okresowe porządkowanie Wolnych ładunków po stronie Supabase nie wykonuje pełnego odczytu, gdy karta przeglądarki albo iframe TMS nie jest aktywna. Realtime i natychmiastowe odświeżenia po zmianie nadal działają.
+
+WERYFIKACJA v199
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola handlerów inline oraz odwołań do usuniętych identyfikatorów.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v198 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+
+AKTUALIZACJA v198 - płynność działania i czyszczenie nieużywanego kodu
+Build/cache: request-workflow-v198-smooth-runtime-cleanup
+
+- Synchronizacja klientów, relacji, kolejek i zapytań po zmianie nadal rozpoczyna się natychmiast, ale kontrolne skany działają co 5 sekund zamiast co 0,8 sekundy. Historia relacji ma kontrolę co 8 sekund zamiast co 1,8 sekundy.
+- Dopasowania relacji i stan zakładek są odświeżane od razu po zdarzeniu, a ich kontrola awaryjna nie obciąża już planu co sekundę.
+- Tablica liczy kolizje kafelków raz dla każdej pary relacji, buduje znacznik bieżącej godziny raz na render i grupuje dekorowanie nowych przycisków w pojedynczej klatce przeglądarki.
+- Usunięto nieaktywne pozostałości po wycofanych funkcjach: automatyczne alerty właściciela klienta, wizualizację pauz, dawną linię czasu w komórce dnia, automatyczne przewijanie do bieżącej godziny, mierzenie tekstu kafelków i nieużywany test dopasowania kolejki.
+- Odświeżanie wskaźników kafelków używa indeksu relacji zamiast wyszukiwania całej listy dla każdego kafelka.
+
+WERYFIKACJA
+Kontrola składni wszystkich osadzonych skryptów, kontrola braku usuniętych identyfikatorów, walidacja identyfikatorów cache oraz lekka kontrola pakietu. Bez nowego pliku test-v.
+Paczka względem V197 zawiera wyłącznie zmienione pliki: public/tms.html i README_WDROZENIE.txt.
+
 AKTUALIZACJA v180 - potwierdzanie adresu klienta jako bazy
 Build/cache: request-workflow-v180-confirm-client-address-base
 
@@ -936,4 +1787,303 @@ Build/cache: request-workflow-v181-tile-join-separate-grid
 WERYFIKACJA
 Sprawdzono składnię wszystkich skryptów, obecność obsługi upuszczenia bezpośrednio na kafelek, rozdzielanie pary, zachowanie osobnych identyfikatorów/statusów i reguły CSS siatki. Bez nowego pliku test-v.
 Paczka względem V180 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v182 - czyste kafelki i przeciąganie bez linii
+Build/cache: request-workflow-v182-clean-tile-drag
+
+- Usunięto przyciski „Podziel” i „Rozdziel” z kafelków relacji.
+- Usunięto niebieską pionową linię pomocniczą pokazywaną podczas przeciągania kafelka.
+- Przeciąganie relacji i łączenie przez upuszczenie kafelka bezpośrednio na innym kafelku pozostają aktywne.
+- Zmieniono podpowiedź nad planem, aby opisywała aktualne sterowanie.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, brak generowania przycisków Podziel/Rozdziel oraz brak tworzenia elementu route-drop-guide. Bez nowego pliku test-v.
+Paczka względem V181 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v183 - skróty klawiaturowe i płynna zmiana koloru
+Build/cache: request-workflow-v183-tile-keyboard-fast-color
+
+- Zmiana czerwonego lub domyślnego koloru czcionki aktualizuje tylko wybrany kafelek. Tablica nie jest ponownie renderowana, dzięki czemu operacja nie powoduje laga.
+- Po pojedynczym zaznaczeniu kafelka Ctrl+C kopiuje czytelne dane relacji do schowka systemowego.
+- Ctrl+X kopiuje dane i otwiera dotychczasowe potwierdzenie usunięcia. Klawisz Delete otwiera potwierdzenie usunięcia zaznaczonego kafelka.
+- Skróty nie działają podczas wpisywania w polach formularzy, polach tekstowych ani listach wyboru.
+- Ręczne odłączenie połówki, przeciągnięcie jej do pustego dnia lub usunięcie jednej części automatycznie rozszerza pozostały kafelek na cały dzień.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, bezpośrednią aktualizację klasy koloru, obsługę Ctrl+C/Ctrl+X/Delete, pomijanie aktywnych pól formularzy oraz rozszerzanie osieroconej połówki. Bez nowego pliku test-v.
+Paczka względem V182 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v184 - płynne pary, szybki kolor i wypełniona tablica
+Build/cache: request-workflow-v184-smooth-pairs-board-fill
+
+- Łączenie rozpoznaje teraz wyłącznie rzeczywistą parę: wspólny identyfikator, kierowcę i datę. Osierocone oznaczenia są automatycznie czyszczone, dlatego dwa osobne kafelki można ponownie połączyć.
+- Łączenie i rozdzielanie natychmiast aktualizuje tylko oba zainteresowane kafelki. Pełne wyrównanie tablicy i zapis wykonują się z krótkim opóźnieniem, co usuwa przycięcia.
+- Zmiana koloru czcionki natychmiast zmienia klasę kafelka i zamyka samo menu kontekstowe. Nie przebudowuje tablicy; synchronizacja jest opóźniona o 450 ms.
+- Relacje demonstracyjne wypełniają wszystkich kierowców od 28.09 do 05.10, łącznie z weekendem. Dodatkowo 16 kierowców otrzymuje relację 06.10.
+- Każda nowa relacja demonstracyjna zajmuje dokładnie cały dzień. Istniejące rzeczywiste relacje nadal mają pierwszeństwo.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, czyszczenie osieroconego stanu pary, aktualizację dwóch kafelków bez pełnego renderu, opóźniony zapis koloru oraz zakres i liczebność relacji demonstracyjnych. Bez nowego pliku test-v.
+Paczka względem V183 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v185 - płynna mapa przy zmianie daty
+Build/cache: request-workflow-v185-map-date-performance
+
+- Zmiana daty aktualizuje tylko warstwę pojazdów. Markery klientów i baz kierowców nie są już usuwane, tworzone oraz ponownie wiązane przy każdym dniu.
+- Usunięto kosztowne budowanie wspólnej sygnatury ze wszystkich relacji, klientów i baz podczas każdej zmiany daty.
+- Warstwy klientów i baz mają niezależne wersje oraz odświeżają się dopiero po zmianie ich danych, filtra albo widoczności.
+- Cięższa aktualizacja Leaflet jest wykonywana po wyrenderowaniu klatki interfejsu; szybko następujące zmiany daty anulują wcześniejsze oczekujące aktualizacje.
+- Dopasowanie widoku mapy używa krótkich numerów wersji warstw zamiast wielokrotnego łączenia list wszystkich markerów.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, niezależne sygnatury pojazdów/klientów/baz, anulowanie nieaktualnej aktualizacji i brak skanowania pełnej bazy klientów w sygnaturze zmiany daty. Bez nowego pliku test-v.
+Paczka względem V184 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v186 - kopiowanie relacji i grupy do trzech kafelków
+Build/cache: request-workflow-v186-shared-copy-three-routes
+
+- Ctrl+C zapisuje pełną kopię relacji także w schowku systemowym i pamięci aplikacji. Po wskazaniu dnia Ctrl+V tworzy nową, niezależną relację zamiast przenosić oryginał.
+- Kopię można umieścić na tablicy innego spedytora. Otrzymuje ona właściciela zgodnego z docelowym pojazdem i status oczekujący, aby spedytor docelowy zachował kontrolę nad swoją tablicą.
+- Relacje można łączyć po dwie lub trzy w jednym dniu. Każda zachowuje własne dane oraz status, a czwarta jest blokowana czytelnym komunikatem.
+- Rozdzielenie jednej relacji z grupy automatycznie wyrównuje pozostałe dwie albo rozszerza ostatnią na cały dzień.
+- Zmiana szerokości przy łączeniu i rozdzielaniu aktualizuje geometrię oraz klasę rozmiaru czcionki tylko dla zmienianych kafelków. Usunięto animowanie właściwości wpływających na układ.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, kopiowanie i wklejanie pełnej relacji, własność kopii na obcej tablicy, limit trzech relacji, niezależność statusów oraz przeliczanie szerokości grupy 1/2/3. Bez nowego pliku test-v.
+Paczka względem V185 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v187 - jedno pole lokalizacji, stabilny start i widoczne podpowiedzi
+Build/cache: request-workflow-v187-location-suggestions-stable-board
+
+- Szybkie wprowadzanie relacji używa jednego pola „Miejscowość lub kod pocztowy”. Usunięto osobną, wąską komórkę kodu.
+- Lista podpowiedzi pokazuje nazwę miejscowości i początek kodu po nazwie, np. „Zgorzelec · 59-”. Pełny kod wybranej pozycji nadal zapisuje się w danych relacji.
+- Wybór podpowiedzi nadal wymaga jednego kliknięcia, a Enter lub Tab zatwierdza pierwszą dopasowaną lokalizację.
+- Usunięto dwa zbędne pełne renderowania planu wykonywane klatkę po uruchomieniu strony.
+- Odpowiedzi rozliczeń tygodniowych są łączone w jedną aktualizację tablicy zamiast wywoływać serię przebudów planu i kafelków.
+- Zarezerwowano stałe miejsce na pasek przewijania, aby pojawienie się danych nie przesuwało planu w poziomie.
+- Podpowiedzi w „Najbliższym pojeździe” są wyświetlane w najwyższej warstwie strony i automatycznie otwierają się pod albo nad polem, zależnie od dostępnego miejsca.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, brak osobnego pola kodu, prezentację prefiksu kodu, zapis pełnego kodu z wybranej lokalizacji, portal podpowiedzi ponad planem oraz redukcję dodatkowych renderów startowych. Bez nowego pliku test-v.
+Paczka względem V186 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v188 - stabilne pierwsze wyświetlenie planu
+Build/cache: request-workflow-v188-stable-initial-board
+
+- Plan kierowców nie jest już najpierw wyświetlany z danymi demonstracyjnymi i następnie wielokrotnie podmieniany danymi produkcyjnymi.
+- Podczas startu widoczny jest nieruchomy panel „Przygotowywanie planu kierowców” o stałej wysokości.
+- Pierwszy właściwy plan pojawia się dopiero po otrzymaniu katalogu użytkowników, floty, relacji i podsumowań tygodniowych.
+- Odpowiedzi startowe nie przebudowują ukrytego planu osobno. Po zebraniu danych wykonywany jest jeden pełny render.
+- Dodano limit oczekiwania 3,5 sekundy, aby awaria jednej odpowiedzi nie blokowała dostępu do planu.
+- Późniejsze aktualizacje Realtime nadal odświeżają plan normalnie i zachowują bieżącą pozycję przewijania.
+
+WERYFIKACJA
+Sprawdzono składnię skryptów, wszystkie trzy kolejności odpowiedzi użytkownicy/flota/relacje, oczekiwanie na rozliczenia tygodniowe, pojedynczy render końcowy oraz awaryjne zakończenie bufora po 3,5 sekundy. Bez nowego pliku test-v.
+Paczka względem V187 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v189 - archiwalne kolejki i kopiowanie administratora
+Build/cache: request-workflow-v189-admin-copy-queue-archive-locations
+
+- Wolne ładunki oraz Planowane relacje mają rozwijane archiwum dostępne dla zalogowanych pracowników.
+- Każda karta w obu kolejkach pokazuje status „Tablica: dodano” albo „Tablica: nie dodano”; archiwum jest wyłącznie do odczytu.
+- Administrator może kopiować kafelki z każdej tablicy i wkleić je do wskazanego kierowcy; kopia zapisuje się w oddziale docelowego kierowcy.
+- Wyszukiwarka lokalizacji uzupełnia miasta z lokalnego indeksu współrzędnych, w tym Żagań (68-100), także gdy brakowało ich w danych kodów pocztowych.
+
+AKTUALIZACJA v190 - usunięty ekran ładowania planu
+Build/cache: request-workflow-v190-no-board-loading-screen
+
+- Plan kierowców renderuje się od razu po wejściu do aplikacji.
+- Usunięto ekran „Przygotowywanie planu kierowców”; synchronizacja danych nadal odbywa się w tle.
+
+AKTUALIZACJA v191 - stabilna pozycja planu po uruchomieniu
+Build/cache: request-workflow-v191-stable-board-entry
+
+- Usunięto opóźnione automatyczne przewijanie planu do aktualnej godziny.
+- Plan i kafelki pozostają w tej samej pozycji od pierwszego wyświetlenia.
+- Linia aktualnej godziny nadal jest wyświetlana w kolumnie bieżącego dnia.
+
+AKTUALIZACJA v192 - stała kolejność kierowców na planie
+Build/cache: request-workflow-v192-stable-driver-order
+
+- Kolejność wierszy planu jest ustalana przy pierwszym wyświetleniu i pozostaje stała w trakcie sesji.
+- Aktualizacja danych, nazw lub przypisania spedytora nie przestawia istniejących kierowców ani kafelków.
+- Nowy kierowca pojawia się na końcu aktualnej tablicy bez przesuwania pozostałych wierszy.
+
+AKTUALIZACJA v193 - pełny, oficjalny indeks PNA
+Build/cache: request-workflow-v193-official-pna-index
+
+- Wyszukiwarka miejscowości i kodów pocztowych korzysta teraz z pełnego indeksu 72 731 unikalnych par kod–miejscowość oraz 20 485 kodów ze „Spisu PNA” Poczty Polskiej z 01.07.2026, przekazanego przez właściciela projektu.
+- Jeden wspólny indeks obsługuje formularze relacji, szybką edycję kafelków, wyszukiwarkę „Najbliższy pojazd”, import i sprawdzanie lokalizacji na mapie.
+- Zachowano 53 265 istniejących, zweryfikowanych punktów mapy. Pozostałe poprawne pary PNA są dostępne w podpowiedziach, a ich pozycja jest ustalana przez dotychczasowe precyzyjne geokodowanie adresu, bez zgadywania współrzędnych.
+- Weryfikacja importu: 119 454 rekordy źródłowe, 0 brakujących nazw miejscowości i 0 błędnych kodów po odczycie kolumnowego układu dokumentu; powtórzenia ulic zostały scalone do unikalnych par kod–miejscowość.
+
+WERYFIKACJA
+Kontrola kompletności oficjalnych par PNA w osadzonym indeksie, walidacja składni osadzonych skryptów oraz sprawdzenie wyszukiwania po mieście i kodzie. Bez nowego pliku test-v.
+Paczka względem V192 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v194 - oś czasu nad kafelkami i bez przycisków dodawania
+Build/cache: request-workflow-v194-timeline-on-top-no-add-plus
+
+- Linia bieżącej godziny oraz jej etykieta są zawsze rysowane ponad kafelkami relacji, także w kolorowanych komórkach i trybie ciemnym. Linia nie blokuje kliknięcia ani przeciągania kafelków.
+- Usunięto wszystkie przyciski „+” z komórek planu kierowców wraz z nieużywaną logiką ich przesłaniania.
+- Dodawanie relacji w trybie tabeli pozostaje dostępne przez dotychczasowy dwuklik w komórce z datą.
+
+WERYFIKACJA
+Kontrola składni osadzonych skryptów, brak elementów `.time-plus` i sprawdzenie warstw osi czasu. Bez nowego pliku test-v.
+Paczka względem V193 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v195 - szybkie kolejki i pierwsze otwarcie mapy
+Build/cache: request-workflow-v195-fast-queues-map-open
+
+- Otwarcie „Wolnych ładunków” i „Planowanych relacji” nie wylicza już dopasowań każdej relacji ze wszystkimi pojazdami. Zwinięte karty otwierają się od razu; odległości, zgodność i wybór pojazdu są liczone dopiero po rozwinięciu konkretnej pozycji.
+- „+ Dodaj relację” oraz „PDF, Word lub tekst” aktualizują wyłącznie własne menu zamiast ponownie tworzyć całą zakładkę.
+- Usunięto przycisk „Wprowadź wolny ładunek”. Ręczne wprowadzanie planowanej relacji pozostaje dostępne w swojej zakładce.
+- Pierwsze otwarcie Mapy pokazuje od razu lekki widok ładowania, a kosztowny model mapy i Leaflet uruchamiają się po narysowaniu interfejsu. Model mapy jest budowany tylko raz na otwarcie.
+
+WERYFIKACJA
+Kontrola składni osadzonych skryptów, brak przycisku ręcznego wolnego ładunku oraz sprawdzenie odroczonego otwarcia mapy i lekkiego renderowania zwiniętych kart. Bez nowego pliku test-v.
+Paczka względem V194 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v196 - płynna mapa z dużą liczbą danych i oś czasu nad relacjami
+Build/cache: request-workflow-v196-smooth-map-top-timeline
+
+- Mapa grupuje liczne lokalizacje klientów do maksymalnie 240 lekkich markerów zależnych od aktualnej skali. Kliknięcie grupy przybliża mapę; pojedyncze lokalizacje i ich pełne dane pojawiają się po przybliżeniu.
+- Przeliczanie granic mapy korzysta z grup widocznych markerów zamiast pełnej, potencjalnie wielotysięcznej listy punktów. Ogranicza to zacięcia podczas otwierania mapy, przełączania baz klientów i zmiany skali.
+- Czerwona linia aktualnej godziny jest teraz rysowana w warstwie `.timeline-row` razem z relacjami, z priorytetem wyższym niż każdy kafelek. Nie może zostać przykryta przez relację niezależnie od kontekstu CSS komórki dnia.
+
+WERYFIKACJA
+Kontrola składni osadzonych skryptów, ograniczenia liczby markerów klientów, aktualizacji po zmianie skali mapy oraz położenia osi czasu w warstwie timeline. Bez nowego pliku test-v.
+Paczka względem V195 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v197 - korekta pozostałości po usuniętych funkcjach
+Build/cache: request-workflow-v197-dead-code-cleanup
+
+- Usunięto martwą funkcję otwierania relacji po wycofanym przycisku „+” w kafelkach.
+- Usunięto nieużywaną funkcję linii czasu w komórce dnia i starą funkcję automatycznego przewijania planu do bieżącej godziny.
+- Usunięto niewykorzystywane, starsze źródło podpowiedzi lokalizacji, nieużywany odczyt bazowych kilometrów oraz puste stuby zapisu lokalnej floty.
+- Samouczek tworzenia relacji prowadzi teraz do dwukliku w komórce wybranego kierowcy i daty, zgodnie z aktualnym sposobem pracy.
+
+WERYFIKACJA
+Skan wszystkich funkcji, kontrola braku usuniętych identyfikatorów oraz kontrola składni osadzonych skryptów. Bez nowego pliku test-v.
+Paczka względem V196 zawiera wyłącznie public/tms.html, src/main.js i README_WDROZENIE.txt.
+
+AKTUALIZACJA v219 - niższe menu i panele do przeciągania
+Build/cache: request-workflow-v219-mobile-low-menu-dnd
+
+- Strzałkę wysuwającą prawe menu przeniesiono do prawego dolnego rogu, około 1 cm nad krawędzią ekranu.
+- Prawe menu rozwija się ku górze od dolnej części ekranu.
+- Mobilne okna Wolne ładunki i Planowane relacje zajmują maksymalnie 44% wysokości ekranu, pozostawiając większość planu widoczną do drag and drop.
+
+WERYFIKACJA v219
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola pozycji strzałki, pionowego menu w dolnej części ekranu oraz wysokości mobilnych paneli kolejek.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v218 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v220 - pozycja strzałki i uproszczenie sterowania mobilnego
+Build/cache: request-workflow-v220-mobile-nav-arrow
+
+- Strzałka wysuwająca prawe menu znajduje się stale przy prawej krawędzi, 57 px nad dolną krawędzią ekranu (około 1,5 cm).
+- Po rozwinięciu zakładek strzałka nie przeskakuje na lewą stronę ikon.
+- Usunięto mobilny przełącznik zakresu dni, który dublował pełny widok planu.
+
+WERYFIKACJA v220
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola stałej pozycji strzałki oraz braku mobilnego przełącznika zakresu.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v219 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v221 - pełne ustawienia kierowców dla administratora
+Build/cache: v221-admin-driver-access
+
+- Administrator otrzymał dostęp do zmiany koloru, tymczasowego i stałego przypisania, edycji, ukrywania oraz przywracania każdego kierowcy.
+- Działania administracyjne działają również dla pozycji planu, które nie są jeszcze połączone z aktywnym rekordem floty.
+- Usunięto komunikat o prywatnym oznaczaniu kierowcy i ograniczeniach prowadzącego spedytora.
+
+WERYFIKACJA v221
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola uprawnień administratora dla wszystkich akcji ustawień kierowcy.
+- Kontrola braku usuniętego komunikatu oraz zawartości archiwum ZIP.
+- Paczka względem v220 zawiera wyłącznie: public/tms.html oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v222 - ukrycie technicznego statusu zapisu
+Build/cache: v222-hide-save-confirmation
+
+- Usunięto z kart zleceń komunikat „Oczekuje na potwierdzenie zapisu”.
+- Mechanizm sprawdzania zapisu w tle pozostaje aktywny, więc błąd synchronizacji nadal będzie zgłaszany.
+
+WERYFIKACJA v222
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola usunięcia statusu z opisu zlecenia.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v221 zawiera wyłącznie: public/tms.html oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v223 - prawdziwe ulice w przykładowych relacjach
+Build/cache: v223-real-sample-streets
+
+- Zastąpiono fikcyjne adresy „ul. Załadunkowa” i „ul. Rozładunkowa” rzeczywistymi nazwami ulic dla każdej miejscowości z danych przykładowych.
+- Usunięto losowe numery budynków, aby przykładowy adres nie wskazywał nieistniejącego punktu.
+- Podniesiono wersję przykładowego harmonogramu, dzięki czemu istniejące przykładowe relacje odświeżą się automatycznie.
+
+WERYFIKACJA v223
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola kompletności mapy ulic dla wszystkich miejscowości przykładowych relacji.
+- Kontrola odświeżenia wersji danych przykładowych oraz zawartości archiwum ZIP.
+- Paczka względem v222 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v224 - usunięcie opisów pomocniczych
+Build/cache: v224-remove-ui-hints
+
+- Usunięto opis skrótów edycji z planu kierowców.
+- Usunięto etykietę „Mapa i lista rozładunków na dzień”.
+- Usunięto opis pod nagłówkiem Baza klientów.
+- Usunięto opis wymagań przy dodawaniu kierowcy i przewoźnika.
+
+WERYFIKACJA v224
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola braku czterech usuniętych opisów.
+- Kontrola wbudowanych testów widoku mapy oraz zawartości archiwum ZIP.
+- Paczka względem v223 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v225 - pełna obsługa relacji przez administratora
+Build/cache: v225-admin-relations
+
+- Rozpoznawanie administratora obejmuje rolę aplikacji oraz role z konta Supabase.
+- Administrator może edytować, przesuwać, usuwać, kopiować, zmieniać status i przetwarzać relacje, które sam dodał lub które należą do innych spedytorów.
+- Administrator może również zarządzać relacjami w Wolnych ładunkach i Planowanych relacjach oraz przenosić relację między pojazdami różnych spedytorów.
+
+WERYFIKACJA v225
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola uprawnień administratora dla edycji, usuwania, statusów, kolejek i przeciągania relacji.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v224 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+AKTUALIZACJA v226 - bieżące dopasowania ładunków
+Build/cache: v226-live-queue-matches
+
+- Mechanizm dopasowań obejmuje teraz również administratora i oblicza dla niego wszystkie zgodne pojazdy.
+- Po przesunięciu relacji, zmianie daty, miejscowości lub adresu dopasowania są przeliczane w najbliższej klatce renderowania.
+- Zielone oznaczenie na kafelku oraz dopasowanie w Wolnych ładunkach i Planowanych relacjach nie zależą już od pierwotnego dnia relacji.
+
+WERYFIKACJA v226
+- Kontrola składni wszystkich skryptów inline i src/main.js.
+- Kontrola ról dopuszczonych do wyliczania dopasowań oraz odświeżenia po zmianie relacji.
+- Kontrola zawartości archiwum ZIP.
+- Paczka względem v225 zawiera wyłącznie: public/tms.html, src/main.js oraz README_WDROZENIE.txt.
+
+TOP DRAGON TMS — wersja v255
+Zmiany: Enter potwierdza usunięcie relacji; widoczne oznaczenia projektów wieloautowych i dwa przykładowe projekty dla różnych klientów każdego dnia; dane marki/modelu/koloru ciągnika i marki naczepy; flaga Wojsko dla wolnych i planowanych relacji oraz dopasowanie wykluczające kierowców spoza PL i ciągniki Volvo.
+Cache/build ID: v255-military-projects
+
+TOP DRAGON TMS — wersja v256
+Zmiany: lokalny analizator proponuje wymianę tras między spedytorami oraz podmianę kierowcy wyłącznie powyżej 30 km oszczędności dolotu. Pokazuje dyskretną ikonę ↔ i krótkie porównanie „−km · obecnie→po zmianie”. Nie wykonuje wywołań AI ani routingu sieciowego.
+Cache/build ID: v256-route-swap-analyzer
+
+TOP DRAGON TMS — wersja v257
+Zmiany: kafelki projektów pokazują wyłącznie numer pojazdu i liczbę pojazdów, a kolor projektu wybiera spedytor podczas tworzenia relacji. Optymalizacja tras pokazuje oznaczenia obu spedytorów; kliknięcie propozycji podświetla wskazane kafelki na niebiesko. Wolne ładunki z załadunkiem dzisiaj pozostają aktywne przez cały dzień.
+Cache/build ID: v257-projects-swap-flash
+
+TOP DRAGON TMS — wersja v258
+Zmiany: usunięto relacje, wolne ładunki i planowane relacje z datą załadunku po 18.10. Przykładowy plan kończy się 18.10.
+Cache/build ID: v258-cutoff-oct18
 
