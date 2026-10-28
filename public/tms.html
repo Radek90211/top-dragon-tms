@@ -737,9 +737,9 @@
     }
 
     .map-popup-group .btn-mini {
-      padding: 4px 6px;
-      font-size: 10px;
-      border-radius: 7px;
+      padding: 3px 5px;
+      font-size: 9px;
+      border-radius: 6px;
     }
 
     .app.dark-mode .btn-mini {
@@ -765,24 +765,28 @@
     }
 
     .map-popup-mini {
-      min-width: 190px;
+      min-width: 164px;
+      max-width: 212px;
     }
 
     .map-popup-mini b {
       display: block;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
+      font-size: 11px;
+      line-height: 1.2;
     }
 
     .map-popup-status {
-      margin-top: 6px;
+      margin-top: 4px;
       border-top: 1px solid #e2e8f0;
-      padding-top: 6px;
+      padding-top: 4px;
       color: #475569;
+      font-size: 10px;
     }
 
     .map-popup-group {
-      min-width: 218px;
-      max-width: 260px;
+      min-width: 184px;
+      max-width: 224px;
     }
 
     .map-popup-legend {
@@ -797,37 +801,37 @@
 
     .map-popup-vehicle-list {
       display: grid;
-      gap: 5px;
-      max-height: 190px;
+      gap: 3px;
+      max-height: 150px;
       overflow: auto;
-      margin-top: 6px;
-      padding-right: 2px;
+      margin-top: 4px;
+      padding-right: 1px;
     }
 
     .map-popup-vehicle {
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 7px;
       background: #f8fafc;
-      padding: 6px;
+      padding: 4px 5px;
     }
 
     .map-popup-vehicle-top {
       display: flex;
       justify-content: space-between;
-      gap: 6px;
+      gap: 4px;
       align-items: flex-start;
     }
 
     .map-popup-vehicle-main {
       min-width: 0;
       display: flex;
-      gap: 5px;
+      gap: 4px;
       align-items: flex-start;
     }
 
     .map-popup-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 999px;
       border: 1px solid #0f172a;
       flex: 0 0 auto;
@@ -846,23 +850,23 @@
       font-weight: 950;
       color: #0f172a;
       line-height: 1.15;
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .map-popup-vehicle-meta {
       color: #64748b;
-      font-size: 10px;
+      font-size: 9px;
       line-height: 1.2;
       margin-top: 1px;
     }
 
     .map-popup-vehicle-next {
-      margin-top: 4px;
+      margin-top: 3px;
       border-top: 1px solid #e2e8f0;
-      padding-top: 4px;
+      padding-top: 3px;
       color: #475569;
-      font-size: 10px;
-      line-height: 1.25;
+      font-size: 9px;
+      line-height: 1.2;
     }
 
     .app.dark-mode .map-popup-vehicle {
@@ -1604,9 +1608,9 @@
 
     .leaflet-popup-content {
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 11px;
-      line-height: 1.25;
-      margin: 8px 10px;
+      font-size: 10px;
+      line-height: 1.2;
+      margin: 6px 8px;
     }
 
     .tms-marker {
@@ -5915,6 +5919,12 @@
     .native-map-fallback svg { display:block;width:100%;height:360px; }
     .native-map-legend { position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.94);border:1px solid #cbd5e1;border-radius:9px;padding:7px 9px;font-size:10px;color:#475569; }
     .native-map-note { position:absolute;right:10px;top:10px;background:rgba(255,255,255,.94);border:1px solid #cbd5e1;border-radius:9px;padding:6px 8px;font-size:10px;color:#475569;max-width:220px; }
+    .leaflet-map-loading { display:grid;place-items:center;width:100%;height:100%;min-height:260px;background:linear-gradient(145deg,#e0f2fe,#f8fafc);color:#475569;font-size:13px;font-weight:800; }
+    .leaflet-map-loading span { display:flex;align-items:center;gap:9px;padding:11px 14px;border:1px solid #cbd5e1;border-radius:999px;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(15,23,42,.08); }
+    .leaflet-map-loading i { width:13px;height:13px;border:2px solid #94a3b8;border-top-color:#0f172a;border-radius:50%;animation:leafletLoadingSpin .7s linear infinite; }
+    @keyframes leafletLoadingSpin { to { transform:rotate(360deg); } }
+    .app.dark-mode .leaflet-map-loading { background:linear-gradient(145deg,#0f172a,#111827);color:#cbd5e1; }
+    .app.dark-mode .leaflet-map-loading span { border-color:#475569;background:rgba(15,23,42,.9); }
     .app.dark-mode .commercial-intelligence,.app.dark-mode .commercial-row { background:#111827;border-color:#334155; }
     .app.dark-mode .commercial-body { background:#0f172a;border-color:#334155; }
     .app.dark-mode .commercial-route,.app.dark-mode .commercial-head h3 { color:#f8fafc; }
@@ -90142,9 +90152,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v278-mobile-route-details"></script>
-  <script src="/planning-core.js?build=v278-mobile-route-details"></script>
-  <script src="/order-stops.js?build=v278-mobile-route-details"></script>
+  <script src="/xlsx-lite.js?v=v287-route-provider-icons"></script>
+  <script src="/planning-core.js?build=v287-route-provider-icons"></script>
+  <script src="/order-stops.js?build=v287-route-provider-icons"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -104115,16 +104125,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const POLAND_MAP_CENTER = [52.0, 19.2];
     const POLAND_HOME_CENTER = [52.0, 19.2];
+    // Wysoki ekran telefonu przy zoomie 5 pokazuje zbyt dużo północy.
+    // Nieco niższy środek i bliższe powiększenie utrzymują Polskę w centrum widoku.
+    const POLAND_MOBILE_HOME_CENTER = [51.7, 19.2];
+    const POLAND_MOBILE_HOME_ZOOM = 6;
     const POLAND_MAP_BOUNDS = [[48.5, 13.5], [55.2, 24.5]];
     const POLAND_MAP_MIN_ZOOM = 4;
     const POLAND_MAP_MAX_ZOOM = 13;
     const POLAND_MAP_POPUP_OPTIONS = {
-      minWidth: 218,
-      maxWidth: 260,
-      autoPan: false,
-      keepInView: false,
-      autoPanPaddingTopLeft: [24, 125],
-      autoPanPaddingBottomRight: [24, 24],
+      minWidth: 168,
+      maxWidth: 224,
+      autoPan: true,
+      keepInView: true,
+      autoPanPadding: [16, 16],
+      autoPanPaddingTopLeft: [16, 16],
+      autoPanPaddingBottomRight: [18, 18],
       offset: [0, 18]
     };
 
@@ -104136,7 +104151,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!state.leafletMap) return;
       try {
         state.leafletMap.stop?.();
-        state.leafletMap.setView(POLAND_HOME_CENTER, Math.max(POLAND_MAP_MIN_ZOOM + 1, 5), { animate: false });
+        const mobile = mobileViewportActive();
+        state.leafletMap.setView(
+          mobile ? POLAND_MOBILE_HOME_CENTER : POLAND_HOME_CENTER,
+          mobile ? POLAND_MOBILE_HOME_ZOOM : Math.max(POLAND_MAP_MIN_ZOOM + 1, 5),
+          { animate: false }
+        );
       } catch (error) {}
     }
 
@@ -104165,10 +104185,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function adjustLeafletPopupIntoView() {
       if (!state.leafletMap) return;
-      setTimeout(() => {
+      const adjust = () => {
         try {
           const mapEl = state.leafletMap.getContainer?.();
-          const popupEl = mapEl?.querySelector?.(".leaflet-popup");
+          const popupEl = mapEl?.querySelector?.(".leaflet-popup:not(.leaflet-popup-hidden)");
           if (!mapEl || !popupEl) return;
 
           const mapRect = mapEl.getBoundingClientRect();
@@ -104182,9 +104202,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (popupRect.left < mapRect.left + padding) dx = popupRect.left - mapRect.left - padding;
           if (popupRect.right > mapRect.right - padding) dx = popupRect.right - mapRect.right + padding;
 
-          if (dx || dy) state.leafletMap.panBy([dx, dy], { animate: true, duration: 0.18 });
+          if (dx || dy) state.leafletMap.panBy([dx, dy], { animate: true, duration: 0.2 });
         } catch (error) {}
-      }, 0);
+      };
+      // Leaflet najpierw wyrównuje dymek, a po animacji może zmienić jego wymiary.
+      // Dwie kolejne kontrole gwarantują widoczność także przy punkcie na krawędzi.
+      requestAnimationFrame(adjust);
+      setTimeout(adjust, 90);
+      setTimeout(adjust, 240);
     }
 
     function renderSvgMap(points) {
@@ -104321,6 +104346,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       element.innerHTML=`<div class="native-map-fallback"><svg viewBox="0 0 1000 540" role="img" aria-label="Mapa Polski z pojazdami, klientami i bazami kierowców"><path d="${country}" fill="#f8fafc" stroke="#94a3b8" stroke-width="5"/><path d="M215 126 L355 72 M512 88 L532 476 M242 377 L847 382" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="8 10"/>${clientSvg}${baseSvg}${vehicles.map(item=>{const hasNext=mapVehicleHasNext(item.routeId);const markerColor=hasNext?'#22c55e':'#ef4444';const statusText=hasNext?'ma następny ładunek':'brak następnego ładunku';return `<g style="cursor:pointer" onclick="openRoute('${attr(item.routeId)}')"><circle cx="${item.p.x}" cy="${item.p.y}" r="10" fill="${markerColor}" stroke="#fff" stroke-width="3"><title>${esc(item.driver)} · ${esc(item.city||item.unload||'')} · ${statusText}</title></circle><text x="${item.p.x+13}" y="${item.p.y+4}" font-size="13" font-weight="850" fill="#0f172a">${esc(item.driver||item.city||'AUTO')}</text></g>`;}).join('')}</svg><div class="native-map-note">Mapa awaryjna działa bez zewnętrznych kafelków. <button type="button" class="btn-mini" style="margin-left:5px" onclick="retryRoadMap()">Ponów mapę drogową</button></div></div>`;
     }
 
+    function renderLeafletLoadingState(element) {
+      if (!element || element.dataset.mapLoading === "1") return;
+      element.dataset.mapLoading = "1";
+      element.innerHTML = '<div class="leaflet-map-loading" role="status" aria-live="polite"><span><i aria-hidden="true"></i>Ładowanie mapy…</span></div>';
+    }
+
     function ensureLeafletRuntime() {
       if (window.L && typeof window.L.map === "function") return Promise.resolve(window.L);
       if (state.leafletLoadingPromise) return state.leafletLoadingPromise;
@@ -104408,8 +104439,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       if (!window.L) {
-        renderNativeMapFallback(element, points);
-        ensureLeafletRuntime().then(() => syncLeafletMap(points, signature)).catch(() => {});
+        // Nie rysujemy kosztownej mapy awaryjnej przed próbą załadowania Leaflet.
+        // Dzięki temu pierwszy widok nie miga i mapa drogowa uruchamia się szybciej.
+        renderLeafletLoadingState(element);
+        ensureLeafletRuntime()
+          .then(() => {
+            if (document.getElementById("leaflet-map") === element) syncLeafletMap(points, signature);
+          })
+          .catch(() => {
+            if (document.getElementById("leaflet-map") !== element) return;
+            state.leafletForceNative = true;
+            renderNativeMapFallback(element, points);
+          });
         return;
       }
 
@@ -104417,6 +104458,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const freshMap = !state.leafletMap || state.leafletMap.getContainer() !== element;
 
         if (freshMap) {
+          delete element.dataset.mapLoading;
           element.innerHTML = "";
           state.leafletMarkers = new Map();
           state.leafletClientMarkers = new Map();
@@ -104440,8 +104482,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             maxZoom: POLAND_MAP_MAX_ZOOM,
             worldCopyJump: false
           }).setView(
-            POLAND_HOME_CENTER,
-            mobileViewportActive() ? Math.max(POLAND_MAP_MIN_ZOOM + 1, 5) : POLAND_MAP_MIN_ZOOM
+            mobileViewportActive() ? POLAND_MOBILE_HOME_CENTER : POLAND_HOME_CENTER,
+            mobileViewportActive() ? POLAND_MOBILE_HOME_ZOOM : POLAND_MAP_MIN_ZOOM
           );
 
           state.leafletMap.on("click", event => {
@@ -104467,6 +104509,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             }
             try { state.leafletMap?.closePopup?.(); } catch (error) {}
           });
+
+          // Dotyczy wszystkich rodzajów markerów: pojazdów, klientów, baz i tras.
+          // Nie pozwalamy, aby dymek z punktu na krawędzi został poza mapą.
+          state.leafletMap.on("popupopen", () => adjustLeafletPopupIntoView());
 
           state.leafletMap.on("zoomend", () => {
             clearTimeout(state.leafletClientZoomTimer);
@@ -104764,7 +104810,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       if (!state.unloadRoutePreviewLayer) state.unloadRoutePreviewLayer = L.layerGroup().addTo(state.leafletMap);
       if (clearLayer) state.unloadRoutePreviewLayer.clearLayers();
-      L.polyline([start, end], { color, weight:4, opacity:.92, dashArray:"10 7", interactive:false }).addTo(state.unloadRoutePreviewLayer);
+      const routeLine = [start, end];
+      // Trasa ma ciemną obwódkę, jasne wnętrze i kolorowy pas kierunku.
+      // Jest przez to czytelna zarówno nad jasnymi, jak i ciemnymi kafelkami mapy.
+      L.polyline(routeLine, { color:"#0f172a", weight:9, opacity:.24, lineCap:"round", lineJoin:"round", interactive:false, className:"tms-route-casing" }).addTo(state.unloadRoutePreviewLayer);
+      L.polyline(routeLine, { color:"#ffffff", weight:6, opacity:.94, lineCap:"round", lineJoin:"round", interactive:false, className:"tms-route-surface" }).addTo(state.unloadRoutePreviewLayer);
+      L.polyline(routeLine, { color, weight:3.5, opacity:.98, dashArray:"13 8", lineCap:"round", lineJoin:"round", interactive:false, className:"tms-route-direction" }).addTo(state.unloadRoutePreviewLayer);
       const dy = end[0] - start[0];
       const dx = (end[1] - start[1]) * Math.cos(((start[0] + end[0]) / 2) * Math.PI / 180);
       const angle = Math.atan2(dy, dx) * 180 / Math.PI;
@@ -106706,6 +106757,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.statsDispatcherFilter = role === "spedytor" ? loginValue : "all";
       render();
       requestAnimationFrame(applyFeatureVisibilityV263);
+      // Pobranie biblioteki mapy odbywa się po pierwszym renderze, w czasie
+      // bezczynności. Otwarcie Mapy nie musi wtedy czekać na jej pobranie.
+      const preloadMapRuntime = () => preloadLeafletRuntime();
+      if (typeof requestIdleCallback === "function") requestIdleCallback(preloadMapRuntime, { timeout: 2200 });
+      else setTimeout(preloadMapRuntime, 900);
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         if (!state.user.permissionPreview) {
@@ -106945,6 +107001,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return;
       }
       if (event?.target?.closest?.(".time-resize")) return;
+      // Na telefonie przeglądarka emituje click po prawidłowym tapnięciu.
+      // To niezależne zabezpieczenie otwiera szczegóły nawet wtedy, gdy zdarzenie
+      // pointerup zostało wcześniej przejęte przez natywne przewijanie.
+      if (mobileViewportActive()) {
+        cancelBoardRouteOpen();
+        openRoute(id);
+        return;
+      }
       if (Date.now() < suppressBoardRouteOpenUntil) return;
       cancelBoardRouteOpen();
       boardRouteOpenTimer = setTimeout(() => {
@@ -106958,7 +107022,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     let selectedExcelBoardCellV186 = null;
 
     function selectedBoardRouteV183() {
-      const tile = document.querySelector(".time-route.excel-selected-v171[data-route-id]");
+      const tile = document.querySelector(".time-route.excel-selected-v171[data-route-id]")
+        || document.querySelector(".time-route.keyboard-selected-v275[data-route-id]");
       return tile ? state.routes.find(route => String(route.id) === String(tile.dataset.routeId)) || null : null;
     }
 
@@ -107074,11 +107139,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function boardPasteTargetV186() {
       const selectedRoute = selectedBoardRouteV183();
       if (selectedRoute) return { driverId:String(selectedRoute.driverId || ""), date:String(selectedRoute.date || "") };
-      return selectedExcelBoardCellV186;
+      return selectedExcelBoardCellV186 || window.__tmsKeyboardBoardSelectionV275 || null;
     }
 
     function pasteBoardRouteV186() {
-      if (!excelBoardMode()) return false;
       const source = boardRouteClipboardPayloadV186();
       const target = boardPasteTargetV186();
       if (!source || !target?.driverId || !target?.date) {
@@ -120642,12 +120706,19 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .input.ai-value-accepted { background:#dcfce7 !important;border-color:#22c55e !important;box-shadow:0 0 0 2px rgba(34,197,94,.12) !important; }
     .app.dark-mode .input.ai-value-pending { background:#4a2d0b !important;color:#ffedd5 !important; }
     .app.dark-mode .input.ai-value-accepted { background:#12351f !important;color:#dcfce7 !important; }
-    .details-route-provider-actions { display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:4px; }
-    .details-route-provider-button { width:34px;min-width:34px;height:34px;display:grid;place-items:center;padding:0;border:1px solid var(--border);border-radius:9px;background:var(--soft);color:var(--text);cursor:pointer; }
-    .details-route-provider-button:hover { background:#e8f0fe;border-color:#8ab4f8; }
-    .details-route-provider-button.impargo:hover { background:#e8f7ee;border-color:#5bbd7a; }
-    .details-route-provider-button .provider-google-icon { font:900 18px/1 Arial,sans-serif;color:#4285f4;text-shadow:-1px 0 #ea4335,0 1px #fbbc05,1px 0 #34a853; }
-    .details-route-provider-button .provider-impargo-icon { display:grid;place-items:center;width:18px;height:18px;border-radius:5px;background:#1b8f4b;color:#fff;font:900 12px/1 system-ui,sans-serif; }
+    .details-route-provider-actions { display:flex;align-items:center;gap:7px;margin-left:auto;margin-right:4px; }
+    .details-route-provider-button { width:36px;min-width:36px;height:36px;display:grid;place-items:center;padding:0;border:1px solid #d7e0ec;border-radius:10px;background:linear-gradient(145deg,#fff,#f6f8fb);color:var(--text);cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05);transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease,background .14s ease; }
+    .details-route-provider-button:hover { transform:translateY(-1px);background:#f4f8ff;border-color:#8ab4f8;box-shadow:0 4px 10px rgba(37,99,235,.16); }
+    .details-route-provider-button.impargo:hover { background:#fffbed;border-color:#e8bb26;box-shadow:0 4px 10px rgba(177,126,0,.16); }
+    .details-route-provider-button:focus-visible { outline:3px solid rgba(37,99,235,.35);outline-offset:2px; }
+    .details-route-provider-button .provider-google-icon { position:relative;display:block;width:22px;height:26px;clip-path:path('M11 0C4.925 0 0 4.925 0 11c0 8.55 11 15 11 15s11-6.45 11-15C22 4.925 17.075 0 11 0Z');background:conic-gradient(from 220deg at 50% 42%,#34a853 0 25%,#fbbc04 25% 50%,#ea4335 50% 75%,#4285f4 75% 100%);filter:drop-shadow(0 1px 1px rgba(15,23,42,.16)); }
+    .details-route-provider-button .provider-google-icon::after { content:"";position:absolute;top:6px;left:6px;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 1px rgba(15,23,42,.05); }
+    .details-route-provider-button .provider-impargo-icon { display:flex;align-items:center;justify-content:center;gap:2px;width:23px;height:20px; }
+    .details-route-provider-button .provider-impargo-icon i { position:relative;display:block;width:7px;height:7px;border:1.7px solid #17212b;border-radius:50%;background:#fff;box-sizing:border-box; }
+    .details-route-provider-button .provider-impargo-icon i:nth-child(2) { width:10px;height:10px;border-width:2px; }
+    .details-route-provider-button .provider-impargo-icon i::after { content:"";position:absolute;left:50%;bottom:50%;width:1.7px;height:4px;border-radius:2px;background:#f2b900;transform:translateX(-50%) rotate(34deg);transform-origin:bottom center; }
+    .details-route-provider-button .provider-impargo-icon i:nth-child(2)::after { width:2px;height:5px; }
+    .app.dark-mode .details-route-provider-button { background:linear-gradient(145deg,#233043,#172131);border-color:#3a4a61; }
     .app.dark-mode .details-route-provider-button:hover { background:#1e3a5f; }
     .map-client-delete { color:#b91c1c !important;border-color:#fecaca !important; }
     .map-client-delete:hover { background:#fee2e2 !important; }
@@ -120802,7 +120873,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         let html = renderSidePanel3L66.apply(this, arguments);
         const route = state.routes.find(item => item.id === state.selectedRouteId);
         if (!route) return html;
-        const controls = `<div class="details-route-provider-actions" aria-label="Nawigacja trasy"><button type="button" class="details-route-provider-button google" title="Otwórz Google Maps" aria-label="Otwórz Google Maps" onclick="openRouteExternal3L66('${attr(route.id)}','google')"><span class="provider-google-icon" aria-hidden="true">G</span></button><button type="button" class="details-route-provider-button impargo" title="Otwórz Impargo" aria-label="Otwórz Impargo" onclick="openRouteExternal3L66('${attr(route.id)}','impargo')"><span class="provider-impargo-icon" aria-hidden="true">I</span></button></div>`;
+        const controls = `<div class="details-route-provider-actions" aria-label="Nawigacja trasy"><button type="button" class="details-route-provider-button google" title="Otwórz Google Maps" aria-label="Otwórz Google Maps" onclick="openRouteExternal3L66('${attr(route.id)}','google')"><span class="provider-google-icon" aria-hidden="true"></span></button><button type="button" class="details-route-provider-button impargo" title="Otwórz Impargo" aria-label="Otwórz Impargo" onclick="openRouteExternal3L66('${attr(route.id)}','impargo')"><span class="provider-impargo-icon" aria-hidden="true"><i></i><i></i><i></i></span></button></div>`;
         return html.replace('</h2>\n            <button class="btn" onclick="closeDetails()">Schowaj</button>', `</h2>${controls}\n            <button class="btn" onclick="closeDetails()">Schowaj</button>`);
       };
 
@@ -120993,13 +121064,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     @keyframes mapRouteGlowV103 { 0%,100%{opacity:.25;box-shadow:0 0 0 2px rgba(96,165,250,.18),0 0 5px rgba(37,99,235,.35)} 50%{opacity:1;box-shadow:0 0 0 7px rgba(96,165,250,.26),0 0 18px rgba(37,99,235,.95)} }
     .tms-marker.map-route-recent { animation:none !important; transform:none !important; position:relative; }
     .tms-marker.map-route-recent::after { content:""; position:absolute; inset:-5px; border-radius:999px; pointer-events:none; animation:mapRouteGlowV103 1.5s ease-in-out infinite; }
-    .unload-route-chevron { display:grid; place-items:center; width:18px; height:18px; color:#7dd3fc; font-size:23px; line-height:18px; font-weight:950; text-shadow:0 0 4px #1d4ed8; transform-origin:center; }
-    .unload-route-info-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #dbeafe; border-radius:999px; background:#2563eb; color:#fff; box-shadow:0 5px 16px rgba(37,99,235,.42); font-size:14px; font-weight:950; }
-    .unload-route-info-popup { display:grid; gap:4px; min-width:190px; color:#0f172a; }
-    .unload-route-info-popup > b { font-size:13px; }
-    .unload-route-info-popup > span { font-size:11px; line-height:1.3; }
-    .map-popup-route-data { display:grid; gap:2px; margin-top:5px; color:var(--muted); font-size:10px; }
-    .map-popup-actions { display:flex; gap:4px; }
+    .tms-route-casing { filter:drop-shadow(0 2px 3px rgba(15,23,42,.2)); }
+    .tms-route-surface { filter:drop-shadow(0 1px 1px rgba(15,23,42,.12)); }
+    .tms-route-direction { stroke-dashoffset:0; }
+    .unload-route-chevron { display:grid; place-items:center; width:18px; height:18px; color:#fff; font-size:17px; line-height:18px; font-weight:950; text-shadow:0 1px 3px rgba(15,23,42,.65); transform-origin:center; }
+    .unload-route-info-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #fff; border-radius:999px; background:#2563eb; color:#fff; box-shadow:0 4px 12px rgba(37,99,235,.48),0 0 0 2px rgba(37,99,235,.2); font-size:14px; font-weight:950; }
+    .unload-route-info-popup { display:grid; gap:3px; min-width:164px; max-width:214px; color:#0f172a; }
+    .unload-route-info-popup > b { font-size:11px; }
+    .unload-route-info-popup > span { font-size:10px; line-height:1.2; }
+    .map-popup-route-data { display:grid; gap:1px; margin-top:3px; color:var(--muted); font-size:9px; line-height:1.2; }
+    .map-popup-actions { display:flex; gap:3px; }
     .week-settlement-cell-3l50 { z-index:40 !important; pointer-events:none; background:transparent !important; }
     .week-settlement-cell-3l50 .week-settlement-dollar-3l48,
     .week-settlement-cell-3l50 .week-settlement-status-dot-3l50 { pointer-events:auto; z-index:42 !important; }
@@ -121086,7 +121160,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
     .board .time-route-sub { flex:0 0 auto; margin-top:2px; }
     .board .time-route .route-dispatcher-chip { order:-10; position:relative; z-index:2; flex:0 0 auto; }
-    .unload-route-load-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #dbeafe; border-radius:999px; background:#1d4ed8; color:#fff; box-shadow:0 5px 16px rgba(37,99,235,.42); font-size:11px; font-weight:950; }
+    .unload-route-load-marker { display:grid; place-items:center; width:28px; height:28px; border:3px solid #fff; border-radius:999px; background:#1d4ed8; color:#fff; box-shadow:0 4px 12px rgba(37,99,235,.48),0 0 0 2px rgba(37,99,235,.2); font-size:11px; font-weight:950; }
     .map-popup-vehicle[role="button"] { cursor:pointer; }
     .map-popup-vehicle[role="button"]:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
     .time-route.status-empty-tile { background:#f8fafc !important; border:2px dashed #94a3b8 !important; color:#475569 !important; }
@@ -122416,7 +122490,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v278-mobile-route-details-cache">
+  <style id="targeted-v287-route-provider-icons-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122555,8 +122629,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v278-mobile-route-details" />
-  <script src="/order-entry.js?build=v278-mobile-route-details"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v287-route-provider-icons" />
+  <script src="/order-entry.js?build=v287-route-provider-icons"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -123047,7 +123121,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!mobileViewportActive() || excelBoardMode() || gesture.resizing || !gesture.routeId) return;
         if (event?.target?.closest?.('.time-resize,.quick-editing,.excel-split-v171')) return;
         cancelBoardRouteOpen();
-        suppressBoardRouteOpenUntil = Date.now() + 420;
+        // Nie blokujemy następującego po tapnięciu click — jest on drugim,
+        // niezależnym mechanizmem otwarcia szczegółów dla przeglądarek mobilnych.
+        suppressBoardRouteOpenUntil = 0;
         requestAnimationFrame(() => openRoute(gesture.routeId));
       }
 
@@ -123144,6 +123220,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   <script id="targeted-v275-board-arrow-navigation">
     (() => {
       let keyboardBoardSelectionV275 = null;
+      window.__tmsKeyboardBoardSelectionV275 = null;
       const boardArrowOffsetV275 = {
         ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0]
       };
@@ -123172,6 +123249,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         cell.classList.add('keyboard-selected-v275');
         cell.tabIndex = 0;
         keyboardBoardSelectionV275 = { driverId: String(driverId), date: String(date) };
+        window.__tmsKeyboardBoardSelectionV275 = { ...keyboardBoardSelectionV275 };
 
         const route = activeRoutes()
           .filter(item => String(item.driverId || '') === String(driverId) && routeOverlapsDate(item, date))
@@ -123224,6 +123302,82 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         cancelBoardRouteOpen?.();
         if (moveBoardSelectionV275(event.key)) event.preventDefault();
       });
+    })();
+  </script>
+  <script id="targeted-v286-board-keyboard-actions">
+    (() => {
+      function activeKeyboardRouteV286() {
+        const tile = document.querySelector('.time-route.keyboard-selected-v275[data-route-id]')
+          || document.querySelector('.time-route.excel-selected-v171[data-route-id]');
+        if (!tile) return null;
+        return state.routes.find(route => String(route.id || '') === String(tile.dataset.routeId || '')) || null;
+      }
+
+      function keyboardEntryTargetV286(target) {
+        return Boolean(target?.matches?.('input,textarea,select,[contenteditable="true"],[role="textbox"],[role="listbox"]'));
+      }
+
+      function isPlanKeyboardContextV286(target) {
+        return Boolean(
+          target?.closest?.('.board-scroll')
+          || document.querySelector('.day-cell.keyboard-selected-v275,.time-route.keyboard-selected-v275,.day-cell.excel-paste-target-v186,.time-route.excel-selected-v171')
+        );
+      }
+
+      document.addEventListener('keydown', event => {
+        // Potwierdzenie usunięcia: Enter działa w istniejącym mechanizmie,
+        // Esc zawsze zamyka okno bez wykonania operacji.
+        if (state.deleteConfirmRouteId) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelDeleteRoute();
+          }
+          return;
+        }
+
+        // Esc zamyka szczegóły niezależnie od miejsca fokusu.
+        if (event.key === 'Escape' && state.detailsOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeDetails();
+          return;
+        }
+
+        if (keyboardEntryTargetV286(event.target) || state.detailsOpen || state.pdfImportOpen || document.querySelector('.modal,.context-menu')) return;
+        if (!isPlanKeyboardContextV286(event.target)) return;
+
+        const route = activeKeyboardRouteV286();
+        const modifier = event.ctrlKey || event.metaKey;
+        const key = String(event.key || '').toLowerCase();
+
+        if (event.key === 'Enter' && route) {
+          event.preventDefault();
+          event.stopPropagation();
+          openRoute(route.id);
+          return;
+        }
+
+        if (modifier && key === 'c') {
+          event.preventDefault();
+          event.stopPropagation();
+          copySelectedBoardRouteV183(false);
+          return;
+        }
+
+        if (modifier && key === 'v') {
+          event.preventDefault();
+          event.stopPropagation();
+          pasteBoardRouteV186();
+          return;
+        }
+
+        if (event.key === 'Delete' && route && canDeleteBoardRoute(route)) {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteRoute(route.id);
+        }
+      }, true);
     })();
   </script>
 </body>
