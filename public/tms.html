@@ -36,6 +36,13 @@
       min-height: 100vh;
     }
 
+    /* Zakładki desktopowe nie są tworzone w mobilnym interfejsie. Ten wczesny
+       bezpiecznik zapobiega ich pojedynczemu mignięciu przed dalszym renderem. */
+    @media (max-width: 720px) {
+      html body .app .side-tool-tab,
+      html body .app .workspace-tool-tabs { display: none !important; }
+    }
+
     .app.role-accounting {
       --bg: #f0fdf4;
       --card: #ffffff;
@@ -90135,9 +90142,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v276-sample-projects-oct29"></script>
-  <script src="/planning-core.js?build=v276-sample-projects-oct29"></script>
-  <script src="/order-stops.js?build=v276-sample-projects-oct29"></script>
+  <script src="/xlsx-lite.js?v=v278-mobile-route-details"></script>
+  <script src="/planning-core.js?build=v278-mobile-route-details"></script>
+  <script src="/order-stops.js?build=v278-mobile-route-details"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -102628,7 +102635,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderMapToggleTab() {
-      if (!state.user) return "";
+      if (!state.user || mobileViewportActive()) return "";
       return `
         <button class="map-toggle-tab side-tool-tab side-tool-map ${state.unloadPanelCollapsed ? "" : "btn-dark"}" data-action="unload-panel" type="button" onclick="toggleUnloadPanel();event.stopPropagation();" title="Pokaż lub ukryj mapę i listę rozładunków" aria-label="Mapa">
           ${sideToolIcon("map")}<span class="side-tool-label">Mapa</span>
@@ -102654,7 +102661,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderWorkspaceToolTabs() {
-      if (!state.user) return "";
+      if (!state.user || mobileViewportActive()) return "";
       return `<div class="workspace-tool-tabs" aria-label="Narzędzia planu">
         <button type="button" class="workspace-tool-tab side-tool-tab side-tool-assistant ${state.commercialPanelOpen ? "btn-dark" : ""}" data-tutorial="assistant-toggle" onclick="toggleCommercialIntelligence();event.stopPropagation();" title="Asystent spedytora" aria-label="Asystent spedytora">${sideToolIcon("assistant")}<span class="side-tool-label">Asystent spedytora</span></button>
         <button type="button" class="workspace-tool-tab side-tool-tab side-tool-nearest ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel();event.stopPropagation();" title="Najbliższy pojazd" aria-label="Najbliższy pojazd">${sideToolIcon("nearest")}<span class="side-tool-label">Najbliższy pojazd</span></button>
@@ -104432,7 +104439,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             minZoom: POLAND_MAP_MIN_ZOOM,
             maxZoom: POLAND_MAP_MAX_ZOOM,
             worldCopyJump: false
-          }).setView(POLAND_MAP_CENTER, POLAND_MAP_MIN_ZOOM);
+          }).setView(
+            POLAND_HOME_CENTER,
+            mobileViewportActive() ? Math.max(POLAND_MAP_MIN_ZOOM + 1, 5) : POLAND_MAP_MIN_ZOOM
+          );
 
           state.leafletMap.on("click", event => {
             const target = event?.originalEvent?.target;
@@ -104467,8 +104477,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
           state.leafletTileErrorCount = 0;
           state.leafletTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            bounds: polandBounds,
-            noWrap: true,
             minZoom: POLAND_MAP_MIN_ZOOM,
             maxZoom: POLAND_MAP_MAX_ZOOM,
             updateWhenIdle: true,
@@ -105342,7 +105350,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         .filter(point => point.coords)
         .map(point => point.coords);
 
-      if (!bounds.length && polandBounds) {
+      // Na telefonie mapa jest pełnoekranowa. Stały widok całej Polski jest
+      // czytelniejszy niż automatyczne przesunięcie środka w morze przy punktach
+      // z północy kraju lub przy chwilowo pustej liście markerów.
+      if (mobileViewportActive() && !state.unloadPanelCollapsed) {
+        centerLeafletMapHome();
+      } else if (!bounds.length && polandBounds) {
         state.leafletMap.fitBounds(polandBounds, { padding: [16, 16], animate: false });
       } else if (bounds.length === 1) {
         state.leafletMap.setView(bounds[0], 10, { animate: false });
@@ -122403,7 +122416,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v276-sample-projects-oct29-cache">
+  <style id="targeted-v278-mobile-route-details-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122542,8 +122555,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v276-sample-projects-oct29" />
-  <script src="/order-entry.js?build=v276-sample-projects-oct29"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v278-mobile-route-details" />
+  <script src="/order-entry.js?build=v278-mobile-route-details"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -123012,23 +123025,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
   </style>
-  <script id="targeted-v260-tablet-touch-scroll-script">
+  <script id="targeted-v278-mobile-route-details-tap-script">
     (() => {
       let touch = null;
       let suppressTileClickUntil = 0;
 
-      function finishTouchScroll() {
+      function finishTouchScroll(event) {
         if (!touch?.viewport) return;
-        const moved = touch.moved;
+        if (event?.pointerId !== undefined && event.pointerId !== touch.id) return;
+        const gesture = touch;
+        const moved = gesture.moved;
         touch = null;
-        if (moved) suppressTileClickUntil = Date.now() + 260;
+        if (moved) {
+          suppressTileClickUntil = Date.now() + 260;
+          return;
+        }
+
+        // Pojedyncze dotknięcie kafelka w widoku telefonu otwiera szczegóły.
+        // Zapisujemy stan gestu przy pointerdown, więc przewijanie oraz chwyt
+        // do zmiany szerokości nie są mylone z kliknięciem.
+        if (!mobileViewportActive() || excelBoardMode() || gesture.resizing || !gesture.routeId) return;
+        if (event?.target?.closest?.('.time-resize,.quick-editing,.excel-split-v171')) return;
+        cancelBoardRouteOpen();
+        suppressBoardRouteOpenUntil = Date.now() + 420;
+        requestAnimationFrame(() => openRoute(gesture.routeId));
       }
 
       document.addEventListener('pointerdown', event => {
         if (event.pointerType !== 'touch') return;
         const viewport = event.target?.closest?.('.board-scroll');
         if (!viewport) return;
-        touch = { id:event.pointerId, viewport, x:event.clientX, y:event.clientY, moved:false };
+        const routeTile = event.target?.closest?.('.time-route[data-route-id]');
+        touch = {
+          id:event.pointerId,
+          viewport,
+          x:event.clientX,
+          y:event.clientY,
+          moved:false,
+          routeId:routeTile?.dataset?.routeId || '',
+          resizing:Boolean(routeResize?.active || event.target?.closest?.('.time-resize'))
+        };
       }, { capture:true, passive:true });
 
       document.addEventListener('pointermove', event => {
