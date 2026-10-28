@@ -631,7 +631,7 @@ function showAdminMessage(message = '', messageType = 'success') {
 function setAdminBusy(busy) {
   adminPanelBusy = busy
   document.querySelectorAll(
-    '.branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, #admin-data-transfer, #admin-refresh'
+    '.branch-rename, .branch-toggle, .branch-delete, #user-invite-form button, #common-carrier-rate-form button, .user-save, .user-delete, #admin-data-transfer, #admin-refresh'
   ).forEach((button) => {
     button.disabled = busy || button.dataset.locked === 'true'
   })
@@ -1039,6 +1039,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           ${users.length ? users.map((item) => {
             const ownPrimaryAccount = primaryAdmin && String(item.id || '') === String(currentUser?.id || '')
             const lockedAdmin = item.role === 'admin' && (!primaryAdmin || ownPrimaryAccount)
+            const canDeleteUser = !ownPrimaryAccount && String(item.email || '').toLocaleLowerCase('pl') !== PRIMARY_ADMIN_EMAIL && (item.role !== 'admin' || primaryAdmin)
             const userColor = item.ui_color || '#E2E8F0'
             return `
               <article class="user-row ${item.active ? '' : 'is-inactive'}" data-user-id="${escapeHtml(item.id)}">
@@ -1071,6 +1072,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
                 </label>
                 <button type="button" class="primary user-save">Zapisz</button>
+                <button type="button" class="danger-button user-delete" ${canDeleteUser ? '' : 'disabled data-locked="true"'}>Usuń</button>
                 ${renderUserFeatureControls(item)}
               </article>
             `
@@ -1292,6 +1294,28 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
         }
         renderAdminPanelFromCache(lockedAdmin ? 'Kolor administratora został zapisany.' : 'Dane użytkownika zostały zapisane.')
+      } catch (error) {
+        showAdminMessage(error.message, 'error')
+        setAdminBusy(false)
+      }
+    })
+
+    row.querySelector('.user-delete')?.addEventListener('click', async () => {
+      if (adminPanelBusy) return
+      const userId = row.dataset.userId
+      const existing = users.find((item) => item.id === userId)
+      if (!existing) return
+      if (!window.confirm(`Trwale usunąć użytkownika „${existing.display_name}”?\n\nKonto utraci dostęp do TMS. Tej operacji nie można cofnąć.`)) return
+
+      setAdminBusy(true)
+      try {
+        const result = await adminApi('/api/admin/users', {
+          method: 'DELETE',
+          body: JSON.stringify({ userId }),
+        })
+        writeCurrentUserAudit('Usunięto użytkownika', 'user', userId, `${existing.display_name || ''} · ${existing.role || ''}`)
+        adminCache.users = adminCache.users.filter((item) => item.id !== userId)
+        renderAdminPanelFromCache(result.message || 'Użytkownik został usunięty.')
       } catch (error) {
         showAdminMessage(error.message, 'error')
         setAdminBusy(false)
@@ -4552,7 +4576,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v294-admin-layout-fields"
+          src="/tms.html?embedded=1&build=request-workflow-v297-client-map-list-zoom"
         title="Top Dragon TMS"
       ></iframe>
     </main>
