@@ -125,15 +125,15 @@ function profilePayload(body, role) {
     display_name: displayName,
     role,
     branch_id: role === 'admin' ? null : (branchId || null),
-    ui_color: role === 'admin' ? '#EF4444' : uiColor,
+    ui_color: uiColor,
     ...(typeof body?.active === 'boolean' ? { active: body.active } : {}),
   }
 }
 
-function validateRole(body, actor) {
+function validateRole(body, actor, options = {}) {
   const role = String(body?.role || '').trim()
   if (!ROLES.has(role)) throw Object.assign(new Error('Nieprawidłowa kategoria użytkownika.'), { statusCode: 400 })
-  if (role === 'admin' && !actor.primary) {
+  if (role === 'admin' && !actor.primary && !options.allowOwnAdminColor) {
     throw Object.assign(new Error(`Rolę Administratora może nadawać wyłącznie ${PRIMARY_ADMIN_EMAIL}.`), { statusCode: 403 })
   }
   return role
@@ -166,13 +166,18 @@ async function inviteUser(body, actor) {
 async function updateUser(body, actor) {
   const userId = String(body?.userId || '').trim()
   if (!UUID_PATTERN.test(userId)) throw Object.assign(new Error('Nieprawidłowy użytkownik.'), { statusCode: 400 })
-  const role = validateRole(body, actor)
   const [targetRows, targetAuth] = await Promise.all([
-    serviceRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,role&limit=1`),
+    serviceRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,display_name,role,branch_id,ui_color,active&limit=1`),
     authUser(userId),
   ])
   const target = Array.isArray(targetRows) ? targetRows[0] : null
   if (!target) throw Object.assign(new Error('Nie znaleziono użytkownika.'), { statusCode: 404 })
+  const colorOnly = Object.keys(body || {}).every((key) => ['userId', 'uiColor'].includes(key))
+  const role = validateRole(
+    { ...body, role: body?.role || target.role },
+    actor,
+    { allowOwnAdminColor: colorOnly && String(target.id) === String(actor.user?.id) },
+  )
   if (target.role === 'admin' && role !== 'admin' && !actor.primary) {
     throw Object.assign(new Error(`Tylko ${PRIMARY_ADMIN_EMAIL} może odebrać rolę Administratora.`), { statusCode: 403 })
   }
@@ -183,17 +188,48 @@ async function updateUser(body, actor) {
   const rows = await serviceRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,display_name,role,branch_id,ui_color,active,branch:branches(name)`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-    body: JSON.stringify(profilePayload(body, role)),
+    // Zmiana samego koloru nie może kasować nazwy, roli ani statusu profilu.
+    body: JSON.stringify(profilePayload({ ...target, ...body, role }, role)),
   })
   const updated = Array.isArray(rows) ? rows[0] : rows
   if (!updated) throw Object.assign(new Error('Profil użytkownika nie został zaktualizowany.'), { statusCode: 404 })
   return { ...updated, email: String(targetAuth?.email || '') }
 }
 
+async function deleteUser(body, actor) {
+  const userId = String(body?.userId || '').trim()
+  if (!UUID_PATTERN.test(userId)) throw Object.assign(new Error('Nieprawidłowy użytkownik.'), { statusCode: 400 })
+  if (String(userId) === String(actor.user?.id || '')) {
+    throw Object.assign(new Error('Nie można usunąć aktualnie zalogowanego konta administratora.'), { statusCode: 400 })
+  }
+
+  const [targetRows, targetAuthResponse] = await Promise.all([
+    serviceRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,display_name,role&limit=1`),
+    authUser(userId),
+  ])
+  const target = Array.isArray(targetRows) ? targetRows[0] : null
+  const targetAuth = targetAuthResponse?.user || targetAuthResponse
+  if (!target) throw Object.assign(new Error('Nie znaleziono użytkownika.'), { statusCode: 404 })
+  if (normalizeEmail(targetAuth?.email) === PRIMARY_ADMIN_EMAIL) {
+    throw Object.assign(new Error('Głównego konta administratora nie można usunąć.'), { statusCode: 403 })
+  }
+  if (target.role === 'admin' && !actor.primary) {
+    throw Object.assign(new Error(`Tylko ${PRIMARY_ADMIN_EMAIL} może usuwać konto Administratora.`), { statusCode: 403 })
+  }
+
+  // Usunięcie przez Admin API usuwa konto uwierzytelniania wraz z powiązanym
+  // profilem (relacja auth.users → profiles). Nie kasujemy ręcznie historii,
+  // relacji ani rozliczeń należących do użytkownika.
+  await serviceRequest(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
+  return { id: userId, displayName: String(target.display_name || ''), role: String(target.role || '') }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control','no-store')
-  res.setHeader('X-Top-Dragon-Admin-Build','v167')
-  if(!['GET','POST','PATCH'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH');return json(res,405,{ok:false,message:'Niedozwolona metoda.'});}
+  res.setHeader('X-Top-Dragon-Admin-Build','v296')
+  if(!['GET','POST','PATCH','DELETE'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH, DELETE');return json(res,405,{ok:false,message:'Niedozwolona metoda.'});}
   let phase='authenticate'
   try {
     const actor = await authenticateAdmin(req)
@@ -208,7 +244,12 @@ export default async function handler(req, res) {
       const user = await updateUser(req.body || {}, actor)
       return json(res, 200, { ok: true, user, message: roleMessage(user.role, 'zapisany') })
     }
-    res.setHeader('Allow', 'GET, POST, PATCH')
+    if (req.method === 'DELETE') {
+      phase='delete-user'
+      const user = await deleteUser(req.body || {}, actor)
+      return json(res, 200, { ok: true, user, message: `Użytkownik „${user.displayName || 'bez nazwy'}” został usunięty.` })
+    }
+    res.setHeader('Allow', 'GET, POST, PATCH, DELETE')
     return json(res, 405, { ok: false, message: 'Niedozwolona metoda.' })
   } catch (error) {
     const timeout=['AbortError','TimeoutError'].includes(error?.name)
