@@ -231,7 +231,7 @@ function renderFatalError(error) {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         <h1>Nie udało się uruchomić aplikacji</h1>
         <div class="error">${escapeHtml(message)}</div>
         <p class="muted">
@@ -341,7 +341,7 @@ function renderLogin(message = '') {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         <h1>Logowanie</h1>
         <form id="login-form">
           <label>E-mail
@@ -386,7 +386,7 @@ function renderSetPassword(user, message = '') {
   app.innerHTML = `
     <main class="login-shell">
       <section class="login-card">
-        <img class="login-logo" src="/top-dragon-logo.svg" alt="Top Dragon" />
+        <img class="login-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         <h1>Ustaw hasło</h1>
         <p class="muted">Twoje konto zostało utworzone przez administratora. Ustaw własne hasło, aby zakończyć aktywację.</p>
         <form id="password-setup-form">
@@ -879,7 +879,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       <header class="admin-header">
         <div class="admin-header-identity">
           <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
-            <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+            <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
           </button>
           <div>
           <h1>Administracja</h1>
@@ -1317,7 +1317,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
     <main class="admin-shell">
       <header class="admin-header">
         <div style="display:flex;align-items:center;gap:18px;">
-          <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+          <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
           <div>
           <h1>Administracja</h1>
           <p class="muted">Użytkownicy i oddziały</p>
@@ -1340,7 +1340,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
         <header class="admin-header">
           <div style="display:flex;align-items:center;gap:18px;">
             <button id="admin-logo-home" type="button" aria-label="Wróć do TMS" title="Wróć do TMS" style="border:0;background:transparent;padding:0;cursor:pointer;display:flex;align-items:center;">
-              <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
+              <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:116px;height:72px;object-fit:contain;" />
             </button>
             <h1>Administracja</h1>
           </div>
@@ -4540,13 +4540,13 @@ async function renderDashboard(user) {
   app.innerHTML = `
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite" style="position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#fff;text-align:center;">
-        <img src="/top-dragon-logo.svg" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
+        <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
         <span>Uruchamianie panelu…</span>
       </div>
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v273-complete-package"
+          src="/tms.html?embedded=1&build=request-workflow-v276-sample-projects-oct29"
         title="Top Dragon TMS"
       ></iframe>
     </main>
