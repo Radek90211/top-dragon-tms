@@ -1039,8 +1039,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
                   <span>Aktywny</span>
                   <input class="user-active" type="checkbox" ${item.active ? 'checked' : ''} ${lockedAdmin ? 'disabled' : ''} />
                 </label>
-                <button type="button" class="primary user-save" ${lockedAdmin ? 'disabled data-locked="true"' : ''}>Zapisz</button>
-                ${item.role === 'admin' ? '<button type="button" class="secondary user-color-save">Zapisz kolor administratora</button>' : ''}
+                <button type="button" class="primary user-save">Zapisz</button>
                 ${renderUserFeatureControls(item)}
               </article>
             `
@@ -1215,63 +1214,41 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   })
 
   document.querySelectorAll('.user-row').forEach((row) => {
-    row.querySelector('.user-color-save')?.addEventListener('click', async () => {
-      if (adminPanelBusy) return
-      const userId = row.dataset.userId
-      const existing = users.find((item) => item.id === userId)
-      const uiColor = String(row.querySelector('.user-ui-color')?.value || '').toUpperCase()
-      if (!/^#[0-9A-F]{6}$/.test(uiColor)) {
-        showAdminMessage('Wybierz prawidłowy kolor.', 'error')
-        return
-      }
-
-      setAdminBusy(true)
-      try {
-        const result = await adminApi('/api/admin/users', {
-          method: 'PATCH',
-          body: JSON.stringify({ userId, uiColor }),
-        })
-        writeCurrentUserAudit('Zmieniono kolor użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${uiColor}`)
-        updateAdminCacheUser({ ...existing, ...result.user, ui_color: result.user?.ui_color || uiColor })
-        if (String(currentUser?.id || '') === String(userId)) {
-          currentProfile = { ...currentProfile, ui_color: result.user?.ui_color || uiColor }
-          activeAuthMessage = buildTmsAuthMessage()
-          activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
-        }
-        renderAdminPanelFromCache('Kolor administratora został zapisany.')
-      } catch (error) {
-        showAdminMessage(error.message || 'Nie udało się zapisać koloru administratora.', 'error')
-        setAdminBusy(false)
-      }
-    })
-
     row.querySelector('.user-save')?.addEventListener('click', async () => {
       if (adminPanelBusy) return
 
       const userId = row.dataset.userId
       const existing = users.find((item) => item.id === userId)
+      const lockedAdmin = existing?.role === 'admin' && (!primaryAdmin || String(userId) === String(currentUser?.id || ''))
       setAdminBusy(true)
 
       try {
         const requestedRole = row.querySelector('.user-role')?.value
-        if (requestedRole === 'admin' && !isPrimaryAdminAccount()) {
+        const uiColor = String(row.querySelector('.user-ui-color')?.value || '').toUpperCase()
+        if (!/^#[0-9A-F]{6}$/.test(uiColor)) throw new Error('Wybierz prawidłowy kolor.')
+        if (!lockedAdmin && requestedRole === 'admin' && !isPrimaryAdminAccount()) {
           throw new Error(`Rolę Administratora może nadawać wyłącznie ${PRIMARY_ADMIN_EMAIL}.`)
         }
+        const requestBody = lockedAdmin
+          ? { userId, uiColor }
+          : {
+              userId,
+              displayName: row.querySelector('.user-display-name')?.value.trim(),
+              role: requestedRole,
+              branchId: row.querySelector('.user-branch')?.value,
+              uiColor,
+              active: Boolean(row.querySelector('.user-active')?.checked),
+            }
         const result = await adminApi('/api/admin/users', {
           method: 'PATCH',
-          body: JSON.stringify({
-            userId,
-            displayName: row.querySelector('.user-display-name')?.value.trim(),
-            role: requestedRole,
-            branchId: row.querySelector('.user-branch')?.value,
-            uiColor: row.querySelector('.user-ui-color')?.value,
-            active: Boolean(row.querySelector('.user-active')?.checked),
-          }),
+          body: JSON.stringify(requestBody),
         })
-        const permissions = Object.fromEntries(USER_FEATURES.map(([key]) => [key, Boolean(row.querySelector(`.user-feature-toggle[data-feature-key="${key}"]`)?.checked)]))
-        if (requestedRole !== 'admin') await saveUserFeaturePermissions(userId, permissions)
+        const permissions = lockedAdmin
+          ? (existing?.feature_permissions || {})
+          : Object.fromEntries(USER_FEATURES.map(([key]) => [key, Boolean(row.querySelector(`.user-feature-toggle[data-feature-key="${key}"]`)?.checked)]))
+        if (!lockedAdmin && requestedRole !== 'admin') await saveUserFeaturePermissions(userId, permissions)
 
-        writeCurrentUserAudit('Zmieniono dane użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${result.user?.role || existing?.role || ''}`)
+        writeCurrentUserAudit(lockedAdmin ? 'Zmieniono kolor administratora' : 'Zmieniono dane użytkownika', 'user', userId, `${result.user?.display_name || existing?.display_name || ''} · ${lockedAdmin ? uiColor : (result.user?.role || existing?.role || '')}`)
 
         updateAdminCacheUser({
           ...existing,
@@ -1279,7 +1256,12 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           email: existing?.email || '',
           feature_permissions: permissions,
         })
-        renderAdminPanelFromCache('Dane użytkownika zostały zapisane.')
+        if (lockedAdmin && String(currentUser?.id || '') === String(userId)) {
+          currentProfile = { ...currentProfile, ui_color: result.user?.ui_color || uiColor }
+          activeAuthMessage = buildTmsAuthMessage()
+          activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+        }
+        renderAdminPanelFromCache(lockedAdmin ? 'Kolor administratora został zapisany.' : 'Dane użytkownika zostały zapisane.')
       } catch (error) {
         showAdminMessage(error.message, 'error')
         setAdminBusy(false)
@@ -4546,7 +4528,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v287-route-provider-icons"
+          src="/tms.html?embedded=1&build=request-workflow-v290-mobile-map-and-tap"
         title="Top Dragon TMS"
       ></iframe>
     </main>
