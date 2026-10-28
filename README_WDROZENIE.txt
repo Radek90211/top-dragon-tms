@@ -1,3 +1,21 @@
+AKTUALIZACJA v281 - uproszczony ekran ustawiania hasła
+Build/cache: v281-password-setup-minimal
+
+- Logo na ekranie aktywacji konta jest wyśrodkowane.
+- Usunięto oznaczenie TMS, ikonę przy nagłówku oraz tekst pomocniczy pod formularzem.
+- Przycisk ma krótką nazwę: „Ustaw hasło”.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v280 - edycja koloru administratora
+Build/cache: v280-admin-color
+
+- Administrator może zmienić własny kolor w Administracja → Użytkownicy.
+- Kolor jest zapisywany bez wymuszania czerwonego i od razu aktualizuje oznaczenia w planie oraz historii.
+- Zmiana koloru nie nadpisuje pozostałych danych administratora.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v279 - spójny ekran ustawiania hasła
 Build/cache: v279-password-setup-style
 
