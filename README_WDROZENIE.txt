@@ -1,3 +1,27 @@
+AKTUALIZACJA v290 - mapa i tap w telefonie
+Build/cache: v290-mobile-map-and-tap
+
+- Mobilna mapa otrzymuje niższy środek startowy oraz ponowne centrowanie po ustaleniu wysokości ekranu.
+- Pojedynczy tap kafelka otwiera szczegóły przez pointer, touch lub click; przewijanie i uchwyty zmiany szerokości pozostają wyłączone z tej akcji.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v289 - wskazanie propozycji optymalizacji
+Build/cache: v289-route-swap-pulse
+
+- Kliknięcie propozycji Optymalizacji tras ponownie zaznacza oba kafelki niebieską, pulsującą poświatą.
+- Podświetlenie utrzymuje się przez 5,2 s i pozostaje widoczne także po odświeżeniu fragmentu tablicy.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v288 - panel administratora
+Build/cache: v288-admin-save-layout
+
+- Przywrócono jednoprzyciskowy układ wiersza użytkownika w panelu administratora.
+- Usunięto dodatkowy przycisk „Zapisz kolor administratora”; główny „Zapisz” zapisuje jego kolor bez zmiany zablokowanych danych konta.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v287 - ikony dostawców trasy
 Build/cache: v287-route-provider-icons
 
