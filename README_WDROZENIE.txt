@@ -1,9 +1,44 @@
+AKTUALIZACJA v276 - przykładowe relacje do 29.10
+Build/cache: v276-sample-projects-oct29
+
+- Generator relacji demonstracyjnych obejmuje teraz okres od 28.09 do 29.10 bieżącego roku.
+- Dodano akcje wieloautowe: Nord (8 pojazdów, 20–22.10), Expo (10 pojazdów, 27–29.10) oraz Port (6 pojazdów, 28–29.10).
+- Akcje mają wspólny klient, kolor i numerację kafelków `1/8`, `2/8` itd. Nie są wysyłane do centralnej bazy ani nie zmieniają danych rzeczywistych.
+
+WERYFIKACJA v276
+- Kontrola dat granicznych generatora, numeracji pojazdów i odświeżania wyłącznie danych demonstracyjnych.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v275 - nawigacja strzałkami po planie
+Build/cache: v275-board-arrow-navigation
+
+- Strzałki klawiatury działają również w zwykłym planie kierowców: lewo/prawo wybiera sąsiedni dzień, góra/dół sąsiedniego kierowcę.
+- Wybrana komórka i relacja otrzymują wyłącznie wizualne obramowanie; nawigacja nie otwiera formularza ani nie zmienia relacji.
+- Pola tekstowe, listy wyboru i otwarte formularze zachowują własną obsługę strzałek. Tryb Excelowy pozostaje bez zmian.
+
+WERYFIKACJA v275
+- Kontrola składni skryptów, obsługi granic tablicy oraz pomijania pól edycji.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v274 - przywrócenie oryginalnego logo
+Build/cache: v274-original-logo
+
+- Przywrócono wcześniejszą ścieżkę logo `/top-dragon-logo.jpg` we wszystkich ekranach aplikacji i w planie kierowców.
+- Dołączony SVG uruchamia się wyłącznie jako awaryjny obraz w ekranach hosta, gdy oryginalny plik JPG nie jest jeszcze dostępny.
+
+WERYFIKACJA v274
+- Kontrola wszystkich odwołań do logo oraz aktualnego identyfikatora cache.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v273 - kompletna paczka wdrożeniowa
 Build/cache: v273-complete-package
 
 - Paczka zawiera aktualną aplikację v272 oraz wymagane pliki wspólne: moduły formularza, planowania, importu, endpointy serwerowe, bibliotekę HTTP i zasoby graficzne.
 - Można ją wdrożyć jako pełny katalog projektu Vite/Vercel. Ustaw przed wdrożeniem VITE_SUPABASE_URL oraz VITE_SUPABASE_PUBLISHABLE_KEY (lub VITE_SUPABASE_ANON_KEY); dla analizatora zachowaj OPENAI_API_KEY.
-- Usunięto zależność od nieistniejących plików JPG/PNG logo. Logo i favicon są dołączone jako SVG.
+- Dołączono awaryjne SVG logo i faviconu dla nowego, pustego wdrożenia.
 
 WERYFIKACJA v273
 - Kontrola kompletności importów modułów i wszystkich lokalnych zasobów HTML.
