@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v273-complete-package"></script>
-  <script src="/planning-core.js?build=v273-complete-package"></script>
-  <script src="/order-stops.js?build=v273-complete-package"></script>
+  <script src="/xlsx-lite.js?v=v276-sample-projects-oct29"></script>
+  <script src="/planning-core.js?build=v276-sample-projects-oct29"></script>
+  <script src="/order-stops.js?build=v276-sample-projects-oct29"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -90150,7 +90150,7 @@
   </script>
   <script>
 
-    const BRAND_LOGO_DATA_URI = "/top-dragon-logo.svg";
+    const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
 
     const EMBEDDED_MODE = new URLSearchParams(window.location.search).get("embedded") === "1";
 
@@ -91354,17 +91354,17 @@
       return street ? `ul. ${street}` : "";
     }
 
-    function septemberRelationDatesV167() {
+    function sampleRelationDatesV276() {
       const year = currentAppDate().slice(0, 4);
       const dates = [];
-      for (let date = `${year}-09-28`; date <= `${year}-10-18`; date = addDaysToIso(date, 1)) dates.push(date);
+      for (let date = `${year}-09-28`; date <= `${year}-10-29`; date = addDaysToIso(date, 1)) dates.push(date);
       return dates;
     }
 
-    const RELATION_CUTOFF_DATE_V258 = `${currentAppDate().slice(0, 4)}-10-18`;
+    const RELATION_CUTOFF_DATE_V276 = `${currentAppDate().slice(0, 4)}-10-29`;
     function relationStartsByCutoffV258(route) {
       const iso = String(route?.loadDate || route?.date || "").slice(0, 10);
-      return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V258;
+      return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V276;
     }
     function removeSampleRelationsAfterCutoffV259(routes) {
       // Data graniczna dotyczy wyłącznie danych demonstracyjnych. Rzeczywiste
@@ -91439,8 +91439,32 @@
       { drivers:[2, 3], code:"BRAVO", name:"Projekt Bravo", color:"#7c3aed", client:"Polonia Foods S.A.", loads:["Lublin","Białystok","Szczecin","Bydgoszcz"], unloads:["Radom","Płock","Kielce","Toruń"] }
     ]);
 
+    // Większe przykładowe akcje widoczne w końcówce października. Każda relacja
+    // pozostaje osobnym kafelkiem, ale wspólne oznaczenie i kolor pokazują skalę
+    // projektu bez tworzenia rzeczywistych wpisów w bazie.
+    const LARGE_SAMPLE_TRANSPORT_PROJECTS_V276 = Object.freeze([
+      {
+        days:["10-20", "10-21", "10-22"], drivers:[4, 5, 6, 7, 8, 9, 10, 11],
+        code:"NORD-8", name:"Akcja Nord 8 pojazdów", color:"#0369a1",
+        client:"Nordic Retail Polska S.A.", loads:["Warszawa"], unloads:["Gdańsk"]
+      },
+      {
+        days:["10-27", "10-28", "10-29"], drivers:[12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+        code:"EXPO-10", name:"Akcja Expo 10 pojazdów", color:"#b45309",
+        client:"Centrum Wystawiennicze Polska Sp. z o.o.", loads:["Wrocław"], unloads:["Warszawa"]
+      },
+      {
+        days:["10-28", "10-29"], drivers:[22, 23, 24, 25, 26, 27],
+        code:"PORT-6", name:"Akcja Port 6 pojazdów", color:"#be123c",
+        client:"Baltic Port Logistics S.A.", loads:["Gdańsk"], unloads:["Poznań"]
+      }
+    ]);
+
     function applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex) {
-      const project = DAILY_TRANSPORT_PROJECTS_V255.find(item => item.drivers.includes(driverIndex));
+      const monthDay = String(date || "").slice(5);
+      const project = LARGE_SAMPLE_TRANSPORT_PROJECTS_V276.find(item =>
+        item.days.includes(monthDay) && item.drivers.includes(driverIndex)
+      ) || DAILY_TRANSPORT_PROJECTS_V255.find(item => item.drivers.includes(driverIndex));
       if (!project) return;
       const index = dayIndex % project.loads.length;
       const loadCity = project.loads[index];
@@ -91460,14 +91484,14 @@
     }
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
-      const dates = septemberRelationDatesV167();
+      const dates = sampleRelationDatesV276();
       return (drivers || []).flatMap((driver, driverIndex) => {
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
           applySampleTransportProjectV252(route, driverIndex, dayIndex);
           applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex);
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 258;
+          route.sampleScheduleVersion = 276;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91514,7 +91538,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 258 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 276 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -95222,7 +95246,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <main class="login-page">
           <section class="login-card" aria-live="polite">
-            <img src="${BRAND_LOGO_DATA_URI}" alt="Top Dragon" class="brand-logo-login" />
+            <img src="${BRAND_LOGO_DATA_URI}" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" class="brand-logo-login" />
             <h1>Łączenie z kontem</h1>
             <p class="hint">Oczekiwanie na bezpieczne logowanie Supabase.</p>
           </section>
@@ -95735,7 +95759,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             <div class="header-inner">
               <div class="brand-head">
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
-                  <img src="${BRAND_LOGO_DATA_URI}" alt="Top Dragon" class="brand-logo-header" />
+                  <img src="${BRAND_LOGO_DATA_URI}" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" class="brand-logo-header" />
                 </button>
               </div>
 
@@ -111479,7 +111503,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       app.innerHTML = `
         <main class="login-page">
           <section class="login-card">
-            <img src="${BRAND_LOGO_DATA_URI}" alt="Top Dragon" class="brand-logo-login" />
+            <img src="${BRAND_LOGO_DATA_URI}" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" class="brand-logo-login" />
             <h1>Nie udało się uruchomić panelu</h1>
             <p class="hint">Odśwież stronę. Logowanie jest obsługiwane wyłącznie przez Supabase.</p>
             <pre style="white-space:pre-wrap;color:#b91c1c;margin-top:12px;font-size:12px;">${String(error && error.message ? error.message : error)}</pre>
@@ -122379,7 +122403,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v273-complete-package-cache">
+  <style id="targeted-v276-sample-projects-oct29-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122518,8 +122542,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v273-complete-package" />
-  <script src="/order-entry.js?build=v273-complete-package"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v276-sample-projects-oct29" />
+  <script src="/order-entry.js?build=v276-sample-projects-oct29"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -123069,6 +123093,103 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     html[data-tms-disabled-features~="statistics"] .stats-drawer,
     html[data-tms-disabled-features~="routeOptimization"] .route-swap-panel { display:none !important; }
   </style>
+  <style id="targeted-v275-board-arrow-navigation-style">
+    .day-cell.keyboard-selected-v275 {
+      outline: 2px solid #2563eb !important;
+      outline-offset: -2px;
+      z-index: 4;
+    }
+    .time-route.keyboard-selected-v275 {
+      outline: 2px solid #2563eb !important;
+      outline-offset: 1px;
+      z-index: 12;
+    }
+  </style>
+  <script id="targeted-v275-board-arrow-navigation">
+    (() => {
+      let keyboardBoardSelectionV275 = null;
+      const boardArrowOffsetV275 = {
+        ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0]
+      };
+
+      function boardCellV275(driverId, date) {
+        return Array.from(document.querySelectorAll('.day-cell.time-cell[data-driver-id][data-date]')).find(cell =>
+          String(cell.dataset.driverId || '') === String(driverId || '') && String(cell.dataset.date || '') === String(date || '')
+        ) || null;
+      }
+
+      function boardPositionFromTargetV275(target) {
+        const tile = target?.closest?.('.time-route[data-route-id]');
+        if (tile) {
+          const route = activeRoutes().find(item => String(item.id || '') === String(tile.dataset.routeId || ''));
+          if (route?.driverId && route?.date) return { driverId: String(route.driverId), date: String(route.date) };
+        }
+        const cell = target?.closest?.('.day-cell.time-cell[data-driver-id][data-date]');
+        return cell ? { driverId: String(cell.dataset.driverId || ''), date: String(cell.dataset.date || '') } : null;
+      }
+
+      function selectBoardPositionV275(driverId, date, scroll = true) {
+        const cell = boardCellV275(driverId, date);
+        if (!cell) return false;
+        document.querySelectorAll('.day-cell.keyboard-selected-v275').forEach(item => item.classList.remove('keyboard-selected-v275'));
+        document.querySelectorAll('.time-route.keyboard-selected-v275').forEach(item => item.classList.remove('keyboard-selected-v275'));
+        cell.classList.add('keyboard-selected-v275');
+        cell.tabIndex = 0;
+        keyboardBoardSelectionV275 = { driverId: String(driverId), date: String(date) };
+
+        const route = activeRoutes()
+          .filter(item => String(item.driverId || '') === String(driverId) && routeOverlapsDate(item, date))
+          .sort((left, right) => routeGlobalStart(left) - routeGlobalStart(right))[0];
+        if (route?.id) {
+          const tile = document.querySelector(`.time-route[data-route-id="${CSS.escape(String(route.id))}"]`);
+          tile?.classList.add('keyboard-selected-v275');
+        }
+        cell.focus?.({ preventScroll: true });
+        if (scroll) cell.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+        return true;
+      }
+
+      function moveBoardSelectionV275(key) {
+        const origin = keyboardBoardSelectionV275;
+        const offset = boardArrowOffsetV275[key];
+        if (!origin || !offset) return false;
+        const cells = Array.from(document.querySelectorAll('.day-cell.time-cell[data-driver-id][data-date]'));
+        const driverIds = [...new Set(cells.map(cell => String(cell.dataset.driverId || '')))];
+        const dates = [...new Set(cells.map(cell => String(cell.dataset.date || '')))];
+        const driverIndex = driverIds.indexOf(String(origin.driverId));
+        const dateIndex = dates.indexOf(String(origin.date));
+        if (driverIndex < 0 || dateIndex < 0) return false;
+        const nextDriver = driverIds[driverIndex + offset[0]];
+        const nextDate = dates[dateIndex + offset[1]];
+        if (!nextDriver || !nextDate) return true;
+        return selectBoardPositionV275(nextDriver, nextDate);
+      }
+
+      function keyboardEntryTargetV275(target) {
+        return Boolean(target?.matches?.('input,textarea,select,[contenteditable="true"],[role="textbox"],[role="listbox"]'));
+      }
+
+      document.addEventListener('click', event => {
+        if (excelBoardMode()) return;
+        const position = boardPositionFromTargetV275(event.target);
+        if (position?.driverId && position?.date) selectBoardPositionV275(position.driverId, position.date, false);
+      });
+
+      document.addEventListener('keydown', event => {
+        if (excelBoardMode() || !boardArrowOffsetV275[event.key] || keyboardEntryTargetV275(event.target)) return;
+        if (state.detailsOpen || state.pdfImportOpen || document.querySelector('.modal,.context-menu')) return;
+        const inBoard = event.target?.closest?.('.board-scroll');
+        if (!inBoard && !keyboardBoardSelectionV275) return;
+        if (!inBoard && event.target?.matches?.('button,a,[role="button"]')) return;
+        if (!keyboardBoardSelectionV275) {
+          const focusedPosition = boardPositionFromTargetV275(event.target);
+          if (focusedPosition?.driverId && focusedPosition?.date) selectBoardPositionV275(focusedPosition.driverId, focusedPosition.date, false);
+        }
+        cancelBoardRouteOpen?.();
+        if (moveBoardSelectionV275(event.key)) event.preventDefault();
+      });
+    })();
+  </script>
 </body>
 </html>
 
