@@ -90152,9 +90152,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v287-route-provider-icons"></script>
-  <script src="/planning-core.js?build=v287-route-provider-icons"></script>
-  <script src="/order-stops.js?build=v287-route-provider-icons"></script>
+  <script src="/xlsx-lite.js?v=v290-mobile-map-and-tap"></script>
+  <script src="/planning-core.js?build=v290-mobile-map-and-tap"></script>
+  <script src="/order-stops.js?build=v290-mobile-map-and-tap"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -92784,6 +92784,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       routeSwapPanelOpen: false,
       routeSwapAnalysisSignature: "",
       routeSwapAnalysisTimer: null,
+      routeSwapHighlightIds: [],
+      routeSwapHighlightUntil: 0,
+      routeSwapHighlightTimer: null,
       aiImportTarget: "future",
       aiPlanDrop: null,
       aiImportMode: "choose",
@@ -101635,6 +101638,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `−${Math.round(item.savingKm)} km · ${item.currentKm}→${item.swappedKm} km`;
     }
 
+    function routeSwapHighlightClass(route) {
+      const active = Number(state.routeSwapHighlightUntil || 0) > Date.now();
+      return active && (state.routeSwapHighlightIds || []).includes(String(route?.id || "")) ? "route-swap-pulse" : "";
+    }
+
+    function routeSwapTilesForIds(ids) {
+      const routeIds = new Set((ids || []).map(String));
+      return Array.from(document.querySelectorAll(".time-route[data-route-id]")).filter(tile => routeIds.has(String(tile.dataset.routeId || "")));
+    }
+
     function renderRouteSwapDock() {
       const suggestions = routeSwapSuggestionsForUser();
       if (!suggestions.length) return "";
@@ -101661,12 +101674,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       event?.stopPropagation?.();
       const suggestion = (state.routeSwapSuggestions || []).find(item => item.id === suggestionId);
       if (!suggestion) return;
-      const ids = [suggestion.firstRouteId, suggestion.secondRouteId].filter(Boolean);
+      const ids = [suggestion.firstRouteId, suggestion.secondRouteId].filter(Boolean).map(String);
+      if (!ids.length) return;
+      state.routeSwapHighlightIds = ids;
+      state.routeSwapHighlightUntil = Date.now() + 5200;
+      clearTimeout(state.routeSwapHighlightTimer);
       document.querySelectorAll(".time-route.route-swap-pulse").forEach(tile => tile.classList.remove("route-swap-pulse"));
-      const tiles = ids.map(id => document.querySelector(`.time-route[data-route-id="${CSS.escape(String(id))}"]`)).filter(Boolean);
+      const tiles = routeSwapTilesForIds(ids);
       tiles.forEach(tile => { void tile.offsetWidth; tile.classList.add("route-swap-pulse"); });
       tiles[0]?.scrollIntoView?.({ behavior:"smooth", block:"nearest", inline:"nearest" });
-      setTimeout(() => tiles.forEach(tile => tile.classList.remove("route-swap-pulse")), 5200);
+      state.routeSwapHighlightTimer = setTimeout(() => {
+        state.routeSwapHighlightIds = [];
+        state.routeSwapHighlightUntil = 0;
+        routeSwapTilesForIds(ids).forEach(tile => tile.classList.remove("route-swap-pulse"));
+      }, 5200);
     }
 
     function scheduleRouteSwapAnalysis() {
@@ -103907,7 +103928,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             const canResizeThisRoute = canEditThisRoute && !excelBoardMode();
             return `
               <button
-                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${route.boardFontColor === "red" ? "route-text-red-v177" : ""}"
+                class="time-route continuous ${canResizeThisRoute ? "can-resize" : ""} ${compactContent ? "compact-content" : ""} ${loadLineVisibleForDispatcher(driver.dispatcher) && !isFreeDayRoute(route) ? "load-visible" : "load-hidden"} ${routeStatusClasses(route)} ${routeFreshClass(route)} ${routeSwapHighlightClass(route)} ${route.boardFontColor === "red" ? "route-text-red-v177" : ""}"
                 data-route-id="${attr(route.id)}"
                 data-can-resize="${canResizeThisRoute ? "1" : "0"}"
                 data-width-mode="${route.timelineWidthMode === "manual" ? "manual" : route.timelineWidthMode === "estimated" ? "estimated" : "auto30"}"
@@ -104125,9 +104146,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const POLAND_MAP_CENTER = [52.0, 19.2];
     const POLAND_HOME_CENTER = [52.0, 19.2];
-    // Wysoki ekran telefonu przy zoomie 5 pokazuje zbyt dużo północy.
-    // Nieco niższy środek i bliższe powiększenie utrzymują Polskę w centrum widoku.
-    const POLAND_MOBILE_HOME_CENTER = [51.7, 19.2];
+    // Pełnoekranowy widok telefonu ma inną kompozycję niż desktop. Środek
+    // przesuwamy na południe, aby mapa nie startowała nad Polską / nad Bałtykiem.
+    const POLAND_MOBILE_HOME_CENTER = [51.2, 19.2];
     const POLAND_MOBILE_HOME_ZOOM = 6;
     const POLAND_MAP_BOUNDS = [[48.5, 13.5], [55.2, 24.5]];
     const POLAND_MAP_MIN_ZOOM = 4;
@@ -104147,17 +104168,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return window.L ? L.latLngBounds(POLAND_MAP_BOUNDS) : null;
     }
 
+    let leafletMobileCenterTimer = 0;
+
     function centerLeafletMapHome() {
       if (!state.leafletMap) return;
-      try {
-        state.leafletMap.stop?.();
-        const mobile = mobileViewportActive();
-        state.leafletMap.setView(
-          mobile ? POLAND_MOBILE_HOME_CENTER : POLAND_HOME_CENTER,
-          mobile ? POLAND_MOBILE_HOME_ZOOM : Math.max(POLAND_MAP_MIN_ZOOM + 1, 5),
-          { animate: false }
-        );
-      } catch (error) {}
+      const mobile = mobileViewportActive();
+      const apply = () => {
+        if (!state.leafletMap) return;
+        try {
+          state.leafletMap.stop?.();
+          state.leafletMap.invalidateSize?.({ animate: false, pan: false });
+          state.leafletMap.setView(
+            mobile ? POLAND_MOBILE_HOME_CENTER : POLAND_HOME_CENTER,
+            mobile ? POLAND_MOBILE_HOME_ZOOM : Math.max(POLAND_MAP_MIN_ZOOM + 1, 5),
+            { animate: false }
+          );
+        } catch (error) {}
+      };
+      apply();
+      // W telefonie wysokość viewportu stabilizuje się chwilę po rozwinięciu
+      // panelu. Ponawiamy ustawienie już po tym przeliczeniu Leaflet.
+      if (mobile) {
+        requestAnimationFrame(() => requestAnimationFrame(apply));
+        clearTimeout(leafletMobileCenterTimer);
+        leafletMobileCenterTimer = setTimeout(apply, 160);
+      }
     }
 
     function focusLeafletPoint(coords) {
@@ -122490,7 +122525,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v287-route-provider-icons-cache">
+  <style id="targeted-v290-mobile-map-and-tap-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122629,8 +122664,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v287-route-provider-icons" />
-  <script src="/order-entry.js?build=v287-route-provider-icons"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v290-mobile-map-and-tap" />
+  <script src="/order-entry.js?build=v290-mobile-map-and-tap"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
@@ -122871,8 +122906,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .route-swap-row small { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
     .app.dark-mode .route-swap-dock { border-color:#155e75; background:#155e75; }
     .app.dark-mode .route-swap-row b { color:#67e8f9; }
-    @keyframes routeSwapPulseV257 { 0%,100% { box-shadow:0 0 0 1px rgba(59,130,246,.48),0 0 5px rgba(59,130,246,.35); } 50% { box-shadow:0 0 0 5px rgba(96,165,250,.86),0 0 26px rgba(37,99,235,.92); } }
-    .time-route.route-swap-pulse { border-color:#2563eb !important; animation:routeSwapPulseV257 .9s ease-in-out 6 !important; z-index:46 !important; }
+    @keyframes routeSwapPulseV289 { 0%,100% { border-color:#2563eb; outline-color:rgba(96,165,250,.28); box-shadow:0 0 0 1px rgba(59,130,246,.52),0 0 6px rgba(59,130,246,.38); } 50% { border-color:#93c5fd; outline-color:rgba(96,165,250,.9); box-shadow:0 0 0 5px rgba(96,165,250,.7),0 0 28px rgba(37,99,235,.94); } }
+    .time-route.route-swap-pulse { position:relative; z-index:80 !important; border-color:#2563eb !important; outline:2px solid rgba(96,165,250,.3); animation:routeSwapPulseV289 .9s ease-in-out infinite !important; }
     @media(prefers-reduced-motion:reduce) { .time-route.route-swap-pulse { animation:none !important; box-shadow:0 0 0 4px rgba(96,165,250,.82),0 0 20px rgba(37,99,235,.76) !important; } }
     @media (max-width:720px) { .route-swap-notice { right:8px; bottom:62px; } }
     .board .time-now-line-overlay { width:4px !important; transform:translateX(-2px) !important; }
@@ -123099,62 +123134,122 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
   </style>
-  <script id="targeted-v278-mobile-route-details-tap-script">
+  <script id="targeted-v290-mobile-route-details-tap-script">
     (() => {
       let touch = null;
+      let lastPointerStartAt = 0;
       let suppressTileClickUntil = 0;
+      let lastOpened = { id:"", at:0 };
+      const TAP_MOVE_LIMIT = 10;
 
-      function finishTouchScroll(event) {
-        if (!touch?.viewport) return;
-        if (event?.pointerId !== undefined && event.pointerId !== touch.id) return;
+      function tileFromEvent(event) {
+        return event?.target?.closest?.('.time-route[data-route-id]') || null;
+      }
+
+      function mayOpenTile(tile, target = tile) {
+        return Boolean(
+          tile
+          && mobileViewportActive()
+          && !excelBoardMode()
+          && !routeResize?.active
+          && !target?.closest?.('.time-resize,.quick-editing,.excel-split-v171')
+        );
+      }
+
+      function openRouteFromMobileTap(routeId) {
+        const id = String(routeId || '');
+        if (!id) return;
+        const now = Date.now();
+        if (lastOpened.id === id && now - lastOpened.at < 550) return;
+        lastOpened = { id, at:now };
+        suppressTileClickUntil = now + 650;
+        cancelBoardRouteOpen();
+        suppressBoardRouteOpenUntil = 0;
+        requestAnimationFrame(() => openRoute(id));
+      }
+
+      function beginTouch(target, pointerId, x, y) {
+        const viewport = target?.closest?.('.board-scroll');
+        if (!viewport) return;
+        const tile = target?.closest?.('.time-route[data-route-id]');
+        touch = {
+          id:pointerId,
+          viewport,
+          x:Number(x),
+          y:Number(y),
+          moved:false,
+          routeId:tile?.dataset?.routeId || '',
+          target,
+          resizing:Boolean(routeResize?.active || target?.closest?.('.time-resize'))
+        };
+      }
+
+      function markTouchMove(pointerId, x, y) {
+        if (!touch || touch.id !== pointerId || touch.moved) return;
+        if (Math.hypot(Number(x) - touch.x, Number(y) - touch.y) >= TAP_MOVE_LIMIT) touch.moved = true;
+      }
+
+      function finishTouch(pointerId, target, cancelled = false) {
+        if (!touch || touch.id !== pointerId) return;
         const gesture = touch;
-        const moved = gesture.moved;
         touch = null;
-        if (moved) {
-          suppressTileClickUntil = Date.now() + 260;
+        if (cancelled || gesture.moved) {
+          suppressTileClickUntil = Date.now() + 280;
           return;
         }
-
-        // Pojedyncze dotknięcie kafelka w widoku telefonu otwiera szczegóły.
-        // Zapisujemy stan gestu przy pointerdown, więc przewijanie oraz chwyt
-        // do zmiany szerokości nie są mylone z kliknięciem.
-        if (!mobileViewportActive() || excelBoardMode() || gesture.resizing || !gesture.routeId) return;
-        if (event?.target?.closest?.('.time-resize,.quick-editing,.excel-split-v171')) return;
-        cancelBoardRouteOpen();
-        // Nie blokujemy następującego po tapnięciu click — jest on drugim,
-        // niezależnym mechanizmem otwarcia szczegółów dla przeglądarek mobilnych.
-        suppressBoardRouteOpenUntil = 0;
-        requestAnimationFrame(() => openRoute(gesture.routeId));
+        const tile = target?.closest?.('.time-route[data-route-id]') || tileFromEvent({ target:gesture.target });
+        if (!mayOpenTile(tile, target || gesture.target) || gesture.resizing || !gesture.routeId) return;
+        openRouteFromMobileTap(gesture.routeId);
       }
 
       document.addEventListener('pointerdown', event => {
         if (event.pointerType !== 'touch') return;
-        const viewport = event.target?.closest?.('.board-scroll');
-        if (!viewport) return;
-        const routeTile = event.target?.closest?.('.time-route[data-route-id]');
-        touch = {
-          id:event.pointerId,
-          viewport,
-          x:event.clientX,
-          y:event.clientY,
-          moved:false,
-          routeId:routeTile?.dataset?.routeId || '',
-          resizing:Boolean(routeResize?.active || event.target?.closest?.('.time-resize'))
-        };
+        lastPointerStartAt = Date.now();
+        beginTouch(event.target, `pointer:${event.pointerId}`, event.clientX, event.clientY);
       }, { capture:true, passive:true });
-
       document.addEventListener('pointermove', event => {
-        if (!touch || event.pointerId !== touch.id || touch.moved) return;
-        if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) < 7) return;
-        touch.moved = true;
+        if (event.pointerType === 'touch') markTouchMove(`pointer:${event.pointerId}`, event.clientX, event.clientY);
+      }, { capture:true, passive:true });
+      document.addEventListener('pointerup', event => {
+        if (event.pointerType === 'touch') finishTouch(`pointer:${event.pointerId}`, event.target);
+      }, { capture:true, passive:true });
+      document.addEventListener('pointercancel', event => {
+        if (event.pointerType === 'touch') finishTouch(`pointer:${event.pointerId}`, event.target, true);
       }, { capture:true, passive:true });
 
-      document.addEventListener('pointerup', finishTouchScroll, { capture:true, passive:true });
-      document.addEventListener('pointercancel', finishTouchScroll, { capture:true, passive:true });
+      // Safari oraz część wbudowanych przeglądarek uruchamia wyłącznie touch.
+      document.addEventListener('touchstart', event => {
+        if (Date.now() - lastPointerStartAt < 450) return;
+        const point = event.changedTouches?.[0];
+        if (point) beginTouch(event.target, `touch:${point.identifier}`, point.clientX, point.clientY);
+      }, { capture:true, passive:true });
+      document.addEventListener('touchmove', event => {
+        const point = event.changedTouches?.[0];
+        if (point) markTouchMove(`touch:${point.identifier}`, point.clientX, point.clientY);
+      }, { capture:true, passive:true });
+      document.addEventListener('touchend', event => {
+        const point = event.changedTouches?.[0];
+        if (point) finishTouch(`touch:${point.identifier}`, event.target);
+      }, { capture:true, passive:true });
+      document.addEventListener('touchcancel', event => {
+        const point = event.changedTouches?.[0];
+        if (point) finishTouch(`touch:${point.identifier}`, event.target, true);
+      }, { capture:true, passive:true });
+
+      // Zdarzenie click pozostaje końcowym zabezpieczeniem dla przeglądarek,
+      // które nie przekazują touchend dla elementu z atrybutem draggable.
       document.addEventListener('click', event => {
-        if (Date.now() > suppressTileClickUntil || !event.target?.closest?.('.time-route')) return;
+        const tile = tileFromEvent(event);
+        if (!tile) return;
+        if (Date.now() < suppressTileClickUntil) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+        if (!mayOpenTile(tile, event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
+        openRouteFromMobileTap(tile.dataset.routeId);
       }, true);
     })();
   </script>
