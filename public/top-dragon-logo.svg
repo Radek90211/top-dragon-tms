@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100" role="img" aria-labelledby="title">
+  <title id="title">Top Dragon</title>
+  <rect width="320" height="100" rx="14" fill="#ffffff"/>
+  <text x="20" y="43" fill="#111827" font-family="Arial, sans-serif" font-size="27" font-weight="800">TOP</text>
+  <text x="20" y="78" fill="#111827" font-family="Arial, sans-serif" font-size="29" font-weight="800">DRAGON</text>
+  <path d="M255 18c-23 2-38 18-38 35 0 14 11 26 26 26 18 0 33-15 33-33 0-12-7-23-21-28Zm-15 18 16 8-13 7 4 16-14-10-13 10 4-16-13-7 16-8 5-14 5 14Z" fill="#b91c1c"/>
+</svg>

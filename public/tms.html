@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TMS Top Dragon</title>
-  <link rel="icon" type="image/png" href="/top-dragon-favicon.png" />
+  <link rel="icon" type="image/svg+xml" href="/top-dragon-favicon.svg" />
   <style>
     :root {
       --bg: #f8fafc;
@@ -90135,9 +90135,9 @@
       localStorage.setItem(migrationKey, "done");
     })();
   </script>
-  <script src="/xlsx-lite.js?v=v270-admin-audit-color"></script>
-  <script src="/planning-core.js?build=v270-admin-audit-color"></script>
-  <script src="/order-stops.js?build=v270-admin-audit-color"></script>
+  <script src="/xlsx-lite.js?v=v273-complete-package"></script>
+  <script src="/planning-core.js?build=v273-complete-package"></script>
+  <script src="/order-stops.js?build=v273-complete-package"></script>
   <script>
     // Zapis nadal jest sprawdzany w tle; ukrywamy wyłącznie zbędny status techniczny.
     (() => {
@@ -90150,7 +90150,7 @@
   </script>
   <script>
 
-    const BRAND_LOGO_DATA_URI = "/top-dragon-logo.jpg";
+    const BRAND_LOGO_DATA_URI = "/top-dragon-logo.svg";
 
     const EMBEDDED_MODE = new URLSearchParams(window.location.search).get("embedded") === "1";
 
@@ -103747,7 +103747,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           data-date="${attr(date)}"
           tabindex="-1"
           onclick="selectExcelBoardCellV186(event, '${attr(driver.id)}', '${attr(date)}')"
-          ondblclick="if(excelBoardMode()) addExcelBoardTileV172(event, '${attr(driver.id)}', '${attr(date)}')"
+          ondblclick="openAddForBoardCellV271(event, '${attr(driver.id)}', '${attr(date)}')"
           ondragover="allowRouteDrop(event)"
           ondragleave="clearDropHover(event)"
           ondrop="dropRoute(event, '${attr(driver.id)}', '${attr(date)}')"
@@ -107491,6 +107491,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       stampRouteAdded(route); state.routes.push(route); syncBoardOnly();
       const tile = routeButtonElement(route.id);
       startQuickUnloadEdit({preventDefault(){},stopPropagation(){},currentTarget:tile,target:tile},route.id);
+    }
+
+    function openAddForBoardCellV271(event, driverId, date) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (event?.target?.closest?.('.time-route')) return;
+      if (Date.now() < suppressBoardRouteOpenUntil || routeResize.active || document.querySelector('.quick-unload-input')) return;
+      if (excelBoardMode()) {
+        addExcelBoardTileV172(event, driverId, date);
+        return;
+      }
+      const candidate = { driverId, ownerDispatcher:state.user?.login, createdBy:state.user?.login };
+      if (!canEditBoardRoute(candidate)) {
+        if (state.user?.role === "rozliczenia") blockAccountingOperationMessage();
+        else blockForeignRouteEditMessage();
+        return;
+      }
+      openAdd(driverId, date);
     }
 
     function excelBoardMode() {
@@ -122361,7 +122379,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .quick-unload-edit-wrap .quick-unload-input { width:100%; min-width:0; }
     .quick-unload-choice:hover, .quick-unload-choice:focus { background:rgba(37,99,235,.13); outline:0; }
   </style>
-  <style id="targeted-v270-admin-audit-color-cache">
+  <style id="targeted-v273-complete-package-cache">
     /* Ukrywamy podział godzinowy wewnątrz dnia. Obramowanie .day-cell nadal
        wyznacza granicę każdej kolumny daty. */
     .board .time-grid { display:none !important; }
@@ -122500,8 +122518,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       animation-play-state:paused !important;
     }
   </style>
-  <link rel="stylesheet" href="/order-entry.css?build=v270-admin-audit-color" />
-  <script src="/order-entry.js?build=v270-admin-audit-color"></script>
+  <link rel="stylesheet" href="/order-entry.css?build=v273-complete-package" />
+  <script src="/order-entry.js?build=v273-complete-package"></script>
   <style id="targeted-v267-sms-image">
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
