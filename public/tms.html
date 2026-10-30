@@ -96067,7 +96067,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
            // Relacja widoczna na tablicy ma także poprawny domyślny początek
            // (routeStartHour). Nie wymagamy ręcznie zapisanej godziny, bo wtedy
            // kolejny ładunek był pomijany i punkt rozładunku robił się czerwony.
-           routeHasPlannedLoad(route) &&
           routeGlobalStart(route) >= currentEnd
         )
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
