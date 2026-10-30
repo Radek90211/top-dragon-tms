@@ -2312,3 +2312,12 @@ WERYFIKACJA v298
 - Kontrola dynamicznych handlerów mapy, opóźnionych aktualizacji moveend/zoomend oraz popupów generowanych po kliknięciu.
 - Paczka względem v297 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
 
+TOP DRAGON TMS - wersja v299
+Zmiany: status punktu pojazdu na mapie uznaje za kolejną relację każdy zaplanowany kafelek z załadunkiem, również gdy używa domyślnej godziny startu zamiast ręcznie wpisanej. Dobór punktów mapy normalizuje datę rozładunku do formatu YYYY-MM-DD, więc po zmianie dnia pokazuje prawidłowe rozładunki.
+Cache/build ID: request-workflow-v299-map-next-load-date
+
+WERYFIKACJA v299
+- Kontrola składni wszystkich skryptów inline, src/main.js i api/admin/users.js.
+- Kontrola wyboru kolejnej relacji dla kierowcy oraz filtrowania mapy według dnia rozładunku.
+- Paczka względem v298 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
+
