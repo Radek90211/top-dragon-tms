@@ -4576,7 +4576,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=request-workflow-v297-client-map-list-zoom"
+          src="/tms.html?embedded=1&build=request-workflow-v298-client-map-performance"
         title="Top Dragon TMS"
       ></iframe>
     </main>
