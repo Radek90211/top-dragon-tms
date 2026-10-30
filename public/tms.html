@@ -101702,7 +101702,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!suggestions.length) return "";
       const open = Boolean(state.routeSwapPanelOpen);
       return `<div class="route-swap-notice ${open ? "open" : ""}">
-        ${open ? `<section class="route-swap-panel" aria-label="Propozycje zamiany tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij">×</button></header>${suggestions.map(item => `<button type="button" class="route-swap-row" data-route-swap-suggestion="${attr(item.id)}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><b>${esc(routeSwapShortLine(item))}</b><span>${esc(item.firstDriver)} ${item.kind === "swap" ? "↔" : "→"} ${esc(item.secondDriver)}</span><div class="route-swap-dispatchers"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><small>${esc(item.firstRoute)}${item.secondRoute ? ` / ${esc(item.secondRoute)}` : ""}</small></button>`).join("")}</section>` : ""}
+        ${open ? `<section class="route-swap-panel" aria-label="Propozycje optymalizacji tras"><header><div class="route-swap-heading"><span>MOŻLIWE USPRAWNIENIA</span><b>Optymalizacja tras</b><small>Wybierz propozycję, aby wskazać trasy na planie.</small></div><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij panel">&times;</button></header><div class="route-swap-list">${suggestions.map(item => `<button type="button" class="route-swap-row" data-route-swap-suggestion="${attr(item.id)}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><div class="route-swap-row-top"><span class="route-swap-saving"><strong>-${Math.round(item.savingKm)} km</strong><small>mniej kilometrów</small></span><span class="route-swap-km"><b>${item.currentKm} km</b><i>&rarr;</i><b>${item.swappedKm} km</b></span></div><div class="route-swap-drivers"><small>${item.kind === "swap" ? "Zamiana kierowców" : "Lepsze przypisanie"}</small><span>${esc(item.firstDriver)} <b>${item.kind === "swap" ? "&harr;" : "&rarr;"}</b> ${esc(item.secondDriver)}</span></div><div class="route-swap-dispatchers"><small>Spedytorzy</small><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><div class="route-swap-routes"><small>Trasy</small><span>${esc(item.firstRoute)}</span>${item.secondRoute ? `<span>${esc(item.secondRoute)}</span>` : ""}</div></button>`).join("")}</div></section>` : ""}
         <button type="button" class="route-swap-dock" onclick="toggleRouteSwapPanel(event)" title="${attr(`${suggestions.length} propozycji wymiany tras`)}" aria-label="Propozycje wymiany tras"><span>↔</span><b>${suggestions.length}</b></button>
       </div>`;
     }
@@ -123140,18 +123140,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .route-swap-notice { position:fixed; right:14px; bottom:70px; z-index:7421; display:flex; align-items:flex-end; gap:8px; flex-direction:column; }
     .route-swap-dock { width:40px; height:40px; display:grid; place-items:center; position:relative; border:1px solid #bae6fd; border-radius:50%; background:#0e7490; color:#fff; box-shadow:0 10px 28px rgba(14,116,144,.28); cursor:pointer; font:900 18px/1 system-ui,sans-serif; }
     .route-swap-dock b { position:absolute; right:-4px; top:-4px; min-width:16px; height:16px; display:grid; place-items:center; padding:0 2px; border:2px solid var(--card); border-radius:999px; background:#f59e0b; color:#1f2937; font-size:9px; }
-    .route-swap-panel { width:min(330px,calc(100vw - 28px)); max-height:min(420px,62vh); overflow:auto; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--text); box-shadow:0 16px 38px rgba(15,23,42,.22); }
-    .route-swap-panel header { display:flex; justify-content:space-between; align-items:center; padding:10px 11px 7px; border-bottom:1px solid var(--border); }
-    .route-swap-panel header button { width:25px; height:25px; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; font-size:20px; line-height:1; }
-    .route-swap-row { width:100%; display:grid; gap:3px; padding:8px 11px; border:0; border-top:1px solid var(--border); background:transparent; color:inherit; text-align:left; cursor:pointer; font:inherit; }
-    .route-swap-row:hover,.route-swap-row:focus-visible { background:var(--soft); outline:none; }
-    .route-swap-row b { color:#0e7490; font-size:12px; }
-    .route-swap-row span { font-size:11px; font-weight:850; }
-    .route-swap-dispatchers { display:flex; gap:4px; align-items:center; }
-    .route-swap-dispatchers .dispatcher-map-badge { font-size:8px; }
-    .route-swap-row small { overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    .route-swap-panel { width:min(390px,calc(100vw - 28px)); max-height:min(560px,72vh); overflow:auto; border:1px solid var(--border); border-radius:16px; background:var(--card); color:var(--text); box-shadow:0 18px 44px rgba(15,23,42,.28); }
+    .route-swap-panel header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 14px 12px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,rgba(14,116,144,.10),transparent 72%); }
+    .route-swap-heading { display:grid; gap:3px; min-width:0; }
+    .route-swap-heading > span { color:#0e7490; font-size:9px; font-weight:950; letter-spacing:.08em; }
+    .route-swap-heading b { color:var(--text); font-size:15px; line-height:1.15; }
+    .route-swap-heading small { color:var(--muted); font-size:11px; font-weight:650; line-height:1.35; }
+    .route-swap-panel header button { flex:0 0 auto; width:29px; height:29px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--muted); cursor:pointer; font-size:22px; line-height:1; }
+    .route-swap-panel header button:hover,.route-swap-panel header button:focus-visible { border-color:#0e7490; color:#0e7490; outline:none; }
+    .route-swap-list { display:grid; gap:8px; padding:9px; }
+    .route-swap-row { width:100%; display:grid; gap:8px; padding:11px; border:1px solid var(--border); border-radius:11px; background:var(--card); color:inherit; text-align:left; cursor:pointer; font:inherit; transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease; }
+    .route-swap-row:hover,.route-swap-row:focus-visible { border-color:#67b9c8; box-shadow:0 5px 15px rgba(14,116,144,.12); outline:none; transform:translateY(-1px); }
+    .route-swap-row-top { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .route-swap-saving { display:grid; gap:1px; }
+    .route-swap-saving strong { color:#087c53; font-size:17px; line-height:1; letter-spacing:-.03em; }
+    .route-swap-saving small,.route-swap-drivers small,.route-swap-dispatchers small,.route-swap-routes small { color:var(--muted); font-size:9px; font-weight:850; letter-spacing:.035em; text-transform:uppercase; }
+    .route-swap-km { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:11px; white-space:nowrap; }
+    .route-swap-km b { color:var(--text); font-size:11px; font-variant-numeric:tabular-nums; }
+    .route-swap-km i { color:#0e7490; font-size:14px; font-style:normal; }
+    .route-swap-drivers { display:grid; gap:3px; }
+    .route-swap-drivers > span { color:var(--text); font-size:12px; font-weight:850; line-height:1.3; }
+    .route-swap-drivers > span b { color:#0e7490; padding:0 3px; }
+    .route-swap-dispatchers { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+    .route-swap-dispatchers small { flex-basis:100%; }
+    .route-swap-dispatchers .dispatcher-map-badge { font-size:9px; }
+    .route-swap-routes { display:grid; gap:3px; padding-top:7px; border-top:1px solid var(--border); }
+    .route-swap-routes span { overflow:hidden; color:var(--muted); font-size:10px; font-weight:700; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
     .app.dark-mode .route-swap-dock { border-color:#155e75; background:#155e75; }
-    .app.dark-mode .route-swap-row b { color:#67e8f9; }
+    .app.dark-mode .route-swap-panel header { background:linear-gradient(135deg,rgba(34,211,238,.14),transparent 72%); }
+    .app.dark-mode .route-swap-heading > span,.app.dark-mode .route-swap-km i,.app.dark-mode .route-swap-drivers > span b { color:#67e8f9; }
+    .app.dark-mode .route-swap-saving strong { color:#6ee7b7; }
     @keyframes routeSwapPulseV289 { 0%,100% { border-color:#2563eb; outline-color:rgba(96,165,250,.28); box-shadow:0 0 0 1px rgba(59,130,246,.52),0 0 6px rgba(59,130,246,.38); } 50% { border-color:#93c5fd; outline-color:rgba(96,165,250,.9); box-shadow:0 0 0 5px rgba(96,165,250,.7),0 0 28px rgba(37,99,235,.94); } }
     .time-route.route-swap-pulse { position:relative; z-index:80 !important; border-color:#2563eb !important; outline:2px solid rgba(96,165,250,.3); animation:routeSwapPulseV289 .9s ease-in-out infinite !important; }
     @media(prefers-reduced-motion:reduce) { .time-route.route-swap-pulse { animation:none !important; box-shadow:0 0 0 4px rgba(96,165,250,.82),0 0 20px rgba(37,99,235,.76) !important; } }
