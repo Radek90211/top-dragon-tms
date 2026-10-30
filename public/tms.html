@@ -96067,7 +96067,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
            // Relacja widoczna na tablicy ma także poprawny domyślny początek
            // (routeStartHour). Nie wymagamy ręcznie zapisanej godziny, bo wtedy
            // kolejny ładunek był pomijany i punkt rozładunku robił się czerwony.
-          routeGlobalStart(route) >= currentEnd
+          (routeGlobalStart(route) >= currentEnd || (
+            !routeHasPlannedLoad(route) &&
+            String(route.date || "").slice(0, 10) === String(routeEndDate(current) || "").slice(0, 10)
+          ))
         )
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
     }
@@ -104096,6 +104099,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function unloadMapViewModel(routes) {
       const safeRoutes = Array.isArray(routes) ? routes : [];
       const freeCount = safeRoutes.filter(isFreeDayRoute).length;
+      const routeStatuses = new Map();
+      const statusForRoute = route => {
+        const key = String(route?.id || "");
+        if (!routeStatuses.has(key)) routeStatuses.set(key, nextRouteStatusForRoute(key));
+        return routeStatuses.get(key);
+      };
 
       // Jedno liniowe przejście po spakowanej bazie PNA dla wszystkich punktów mapy.
       // Wcześniej każdy pojazd mógł osobno skanować ponad 60 tys. rekordów.
@@ -104139,7 +104148,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         load: point.route.load || "",
         unload: finalUnloadLabelForRoute(point.route),
         unloadDate: routeEndDate(point.route),
-        inTransit: routeEndDate(point.route) !== state.reportDate
+        inTransit: routeEndDate(point.route) !== state.reportDate,
+        statusKey: String(statusForRoute(point.route)?.statusKey || "no-next")
       }));
 
       const exactUnloadCount = routesForReportDate().length;
@@ -104797,6 +104807,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function groupedLeafletPoints(points) {
       const groups = new Map();
+      // The map pass reuses each route status for its marker and popup.
       const routeStatuses = new Map();
       const statusForRoute = routeId => {
         const key = markerRouteKey(routeId);
@@ -104818,7 +104829,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           });
         }
 
-        const status = statusForRoute(point.routeId);
+        const status = point.statusKey ? { statusKey: point.statusKey } : statusForRoute(point.routeId);
         groups.get(groupKey).points.push({
           ...point,
           routeKey: markerRouteKey(point.routeId),

@@ -2339,3 +2339,17 @@ WERYFIKACJA v301
 - Kontrola filtra kolejnej relacji: ten sam kierowca, późniejszy start, aktywna relacja; bez warunku pola load.
 - Paczka względem v300 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
 
+TOP DRAGON TMS - wersja v302
+Zmiany: zoptymalizowano odświeżanie mapy. W trakcie jednej synchronizacji status następnej relacji danego pojazdu jest obliczany jednokrotnie i wykorzystywany dla markera oraz szczegółów.
+Cache/build ID: request-workflow-v302-map-status-cache
+
+WERYFIKACJA v302
+- Kontrola grupowania markerów Leaflet i pamięci statusu widocznych pojazdów.
+
+TOP DRAGON TMS - wersja v303
+Zmiany: następna relacja przypisana temu samemu kierowcy w tym samym dniu jest rozpoznawana także bez wpisanego miejsca załadunku. Domyślna godzina kafelka nie odrzuca zaplanowanej relacji; miejsce docelowe bieżącej relacji pozostaje bez zmian.
+Cache/build ID: request-workflow-v303-map-next-route-schedule
+
+WERYFIKACJA v303
+- Kontrola statusu mapy dla następnej relacji bez miejsca załadunku i bez ręcznie ustawionej godziny startu.
+
