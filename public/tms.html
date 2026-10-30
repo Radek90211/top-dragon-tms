@@ -96144,10 +96144,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const gapHours = routeGlobalStart(nearestNext) - unloadGlobal;
         const withinLoadGap = Number.isFinite(gapHours) && gapHours <= NEXT_LOAD_MAX_GAP_HOURS;
         return {
-          hasNext:withinLoadGap,
+            // Każda zaplanowana kolejna relacja oznacza załadowany pojazd.
+            // Limit 4 h pozostaje informacją operacyjną w polu isSoon.
+            hasNext:true,
           isSoon:withinLoadGap,
-          statusKey:withinLoadGap ? "has-next" : "no-next",
-          colorClass:withinLoadGap ? "available-soon" : "no-soon-load",
+            statusKey:"has-next",
+            colorClass:"available-soon",
           label:withinLoadGap
             ? `Ma następny zaplanowany ładunek za ok. ${formatGapHours(gapHours)} - odstęp nie przekracza ${NEXT_LOAD_MAX_GAP_HOURS} h.`
             : `Brak ciągłości ładunku - kolejna relacja zaczyna się za ok. ${formatGapHours(gapHours)}, czyli po ponad ${NEXT_LOAD_MAX_GAP_HOURS} h.`,
@@ -104678,7 +104680,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             state.leafletClientZoomTimer = setTimeout(() => {
               if (state.leafletMap?._popup?.isOpen?.()) return;
               if (state.showClientsOnMap || state.showUnassignedClientsOnMap) updateLeafletClientMarkers();
-            }, 110);
+            }, 180);
           };
           state.leafletMap.on("zoomend", queueViewportClientMarkers);
           state.leafletMap.on("moveend", queueViewportClientMarkers);
@@ -104737,7 +104739,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const clientsVisible = state.showClientsOnMap || state.showUnassignedClientsOnMap;
         const clientPoints = clientsVisible ? clientMapPoints() : null;
-        const clientDisplayGroups = clientsVisible ? leafletClientDisplayGroups(clientPoints) : [];
         const clientModeKey = `${state.showClientsOnMap ? 1 : 0}:${state.showUnassignedClientsOnMap ? 1 : 0}:${currentClientMapHistoryDays()}`;
         if (state.leafletClientPointsRef !== clientPoints || state.leafletClientModeKey !== clientModeKey) {
           updateLeafletClientMarkers();
@@ -104753,8 +104754,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           state.leafletBaseRevision = Number(state.leafletBaseRevision || 0) + 1;
         }
         const basePoints = state.showDriverBasesOnMap ? driverBaseMapPoints() : [];
-        const fitPoints = [...points, ...clientDisplayGroups.map(group => ({ coords: group.coords })), ...basePoints.map(point => ({ coords: point.coords }))];
-        const fitSignature = `${leafletFitSignature(vehicleGroups)}|clients:${state.leafletClientRevision || 0}|bases:${state.leafletBaseRevision || 0}`;
+        // Markery klientów są ograniczane do viewportu. Nie twórz pełnej
+        // siatki wszystkich klientów wyłącznie po to, by dopasować widok.
+        const fitPoints = [...points, ...basePoints.map(point => ({ coords: point.coords }))];
+        const fitSignature = `${leafletFitSignature(vehicleGroups)}|bases:${state.leafletBaseRevision || 0}`;
 
         if (state.leafletFitSignature !== fitSignature) {
           fitLeafletMapToPoints(fitPoints, fitSignature);
@@ -105461,7 +105464,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // Pełne rozdzielenie punktów jest potrzebne dopiero na bardzo dużym
       // przybliżeniu. Niższe poziomy zachowują lekkie skupiska także wtedy,
       // gdy w aktualnym widoku jest dużo klientów.
-      const markerLimit = zoom >= POLAND_MAP_MAX_ZOOM ? 900 : LEAFLET_CLIENT_MARKER_LIMIT;
+      // Nawet przy zoomie 19 nie tworzymy setek ikon DOM naraz. Punkty
+      // rozdzielają się do pojedynczych markerów, gdy w danym widoku jest ich
+      // niewiele; gęste miejsca pozostają lekkim skupiskiem.
+      const markerLimit = LEAFLET_CLIENT_MARKER_LIMIT;
       if (!map || source.length <= markerLimit) {
         return source.map(point => ({ id:`client:${point.id}`, coords:point.coords, points:[point] }));
       }
@@ -105519,7 +105525,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const activeGroupIds = new Set();
       groups.forEach(group => {
         activeGroupIds.add(group.id);
-        const markerSignature = `${group.coords.join(",")}|${group.points.map(point => point.id).sort().join("|")}`;
+        // Kolejność punktów z cache'u jest stabilna; sortowanie podczas
+        // każdego moveend było kosztowne przy dużych skupiskach.
+        const markerSignature = `${group.coords.join(",")}|${group.points.map(point => point.id).join("|")}`;
         const existingMarker = state.leafletClientMarkers.get(group.id);
         if (existingMarker?._tmsClientSignature === markerSignature) return;
         if (existingMarker) {
@@ -105560,7 +105568,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const marker = L.marker(point.coords, { icon, zIndexOffset: assigned ? 2200 : 1700 })
           .addTo(state.leafletClientLayer)
           .bindTooltip(tooltip, { direction: "top", offset: [0, assigned ? -10 : -8], opacity: 0.92 })
-          .bindPopup(point.client.orderedInPeriod ? () => renderClientPeriodPopup([point]) : renderClientMapPopup(point.client), point.client.orderedInPeriod ? POLAND_CLIENT_LIST_POPUP_OPTIONS : POLAND_MAP_POPUP_OPTIONS);
+          .bindPopup(() => point.client.orderedInPeriod ? renderClientPeriodPopup([point]) : renderClientMapPopup(point.client), point.client.orderedInPeriod ? POLAND_CLIENT_LIST_POPUP_OPTIONS : POLAND_MAP_POPUP_OPTIONS);
         marker._tmsClientSignature = markerSignature;
         state.leafletClientMarkers.set(group.id, marker);
       });
