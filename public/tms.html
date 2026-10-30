@@ -92428,9 +92428,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         cargoTypes: client?.cargoTypes || "",
         dispatcher: client?.dispatcher || route.createdBy || route.ownerDispatcher || state.user?.login || "",
         rate: Number(route.rate || 0),
-        cost: Number(route.cost || 0),
+        cost: Number(carrierCost(route) || route.cost || 0),
         loadedKm: Number(route.loadedKm || 0),
-        margin: Number(route.rate || 0) - Number(route.cost || 0),
+        margin: Number(route.rate || 0) - Number(carrierCost(route) || route.cost || 0),
         loadDelayMinutes: route.loadDelayMinutes == null ? null : Math.max(0, Number(route.loadDelayMinutes || 0)),
         unloadDelayMinutes: route.unloadDelayMinutes == null ? null : Math.max(0, Number(route.unloadDelayMinutes || 0)),
         loadDelayRating: normalizeFreightStarRating(route.loadDelayRating),
@@ -92645,6 +92645,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       onlyMine: false,
       copiedRouteId: null,
       mapZoom: 1.25,
+      performanceMonitorEnabled: false,
       leafletMap: null,
       leafletLayer: null,
       leafletMarkers: new Map(),
@@ -104175,6 +104176,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" data-action="toggle-map-clients" class="btn map-client-toggle ${state.showClientsOnMap ? "btn-dark" : ""}" onclick="toggleClientsOnMap(event)">${state.showClientsOnMap ? "Ukryj bazy klientów" : "Bazy klientów"} (${allClientMapCount()})</button>
                 <button type="button" data-action="toggle-map-unassigned-clients" class="btn map-client-toggle ${state.showUnassignedClientsOnMap ? "btn-dark" : ""}" onclick="toggleUnassignedClientsOnMap(event)">${state.showUnassignedClientsOnMap ? "Ukryj klientów z relacją" : "Klienci z relacją w okresie"}</button>
                 <button type="button" data-action="toggle-map-driver-bases" class="btn map-client-toggle map-driver-bases-toggle ${state.showDriverBasesOnMap ? "btn-dark" : ""}" aria-pressed="${state.showDriverBasesOnMap ? "true" : "false"}" onclick="toggleDriverBasesOnMap(event)">Bazy kierowców (${driverBaseMapPoints().length})</button>
+                <button type="button" data-action="toggle-performance-monitor" class="btn map-client-toggle ${state.performanceMonitorEnabled ? "btn-dark" : ""}" aria-pressed="${state.performanceMonitorEnabled ? "true" : "false"}" onclick="togglePerformanceMonitor(event)">FPS</button>
                 </div>
                 <div class="map-toolbar-secondary">
                 <label class="map-client-period" title="Klienci z co najmniej jedną relacją od dzisiaj wstecz">
@@ -104333,6 +104335,60 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    let performanceMonitorFrame = 0;
+    let performanceMonitorLastFrame = 0;
+    let performanceMonitorFrames = 0;
+    let performanceMonitorWindowStart = 0;
+    let performanceMonitorLastMapMs = 0;
+    let performanceMonitorWorstFrameMs = 0;
+
+    function recordMapPerformance(duration) {
+      if (!state.performanceMonitorEnabled) return;
+      performanceMonitorLastMapMs = Math.round(Math.max(0, duration || 0));
+    }
+
+    function syncPerformanceMonitor() {
+      const existing = document.getElementById("performance-monitor");
+      if (!state.performanceMonitorEnabled) {
+        if (performanceMonitorFrame) cancelAnimationFrame(performanceMonitorFrame);
+        performanceMonitorFrame = 0;
+        existing?.remove();
+        return;
+      }
+      const monitor = existing || document.body.appendChild(Object.assign(document.createElement("div"), { id:"performance-monitor", className:"performance-monitor", role:"status", ariaLive:"polite" }));
+      if (performanceMonitorFrame) return;
+      performanceMonitorLastFrame = performance.now();
+      performanceMonitorWindowStart = performanceMonitorLastFrame;
+      performanceMonitorFrames = 0;
+      performanceMonitorWorstFrameMs = 0;
+      const frame = now => {
+        if (!state.performanceMonitorEnabled) { performanceMonitorFrame = 0; return; }
+        const frameMs = now - performanceMonitorLastFrame;
+        performanceMonitorLastFrame = now;
+        performanceMonitorWorstFrameMs = Math.max(performanceMonitorWorstFrameMs, frameMs);
+        performanceMonitorFrames += 1;
+        if (now - performanceMonitorWindowStart >= 500) {
+          const fps = Math.round(performanceMonitorFrames * 1000 / (now - performanceMonitorWindowStart));
+          monitor.textContent = `${fps} FPS · mapa ${performanceMonitorLastMapMs} ms · klatka ${Math.round(performanceMonitorWorstFrameMs)} ms`;
+          performanceMonitorWindowStart = now;
+          performanceMonitorFrames = 0;
+          performanceMonitorWorstFrameMs = 0;
+        }
+        performanceMonitorFrame = requestAnimationFrame(frame);
+      };
+      performanceMonitorFrame = requestAnimationFrame(frame);
+    }
+
+    function togglePerformanceMonitor(event) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      state.performanceMonitorEnabled = !state.performanceMonitorEnabled;
+      const button = document.querySelector('[data-action="toggle-performance-monitor"]');
+      button?.classList.toggle("btn-dark", state.performanceMonitorEnabled);
+      button?.setAttribute("aria-pressed", state.performanceMonitorEnabled ? "true" : "false");
+      syncPerformanceMonitor();
+    }
+
     function scheduleLeafletMapSync(points) {
       // Zmiana daty wpływa tylko na pojazdy. Nie dokładamy do sygnatury setek
       // klientów, baz i wszystkich relacji, bo te warstwy są synchronizowane osobno.
@@ -104342,7 +104398,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (renderToken !== state.leafletRenderToken) return;
         setTimeout(() => {
           if (renderToken !== state.leafletRenderToken) return;
+          const startedAt = performance.now();
           syncLeafletMap(points, signature);
+          recordMapPerformance(performance.now() - startedAt);
         }, 0);
       });
     }
@@ -104611,12 +104669,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           // Nie pozwalamy, aby dymek z punktu na krawędzi został poza mapą.
           state.leafletMap.on("popupopen", () => adjustLeafletPopupIntoView());
 
-          state.leafletMap.on("zoomend", () => {
+          const queueViewportClientMarkers = () => {
             clearTimeout(state.leafletClientZoomTimer);
             state.leafletClientZoomTimer = setTimeout(() => {
+              if (state.leafletMap?._popup?.isOpen?.()) return;
               if (state.showClientsOnMap || state.showUnassignedClientsOnMap) updateLeafletClientMarkers();
-            }, 70);
-          });
+            }, 110);
+          };
+          state.leafletMap.on("zoomend", queueViewportClientMarkers);
+          state.leafletMap.on("moveend", queueViewportClientMarkers);
 
           state.leafletTileErrorCount = 0;
           state.leafletTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -105090,7 +105151,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           load,
           unload:String(route.unload || "").trim(),
           date:String(route.loadDate || route.date || currentAppDate()).slice(0, 10),
-          dispatcher:String(client?.dispatcher || "")
+          dispatcher:String(client?.dispatcher || ""),
+          // Na mapie nie zamieniamy brakującej stawki/kosztu na zero. Zero
+          // sugerowałoby poprawną daną finansową, podczas gdy relacja może nie
+          // być jeszcze rozliczona.
+          rate:Number(route.rate) > 0 ? Number(route.rate) : null,
+          cost:Number(carrierCost(route) || route.cost) > 0 ? Number(carrierCost(route) || route.cost) : null,
+          loadedKm:Number(route.loadedKm) > 0 ? Number(route.loadedKm) : null,
+          margin:Number(route.rate) > 0 && Number(carrierCost(route) || route.cost) > 0
+            ? Number(route.rate) - Number(carrierCost(route) || route.cost)
+            : null
         });
       });
       const value = Array.from(rows.values());
@@ -105247,14 +105317,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           && ((clientId && String(item?.clientId || "") === clientId)
             || removePolishChars(item?.clientName || "") === clientNameKey);
       });
-      const total = field => rows.reduce((sum, row) => sum + Number(row?.[field] || 0), 0);
-      const margin = rows.reduce((sum, row) => sum + Number(row?.margin || (Number(row?.rate || 0) - Number(row?.cost || 0))), 0);
+      // Historia ze starszych wdrożeń może zawierać zera zamiast pustych pól.
+      // Do średniej zaliczamy tylko relacje z rzeczywiście podaną kwotą.
+      const rateRows = rows.filter(row => Number(row?.rate) > 0);
+      const marginRows = rows.filter(row => Number(row?.rate) > 0 && Number(row?.cost) > 0);
+      const total = (items, field) => items.reduce((sum, row) => sum + Number(row?.[field]), 0);
+      const margin = total(marginRows, "rate") - total(marginRows, "cost");
       return {
         id: clientId || clientNameKey,
         client,
         count: rows.length || Number(client.orderCount || 0),
-        averageMargin: rows.length ? margin / rows.length : 0,
-        averageRate: rows.length ? total("rate") / rows.length : 0
+        averageMargin: marginRows.length ? margin / marginRows.length : null,
+        averageRate: rateRows.length ? total(rateRows, "rate") / rateRows.length : null
       };
     }
 
@@ -105368,11 +105442,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const LEAFLET_CLIENT_MARKER_LIMIT = 240;
 
+    function leafletClientPointsInViewport(points) {
+      const source = Array.isArray(points) ? points : [];
+      const bounds = state.leafletMap?.getBounds?.();
+      if (!bounds?.pad) return source;
+      const padded = bounds.pad(.18);
+      return source.filter(point => Array.isArray(point?.coords) && padded.contains(point.coords));
+    }
+
     function leafletClientDisplayGroups(points) {
       const source = Array.isArray(points) ? points.filter(point => Array.isArray(point?.coords)) : [];
       const map = state.leafletMap;
       const zoom = Number(map?.getZoom?.() || POLAND_MAP_MIN_ZOOM);
-      const markerLimit = zoom >= 16 ? 900 : zoom >= 13 ? 520 : LEAFLET_CLIENT_MARKER_LIMIT;
+      // Pełne rozdzielenie punktów jest potrzebne dopiero na bardzo dużym
+      // przybliżeniu. Niższe poziomy zachowują lekkie skupiska także wtedy,
+      // gdy w aktualnym widoku jest dużo klientów.
+      const markerLimit = zoom >= POLAND_MAP_MAX_ZOOM ? 900 : LEAFLET_CLIENT_MARKER_LIMIT;
       if (!map || source.length <= markerLimit) {
         return source.map(point => ({ id:`client:${point.id}`, coords:point.coords, points:[point] }));
       }
@@ -105420,22 +105505,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function updateLeafletClientMarkers() {
       if (!state.leafletMap || !state.leafletClientLayer) return;
-      clearLeafletClientMarkers();
-      if (!state.showClientsOnMap && !state.showUnassignedClientsOnMap) return;
+      const startedAt = performance.now();
+      if (!state.showClientsOnMap && !state.showUnassignedClientsOnMap) {
+        clearLeafletClientMarkers();
+        return;
+      }
 
-      leafletClientDisplayGroups(clientMapPoints()).forEach(group => {
+      const groups = leafletClientDisplayGroups(leafletClientPointsInViewport(clientMapPoints()));
+      const activeGroupIds = new Set();
+      groups.forEach(group => {
+        activeGroupIds.add(group.id);
+        const markerSignature = `${group.coords.join(",")}|${group.points.map(point => point.id).sort().join("|")}`;
+        const existingMarker = state.leafletClientMarkers.get(group.id);
+        if (existingMarker?._tmsClientSignature === markerSignature) return;
+        if (existingMarker) {
+          try { state.leafletClientLayer.removeLayer(existingMarker); } catch (error) {}
+          state.leafletClientMarkers.delete(group.id);
+        }
         if (group.points.length > 1) {
           const count = group.points.length;
-          const periodPopup = renderClientPeriodPopup(group.points);
+          const hasPeriodClients = group.points.some(point => point?.client?.orderedInPeriod);
           const marker = L.marker(group.coords, { icon:leafletClientClusterIcon(count), keyboard:false, zIndexOffset:1800 })
             .addTo(state.leafletClientLayer)
-            .bindTooltip(`${count} lokalizacji klientów${periodPopup ? " — kliknij, aby zobaczyć listę" : " — kliknij, aby przybliżyć"}`, { direction:"top", offset:[0,-14], opacity:.92 });
-          if (periodPopup) {
-            marker.bindPopup(periodPopup, POLAND_CLIENT_LIST_POPUP_OPTIONS);
+            .bindTooltip(`${count} lokalizacji klientów${hasPeriodClients ? " — kliknij, aby zobaczyć listę" : " — kliknij, aby przybliżyć"}`, { direction:"top", offset:[0,-14], opacity:.92 });
+          if (hasPeriodClients) {
+            marker.bindPopup(() => renderClientPeriodPopup(group.points), POLAND_CLIENT_LIST_POPUP_OPTIONS);
             marker.on("dblclick", () => zoomToLeafletClientCluster(group));
           } else {
             marker.on("click", () => zoomToLeafletClientCluster(group));
           }
+          marker._tmsClientSignature = markerSignature;
           state.leafletClientMarkers.set(group.id, marker);
           return;
         }
@@ -105457,9 +105556,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const marker = L.marker(point.coords, { icon, zIndexOffset: assigned ? 2200 : 1700 })
           .addTo(state.leafletClientLayer)
           .bindTooltip(tooltip, { direction: "top", offset: [0, assigned ? -10 : -8], opacity: 0.92 })
-          .bindPopup(point.client.orderedInPeriod ? renderClientPeriodPopup([point]) : renderClientMapPopup(point.client), point.client.orderedInPeriod ? POLAND_CLIENT_LIST_POPUP_OPTIONS : POLAND_MAP_POPUP_OPTIONS);
+          .bindPopup(point.client.orderedInPeriod ? () => renderClientPeriodPopup([point]) : renderClientMapPopup(point.client), point.client.orderedInPeriod ? POLAND_CLIENT_LIST_POPUP_OPTIONS : POLAND_MAP_POPUP_OPTIONS);
+        marker._tmsClientSignature = markerSignature;
         state.leafletClientMarkers.set(group.id, marker);
       });
+      Array.from(state.leafletClientMarkers.entries()).forEach(([groupId, marker]) => {
+        if (activeGroupIds.has(groupId)) return;
+        try { state.leafletClientLayer.removeLayer(marker); } catch (error) {}
+        state.leafletClientMarkers.delete(groupId);
+      });
+      recordMapPerformance(performance.now() - startedAt);
     }
 
     function toggleClientsOnMap(event) {
@@ -121562,6 +121668,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .map-client-period-row span { color:var(--muted); font-size:10px; line-height:1.32; }
     .map-client-period-row span b { color:var(--text); font-weight:900; }
     .app.dark-mode .map-client-period-row:hover, .app.dark-mode .map-client-period-row:focus-visible { background:#1e3a5f; border-color:#60a5fa; }
+    .performance-monitor { position:fixed; right:12px; bottom:12px; z-index:2147483000; padding:6px 8px; border:1px solid rgba(148,163,184,.8); border-radius:8px; background:rgba(15,23,42,.88); color:#f8fafc; pointer-events:none; font:800 11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace; box-shadow:0 4px 14px rgba(15,23,42,.22); }
 
     @media (max-width:760px) {
       .details-finance-grid,
