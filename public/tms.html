@@ -93861,8 +93861,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routesForReportDate() {
       // Mapa dnia pokazuje pojazdy w miejscu rozładunku relacji kończących się dokładnie tego dnia.
       // Dopiero dla tych relacji osobno sprawdzamy, czy kierowca ma następny zaplanowany ładunek.
+      const reportDate = String(state.reportDate || "").slice(0, 10);
       return activeRoutes()
-        .filter(route => !isFreeDayRoute(route) && routeEndDate(route) === state.reportDate && route.approvalStatus !== "rejected")
+        .filter(route => !isFreeDayRoute(route) && String(routeEndDate(route) || "").slice(0, 10) === reportDate && route.approvalStatus !== "rejected")
         .sort((a, b) => {
           const endDiff = routeEndHour(a) - routeEndHour(b);
           if (endDiff) return endDiff;
@@ -96063,7 +96064,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           route.driverId === current.driverId &&
           route.approvalStatus !== "rejected" &&
           !isFreeDayRoute(route) &&
-          routeHasExplicitLoadStart(route) &&
+           // Relacja widoczna na tablicy ma także poprawny domyślny początek
+           // (routeStartHour). Nie wymagamy ręcznie zapisanej godziny, bo wtedy
+           // kolejny ładunek był pomijany i punkt rozładunku robił się czerwony.
+           routeHasPlannedLoad(route) &&
           routeGlobalStart(route) >= currentEnd
         )
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
