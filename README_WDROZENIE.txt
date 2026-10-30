@@ -1,3 +1,59 @@
+AKTUALIZACJA v297 - lista klientów na mapie i większe przybliżenie
+Build/cache: v297-client-map-list-zoom
+
+- Kliknięcie punktu lub skupiska „Klienci z relacją w okresie” pokazuje listę klientów: średnią marżę, średnią stawkę oraz liczbę realizacji w wybranym okresie.
+- Mapę można przybliżyć do poziomu 19; przy dużym przybliżeniu używa mniejszych grup i wyświetla znacznie więcej pojedynczych klientów.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v296 - usuwanie użytkowników
+Build/cache: v296-user-delete
+
+- W panelu Administratora dodano przycisk „Usuń” przy każdym możliwym do usunięcia koncie.
+- Usunięcie wymaga potwierdzenia i trwale odbiera dostęp do TMS; własne oraz główne konto administratora pozostają zabezpieczone.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v295 - propozycje optymalizacji i górny panel
+Build/cache: v295-route-swap-header-panel
+
+- Kliknięcie propozycji Optymalizacji tras jest obsługiwane delegowanie po każdym odświeżeniu panelu; oba wskazane kafelki są odtwarzane z pulsującą, niebieską poświatą.
+- Górny wysuwany panel na komputerze zachowuje stan otwarcia podczas przejścia z uchwytu do jego przycisków, dzięki czemu przyciski nie chowają się ani nie tracą kliknięcia.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v294 - układ panelu administratora
+Build/cache: v294-admin-layout-fields
+
+- Ujednolicono nowoczesny styl wszystkich pól administracyjnych oraz zabezpieczono tekst przed wychodzeniem poza obramowania.
+- Ekran pobierania administracji ma wyśrodkowane logo i komunikat.
+- Usunięto widoki „Kategorie użytkowników i uprawnienia” oraz „Podgląd funkcji kategorii”.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v293 - styl przycisków administracji
+Build/cache: v293-admin-button-style
+
+- Przyciski administracyjne otrzymały wspólną stylistykę zgodną z panelem głównym: zaokrąglenia, kontrast, stany hover/focus oraz czytelną akcję usunięcia.
+- Wiersze oddziałów mają spójny układ akcji, również na małych ekranach.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v292 - wyśrodkowanie liczników projektów
+Build/cache: v292-project-badge-center
+
+- Liczniki projektów wieloautowych mają stałą wysokość oraz numery wyśrodkowane poziomo i pionowo w elipsie.
+
+----------------------------------------------------------------
+
+AKTUALIZACJA v291 - liczniki projektów wieloautowych
+Build/cache: v291-project-vehicle-progress
+
+- Licznik projektu odzwierciedla aktualnie przygotowane pojazdy; po usunięciu jednego z 10 aut widoczne są oznaczenia od 1/10 do 9/10.
+- Kolejność liczników wynika z aktualnej kolejności kierowców od góry planu, a nie z pierwotnie zapisanego numeru pojazdu.
+
+----------------------------------------------------------------
+
 AKTUALIZACJA v290 - mapa i tap w telefonie
 Build/cache: v290-mobile-map-and-tap
 
@@ -2246,4 +2302,13 @@ Cache/build ID: v257-projects-swap-flash
 TOP DRAGON TMS — wersja v258
 Zmiany: usunięto relacje, wolne ładunki i planowane relacje z datą załadunku po 18.10. Przykładowy plan kończy się 18.10.
 Cache/build ID: v258-cutoff-oct18
+
+TOP DRAGON TMS - wersja v298
+Zmiany: mapa klientów liczy średnią marżę oraz stawkę wyłącznie z relacji w wybranym okresie; brak danych finansowych pokazuje jako „-”. Markery klientów są ograniczane do aktualnego widoku, pozostają skupione poza maksymalnym przybliżeniem i są aktualizowane różnicowo po zatrzymaniu mapy. Dodano opcjonalny monitor FPS z czasem ostatniej synchronizacji mapy oraz najdłuższą klatką.
+Cache/build ID: request-workflow-v298-client-map-performance
+
+WERYFIKACJA v298
+- Kontrola składni wszystkich skryptów inline, src/main.js i api/admin/users.js.
+- Kontrola dynamicznych handlerów mapy, opóźnionych aktualizacji moveend/zoomend oraz popupów generowanych po kliknięciu.
+- Paczka względem v297 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
 
