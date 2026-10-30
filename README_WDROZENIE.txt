@@ -2330,3 +2330,12 @@ WERYFIKACJA v300
 - Kontrola statusu kolejnej relacji oraz aktualizacji markerów klientów po moveend/zoomend.
 - Paczka względem v299 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
 
+TOP DRAGON TMS - wersja v301
+Zmiany: status kolejnej relacji pojazdu nie wymaga już uzupełnionego miejsca załadunku. Jeśli późniejszy kafelek jest przypisany temu samemu kierowcy, nie jest dniem wolnym ani relacją odrzuconą, punkt pojazdu pozostaje zielony.
+Cache/build ID: request-workflow-v301-map-next-route-without-load
+
+WERYFIKACJA v301
+- Kontrola składni wszystkich skryptów inline, src/main.js i api/admin/users.js.
+- Kontrola filtra kolejnej relacji: ten sam kierowca, późniejszy start, aktywna relacja; bez warunku pola load.
+- Paczka względem v300 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
+
