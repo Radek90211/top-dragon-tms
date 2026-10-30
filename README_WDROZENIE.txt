@@ -2321,3 +2321,12 @@ WERYFIKACJA v299
 - Kontrola wyboru kolejnej relacji dla kierowcy oraz filtrowania mapy według dnia rozładunku.
 - Paczka względem v298 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
 
+TOP DRAGON TMS - wersja v300
+Zmiany: punkt pojazdu jest zielony, jeśli kierowca ma dowolną następną zaplanowaną relację; przerwa ponad 4 h pozostaje informacją operacyjną. Zmniejszono obciążenie mapy: po przesuwaniu aktualizacja klientów jest rzadsza, nie jest już budowana pełna siatka klientów do automatycznego dopasowania widoku, a sygnatury skupisk nie sortują identyfikatorów przy każdym odświeżeniu.
+Cache/build ID: request-workflow-v300-map-status-performance
+
+WERYFIKACJA v300
+- Kontrola składni wszystkich skryptów inline, src/main.js i api/admin/users.js.
+- Kontrola statusu kolejnej relacji oraz aktualizacji markerów klientów po moveend/zoomend.
+- Paczka względem v299 zawiera wyłącznie: public/tms.html, src/main.js, package.json oraz README_WDROZENIE.txt.
+
