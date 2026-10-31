@@ -852,7 +852,15 @@ function adminAuditActorBadge(row, users) {
   const actorName = String(row?.actorName || 'Nieznany użytkownik')
   const user = users.find((item) => String(item?.id || '') === actorId)
     || users.find((item) => String(item?.display_name || '').toLocaleLowerCase('pl') === actorName.toLocaleLowerCase('pl'))
-  const color = String(user?.ui_color || '#E2E8F0')
+  // Historia korzysta z cache. Po zmianie własnego koloru administratora
+  // profil jest źródłem prawdy, zanim lista użytkowników odświeży się w tle.
+  const isCurrentActor = Boolean(actorId && String(currentUser?.id || '') === actorId)
+  const requestedColor = isCurrentActor
+    ? (currentProfile?.ui_color || currentProfile?.uiColor || user?.ui_color || user?.uiColor)
+    : (user?.ui_color || user?.uiColor)
+  const color = /^#[0-9a-f]{6}$/i.test(String(requestedColor || ''))
+    ? String(requestedColor).toUpperCase()
+    : '#E2E8F0'
   return `<span class="admin-user-badge" style="background:${escapeHtml(color)}">${escapeHtml(actorName)}</span>`
 }
 
@@ -4576,7 +4584,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=v305-route-optimization-guides"
+          src="/tms.html?embedded=1&build=v306-audit-user-color"
         title="Top Dragon TMS"
       ></iframe>
     </main>
