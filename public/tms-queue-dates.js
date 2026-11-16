@@ -217,7 +217,7 @@
         enabled: enabled,
         from: from,
         to: to,
-        before: new Set((proposedMode ? state.proposedLoads : state.futureRoutes || []).map(item => String(item.id)))
+        before: new Set(((proposedMode ? state.proposedLoads : state.futureRoutes) || []).map(item => String(item.id)))
       };
       if (enabled && from) {
         const currentDateInput = document.getElementById("new-date");
