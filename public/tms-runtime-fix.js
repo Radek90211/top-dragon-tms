@@ -143,7 +143,7 @@
     if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
     if (doc.querySelector('script[data-topdragon-queue-dates-v309]')) return;
     const script = doc.createElement("script");
-    script.src = "/tms-queue-dates.js?build=v309-queue-date-window";
+    script.src = "/tms-queue-dates.js?build=v310-queue-date-window";
     script.async = false;
     script.setAttribute("data-topdragon-queue-dates-v309", "true");
     script.onerror = () => {
