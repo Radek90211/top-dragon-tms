@@ -123,8 +123,8 @@
     block.querySelector("#queue-load-range-to-v309").value = to;
     block.querySelector("#queue-load-range-fields-v309").hidden = !enabled;
     block.querySelectorAll("input").forEach(input => {
-      input.addEventListener("change", updateQueueRangeForm);
-      if (input.type === "date") input.addEventListener("input", updateQueueRangeForm);
+      input.setAttribute("onchange", "updateQueueRangeFormV309()");
+      if (input.type === "date") input.setAttribute("oninput", "updateQueueRangeFormV309()");
     });
     anchor.insertAdjacentElement("afterend", block);
     return template.innerHTML;
@@ -178,6 +178,7 @@
         typeof state === "undefined") return false;
 
     window.__topDragonQueueDatesV309 = true;
+    window.updateQueueRangeFormV309 = updateQueueRangeForm;
     injectStyle();
 
     const previousFutureCard = renderFutureRouteCard;
