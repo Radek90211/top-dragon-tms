@@ -107,8 +107,52 @@
     }
   }
 
+  // Przyciski mapy są generowane ponownie przy odświeżeniu dat i filtrów.
+  // Obserwujemy właściwy dokument iframe (nie tylko stronę nadrzędną).
+  const fpsFrameHooks = new WeakSet();
+  const fpsDocumentObservers = new WeakMap();
+
+  function removeMapFpsButton(doc) {
+    if (!doc || !doc.querySelectorAll) return;
+    const map = doc.querySelector(".map-card");
+    if (!map) return;
+    map.querySelectorAll("button, [role='button']").forEach(button => {
+      const text = String(button.textContent || "").replace(/\s+/g, " ").trim();
+      const action = String(button.getAttribute("data-action") || "");
+      const description = String(button.getAttribute("aria-label") || button.getAttribute("title") || "");
+      if (/^fps$/i.test(text) || /^fps$/i.test(description.trim()) || /^(?:map-)?fps(?:-toggle)?$/i.test(action)) {
+        button.remove();
+      }
+    });
+  }
+
+  function attachFpsObserver(frame) {
+    let doc = null;
+    try { doc = frame.contentDocument; } catch (error) { return; }
+    if (!doc || doc.URL === "about:blank" || !doc.documentElement || fpsDocumentObservers.has(doc)) return;
+    const scanFps = () => removeMapFpsButton(doc);
+    scanFps();
+    const observer = new MutationObserver(scanFps);
+    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    fpsDocumentObservers.set(doc, observer);
+  }
+
+  function installFpsObserver(frame) {
+    if (!frame) return;
+    if (!fpsFrameHooks.has(frame)) {
+      fpsFrameHooks.add(frame);
+      frame.addEventListener("load", () => {
+        attachFpsObserver(frame);
+        requestAnimationFrame(() => attachFpsObserver(frame));
+      });
+    }
+    attachFpsObserver(frame);
+  }
+
   function scan() {
-    injectFix(document.querySelector('#tms-frame'));
+    const frame = document.querySelector('#tms-frame');
+    installFpsObserver(frame);
+    injectFix(frame);
   }
 
   new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
