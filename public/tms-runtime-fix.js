@@ -8,7 +8,7 @@
       try {
         const doc = frame.contentDocument;
         const win = frame.contentWindow;
-        if (!doc || !win || doc.readyState === 'loading') return false;
+        if (!doc || !win || doc.URL === "about:blank" || doc.readyState === 'loading') return false;
         if (win[PATCH_FLAG]) {
           frame.dataset.mapArchiveCenterFix = '306';
           return true;
@@ -137,13 +137,30 @@
     fpsDocumentObservers.set(doc, observer);
   }
 
+  function installQueueDatesInFrame(frame) {
+    let doc = null;
+    try { doc = frame && frame.contentDocument; } catch (error) { return; }
+    if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
+    if (doc.querySelector('script[data-topdragon-queue-dates-v309]')) return;
+    const script = doc.createElement("script");
+    script.src = "/tms-queue-dates.js?build=v309-queue-date-window";
+    script.async = false;
+    script.setAttribute("data-topdragon-queue-dates-v309", "true");
+    script.onerror = () => {
+      script.remove();
+      console.warn("Nie udało się załadować obsługi dat planowanych relacji i wolnych ładunków.");
+    };
+    doc.head.appendChild(script);
+  }
+
   function installFpsObserver(frame) {
     if (!frame) return;
     if (!fpsFrameHooks.has(frame)) {
       fpsFrameHooks.add(frame);
       frame.addEventListener("load", () => {
         attachFpsObserver(frame);
-        requestAnimationFrame(() => attachFpsObserver(frame));
+        installQueueDatesInFrame(frame);
+        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); });
       });
     }
     attachFpsObserver(frame);
@@ -152,6 +169,7 @@
   function scan() {
     const frame = document.querySelector('#tms-frame');
     installFpsObserver(frame);
+    installQueueDatesInFrame(frame);
     injectFix(frame);
   }
 
