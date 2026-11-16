@@ -70,6 +70,20 @@
               setTimeout(forcePolandMapCenter, 260);
             };
 
+            function removeFpsButtonFromMap() {
+              document.querySelectorAll('.map-card button, .map-card [role="button"]').forEach(control => {
+                if (String(control.textContent || '').trim().toUpperCase() === 'FPS') {
+                  control.remove();
+                }
+              });
+            }
+
+            // Mapa jest przebudowywana po zmianie filtrów i dat; usuwamy FPS po każdym renderze.
+            removeFpsButtonFromMap();
+            if (document.body) {
+              new MutationObserver(removeFpsButtonFromMap).observe(document.body, { childList: true, subtree: true });
+            }
+
             setTimeout(forcePolandMapCenter, 0);
             setTimeout(forcePolandMapCenter, 180);
             setTimeout(forcePolandMapCenter, 420);
