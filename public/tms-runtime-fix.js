@@ -153,6 +153,22 @@
     doc.head.appendChild(script);
   }
 
+  function installRouteOptimizationInFrame(frame) {
+    let doc = null;
+    try { doc = frame && frame.contentDocument; } catch (error) { return; }
+    if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
+    if (doc.querySelector('script[data-topdragon-route-optimization-v311]')) return;
+    const script = doc.createElement("script");
+    script.src = "/tms-route-optimization-v311.js?build=v311-future-route-optimization";
+    script.async = false;
+    script.setAttribute("data-topdragon-route-optimization-v311", "true");
+    script.onerror = () => {
+      script.remove();
+      console.warn("Nie udało się załadować optymalizacji przyszłych relacji.");
+    };
+    doc.head.appendChild(script);
+  }
+
   function installFpsObserver(frame) {
     if (!frame) return;
     if (!fpsFrameHooks.has(frame)) {
@@ -160,7 +176,8 @@
       frame.addEventListener("load", () => {
         attachFpsObserver(frame);
         installQueueDatesInFrame(frame);
-        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); });
+        installRouteOptimizationInFrame(frame);
+        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); installRouteOptimizationInFrame(frame); });
       });
     }
     attachFpsObserver(frame);
@@ -170,6 +187,7 @@
     const frame = document.querySelector('#tms-frame');
     installFpsObserver(frame);
     installQueueDatesInFrame(frame);
+    installRouteOptimizationInFrame(frame);
     injectFix(frame);
   }
 
