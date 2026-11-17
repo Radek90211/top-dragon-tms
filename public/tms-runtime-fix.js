@@ -153,6 +153,22 @@
     doc.head.appendChild(script);
   }
 
+  function installAiQuickAddInFrame(frame) {
+    let doc = null;
+    try { doc = frame && frame.contentDocument; } catch (error) { return; }
+    if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
+    if (doc.querySelector('script[data-topdragon-ai-quick-add-v312]')) return;
+    const script = doc.createElement("script");
+    script.src = "/tms-ai-quick-add-v312.js?build=v312-direct-ai-queue-save";
+    script.async = false;
+    script.setAttribute("data-topdragon-ai-quick-add-v312", "true");
+    script.onerror = () => {
+      script.remove();
+      console.warn("Nie udało się załadować uproszczonego dodawania relacji przez AI.");
+    };
+    doc.head.appendChild(script);
+  }
+
   function installRouteOptimizationInFrame(frame) {
     let doc = null;
     try { doc = frame && frame.contentDocument; } catch (error) { return; }
@@ -177,7 +193,8 @@
         attachFpsObserver(frame);
         installQueueDatesInFrame(frame);
         installRouteOptimizationInFrame(frame);
-        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); installRouteOptimizationInFrame(frame); });
+        installAiQuickAddInFrame(frame);
+        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); installRouteOptimizationInFrame(frame); installAiQuickAddInFrame(frame); });
       });
     }
     attachFpsObserver(frame);
@@ -188,6 +205,7 @@
     installFpsObserver(frame);
     installQueueDatesInFrame(frame);
     installRouteOptimizationInFrame(frame);
+    installAiQuickAddInFrame(frame);
     injectFix(frame);
   }
 
