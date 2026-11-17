@@ -95811,13 +95811,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const version = params.get("version");
       const builtAt = params.get("builtAt");
       const date = builtAt ? new Date(builtAt) : null;
-      if (!version || !date || Number.isNaN(date.getTime())) return "";
+      if (!version || !date || Number.isNaN(date.getTime())) return `<div class="build-info-v313">Wersja i czas wygenerowania plików: niedostępne</div>`;
       const formatted = new Intl.DateTimeFormat("pl-PL", {
         timeZone: "Europe/Warsaw", year: "numeric", month: "2-digit", day: "2-digit",
         hour: "2-digit", minute: "2-digit", second: "2-digit"
       }).format(date);
       const label = params.get("buildLabel") === "Uruchomiono środowisko" ? "Uruchomiono środowisko" : "Wygenerowano pliki";
-      return `<div class="build-info-v313" style="font-size:10px;line-height:1.35;color:#64748b;white-space:nowrap;"><div>Wersja ${esc(version)}</div><div>${label}: ${esc(formatted)}</div></div>`;
+      return `<div class="build-info-v313"><span>Wersja ${esc(version)}</span><span>${label}: ${esc(formatted)} (czas warszawski)</span></div>`;
     }
 
     function renderApp() {
@@ -95837,7 +95837,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
                   <img src="${BRAND_LOGO_DATA_URI}" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" class="brand-logo-header" />
                 </button>
-                ${renderBuildInfo()}
               </div>
 
               ${renderMobileHeaderTabsV204()}
@@ -95856,6 +95855,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           </header>
 
           <main class="main">
+            ${renderBuildInfo()}
             ${state.appView === "clients" ? renderClientDirectoryPage() : `
               ${pendingForMe.length ? renderPendingNotice(pendingForMe) : ""}
               ${renderCommercialIntelligence()}
@@ -123029,6 +123029,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
   <link rel="stylesheet" href="/order-entry.css?build=v295-route-swap-header-panel" />
   <script src="/order-entry.js?build=v295-route-swap-header-panel"></script>
   <style id="targeted-v267-sms-image">
+    .build-info-v313 { display:flex; flex-wrap:wrap; gap:2px 14px; padding:3px 8px; color:var(--muted,#64748b); font-size:11px; line-height:1.4; font-weight:600; }
     .mobile-nav-v200 { display:none; }
     .mobile-more-backdrop-v200 { display:none; }
     .mobile-header-tabs-v204 { display:none; }

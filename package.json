@@ -1,7 +1,7 @@
 {
   "name": "top-dragon-tms",
   "private": true,
-  "version": "314.0.0",
+  "version": "315.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
