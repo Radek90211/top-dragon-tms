@@ -4584,7 +4584,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=v306-audit-user-color"
+          src="/tms.html?embedded=1&build=v313-queue-sync"
         title="Top Dragon TMS"
       ></iframe>
     </main>

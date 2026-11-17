@@ -112451,6 +112451,48 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     // -----------------------------------------------------------------------
     // ETAP 3I - centralna kolejka ładunków i wspólne zapytania o ładunek.
     // -----------------------------------------------------------------------
+    // Keep only unsynchronised changes, scoped to the signed-in user and branch.
+    function queueOutboxKey() {
+      return `tms-queue-outbox-v1:${state.user?.branchId || ""}:${state.user?.login || ""}`;
+    }
+
+    function stableQueueJson(value) {
+      if (Array.isArray(value)) return `[${value.map(stableQueueJson).join(",")}]`;
+      if (value && typeof value === "object") return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableQueueJson(value[key])}`).join(",")}}`;
+      return JSON.stringify(value);
+    }
+
+    function persistQueueOutbox() {
+      if (!state.user) return;
+      try {
+        const rows = [...(state.futureRoutes || []), ...(state.proposedLoads || [])].filter(route => {
+          const kind = centralLoadQueueKind(route);
+          const key = centralLoadQueueKey(centralLoadQueueBranchId(route), kind, route?.id);
+          return kind && route?.id && !route.archived && (CENTRAL_LOAD_QUEUE_PENDING_UPSERT.has(key) || Boolean(route._centralLocalCreatedAt) || (CENTRAL_LOAD_QUEUE_READY && CENTRAL_LOAD_QUEUE_BASELINE.has(key) && centralLoadQueueFingerprint(route) !== CENTRAL_LOAD_QUEUE_BASELINE.get(key)));
+        }).map(centralSerializableLoadQueueRoute);
+        if (rows.length) localStorage.setItem(queueOutboxKey(), JSON.stringify(rows));
+        else localStorage.removeItem(queueOutboxKey());
+      } catch (error) { console.warn("Nie udało się zachować oczekujących zmian kolejki", error); }
+    }
+
+    function restoreQueueOutbox() {
+      if (!state.user) return;
+      try {
+        const rows = JSON.parse(localStorage.getItem(queueOutboxKey()) || "[]");
+        if (!Array.isArray(rows)) return;
+        rows.forEach(route => {
+          const kind = centralLoadQueueKind(route);
+          if (!route?.id || !kind) return;
+          const list = kind === "proposed" ? state.proposedLoads : state.futureRoutes;
+          if (!Array.isArray(list)) return;
+          if (!list.some(item => centralLoadQueueKey(centralLoadQueueBranchId(item), kind, item.id) === centralLoadQueueKey(centralLoadQueueBranchId(route), kind, route.id))) {
+            route._centralLocalCreatedAt = Date.now();
+            list.push(route);
+          }
+        });
+      } catch (error) { console.warn("Nie udało się przywrócić oczekujących zmian kolejki", error); }
+    }
+
     function centralLoadQueueKind(route) {
       if (route?.proposedLoad) return "proposed";
       if (route?.futureQueue) return "future";
@@ -112656,6 +112698,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           load: payload
         }, window.location.origin);
       });
+      persistQueueOutbox();
 
       // Brak wpisu w lokalnym widoku nie oznacza zgody na usunięcie wpisu
       // centralnego. Szczególnie po zmianie użytkownika lub gałęzi prowadziło
