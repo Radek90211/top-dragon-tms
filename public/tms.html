@@ -95806,6 +95806,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       closeTutorial();
     }
 
+    function renderBuildInfo() {
+      const params = new URLSearchParams(window.location.search);
+      const version = params.get("version");
+      const builtAt = params.get("builtAt");
+      const date = builtAt ? new Date(builtAt) : null;
+      if (!version || !date || Number.isNaN(date.getTime())) return "";
+      const formatted = new Intl.DateTimeFormat("pl-PL", {
+        timeZone: "Europe/Warsaw", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+      }).format(date);
+      const label = params.get("buildLabel") === "Uruchomiono środowisko" ? "Uruchomiono środowisko" : "Wygenerowano pliki";
+      return `<div class="build-info-v313" style="font-size:10px;line-height:1.35;color:#64748b;white-space:nowrap;"><div>Wersja ${esc(version)}</div><div>${label}: ${esc(formatted)}</div></div>`;
+    }
+
     function renderApp() {
       beginOperationalRenderCycle();
       const pendingForMe = state.user.role === "spedytor"
@@ -95823,6 +95837,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
                   <img src="${BRAND_LOGO_DATA_URI}" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" class="brand-logo-header" />
                 </button>
+                ${renderBuildInfo()}
               </div>
 
               ${renderMobileHeaderTabsV204()}

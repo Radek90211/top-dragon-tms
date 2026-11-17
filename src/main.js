@@ -3,6 +3,13 @@ import './styles.css'
 import { supabase } from './lib/supabase.js'
 
 const app = document.querySelector('#app')
+const buildParams = new URLSearchParams({
+  embedded: '1',
+  build: __BUILD_TIME__,
+  version: __APP_VERSION__,
+  builtAt: __BUILD_TIME__,
+  buildLabel: __BUILD_KIND__
+})
 const hostViews = createViewLifecycle()
 let activeTmsFrame = null
 let activeAuthMessage = null
@@ -4584,7 +4591,7 @@ async function renderDashboard(user) {
       <iframe
         id="tms-frame"
         class="tms-frame is-loading"
-          src="/tms.html?embedded=1&build=v313-queue-sync"
+        src="/tms.html?${buildParams.toString()}"
         title="Top Dragon TMS"
       ></iframe>
     </main>
