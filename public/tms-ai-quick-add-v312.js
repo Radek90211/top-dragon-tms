@@ -2,7 +2,7 @@
   "use strict";
   if (window.__topDragonAiQuickQueueV312) return;
 
-  const UNKNOWN_DATE = "??.??.????";
+  const UNKNOWN_DATE = "Brak daty";
 
   function sourceHasDateHint(text) {
     const value = String(text || "");
@@ -21,7 +21,7 @@
       loadDate: "",
       endDate: "",
       dateUnknown: true,
-      dateDisplay: UNKNOWN_DATE
+      dateDisplay: ""
     };
   }
 
@@ -52,7 +52,7 @@
       aiSourceText: String(sourceText || ""),
       aiSourceType: String(item?.aiSourceType || "text"),
       dateUnknown: unknown,
-      dateDisplay: unknown ? UNKNOWN_DATE : ""
+      dateDisplay: ""
     };
 
     if (unknown) {
@@ -128,7 +128,7 @@
           </div>
           <div class="pdf-import-body">
             <label class="field-label" style="margin-top:0;">Wklej tekst</label>
-            <textarea id="text-import-orders" class="textarea" style="min-height:240px;" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość klienta z jedną lub kilkoma relacjami. Jeśli w treści nie ma daty, relacja zostanie oznaczona jako ${UNKNOWN_DATE}.">${esc(state.textImportText || "")}</textarea>
+            <textarea id="text-import-orders" class="textarea" style="min-height:240px;" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość klienta z jedną lub kilkoma relacjami. Brakującą datę można uzupełnić później na karcie relacji.">${esc(state.textImportText || "")}</textarea>
             <div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus || "")}</div>
           </div>
           <div class="pdf-import-foot">
@@ -234,7 +234,7 @@
     const place = target === "proposed" ? "Wolnych ładunków" : "Planowanych relacji";
     showAppMessage(
       "Dodano relację",
-      `Dodano ${prepared.length} ${noun} do ${place}.${unknownCount ? ` ${unknownCount} ${unknownCount === 1 ? "pozycja nie ma daty" : "pozycje nie mają daty"} — oznaczono ${UNKNOWN_DATE}.` : ""}`,
+      `Dodano ${prepared.length} ${noun} do ${place}.${unknownCount ? ` ${unknownCount} ${unknownCount === 1 ? "pozycja nie ma daty" : "pozycji nie ma daty"} — można ją uzupełnić na karcie.` : ""}`,
       "success"
     );
   }

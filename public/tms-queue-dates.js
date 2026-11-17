@@ -12,7 +12,7 @@
 
   function formatDay(value) {
     const iso = toIso(value);
-    return iso ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "—";
+    return iso ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : "Brak daty";
   }
 
   function formatHour(value) {
@@ -30,6 +30,10 @@
       ".queue-dates-visible-v309 .queue-dates-value{font-variant-numeric:tabular-nums;font-weight:850;white-space:nowrap}",
       ".app.dark-mode .queue-dates-visible-v309{background:#1e293b;color:#e2e8f0;border-color:#475569}",
       ".app.dark-mode .queue-dates-visible-v309 strong{color:#f8fafc}",
+      ".queue-date-edit-v314{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin-top:8px}",
+      ".queue-date-edit-v314[hidden]{display:none}",
+      ".queue-date-edit-v314 label{display:grid;gap:3px;font-size:11px;font-weight:700}",
+      ".queue-date-edit-v314 input{min-width:0;padding:5px;border:1px solid var(--border,#cbd5e1);border-radius:7px;background:var(--card,#fff);color:var(--text,#0f172a)}",
       ".queue-date-range-control-v309{display:grid;gap:8px;margin:10px 0 12px;padding:12px;border:1px solid var(--border,#d6dbe3);border-radius:12px;background:var(--card,#fff)}",
       ".queue-date-range-control-v309 .queue-range-toggle{display:flex;align-items:center;gap:8px;font-weight:750;cursor:pointer;font-size:13px}",
       ".queue-date-range-control-v309 .queue-range-toggle input{width:18px;height:18px;accent-color:#0e7490}",
@@ -46,13 +50,13 @@
     const date = toIso(route && (route.date || route.loadDate)) || "";
     const from = toIso(route && route.loadDateWindowFrom) || date;
     const to = toIso(route && route.loadDateWindowTo);
-    const unload = toIso(route && route.endDate) || date;
+    const unload = toIso(route && route.endDate);
     const startText = from && to && to > from ? formatDay(from) + " – " + formatDay(to) : formatDay(from);
     return {
       load: startText,
       unload: formatDay(unload),
-      loadHour: formatHour(route && route.startHour),
-      unloadHour: formatHour(route && route.endHour)
+      loadHour: from ? formatHour(route && route.startHour) : "",
+      unloadHour: unload ? formatHour(route && route.endHour) : ""
     };
   }
 
@@ -85,6 +89,34 @@
     line.append(load, unload);
     title.insertAdjacentElement("afterend", line);
 
+    if (route && !route.archived && state.user && state.user.role !== "rozliczenia" && String(route.createdBy || "") === String(state.user.login || "") && state.user.login) {
+      const kind = route.proposedLoad ? "proposed" : "future";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn-mini";
+      button.textContent = "Zmień daty";
+      button.setAttribute("onclick", "event.stopPropagation();const form=this.nextElementSibling;form.hidden=!form.hidden;this.setAttribute('aria-expanded',String(!form.hidden))");
+      button.setAttribute("aria-expanded", "false");
+      const form = document.createElement("div");
+      form.className = "queue-date-edit-v314";
+      form.hidden = true;
+      form.setAttribute("onclick", "event.stopPropagation()");
+      form.setAttribute("ondragstart", "event.stopPropagation()");
+      [["Załadunek", "load", toIso(route.loadDate || route.date)], ["Rozładunek", "unload", toIso(route.endDate)]].forEach(([labelText, field, value]) => {
+        const label = document.createElement("label");
+        label.textContent = labelText;
+        const input = document.createElement("input");
+        input.type = "date";
+        input.value = value;
+        input.setAttribute("value", value);
+        input.setAttribute("onchange", `saveQueueDateV314(event, ${JSON.stringify(kind)}, ${JSON.stringify(String(route.id))}, ${JSON.stringify(field)})`);
+        label.appendChild(input);
+        form.appendChild(label);
+      });
+      line.insertAdjacentElement("afterend", form);
+      line.insertAdjacentElement("afterend", button);
+    }
+
     const existingDates = card.querySelector(".proposed-load-dates");
     if (existingDates) existingDates.remove();
     const meta = Array.from(card.querySelectorAll(".future-card-meta")).find(node => /^Data relacji:/i.test(String(node.textContent || "").trim()));
@@ -92,6 +124,43 @@
       meta.innerHTML = meta.innerHTML.replace(/^\s*Data relacji:\s*<b>[^<]*<\/b>\s*·\s*/i, "");
     }
     return template.innerHTML;
+  }
+
+  function saveQueueDate(event, kind, id, field) {
+    event?.stopPropagation?.();
+    const routes = kind === "proposed" ? state.proposedLoads : kind === "future" ? state.futureRoutes : [];
+    const route = (routes || []).find(item => String(item.id) === String(id));
+    if (!route || route.archived || !state.user?.login || state.user.role === "rozliczenia" || route.createdBy !== state.user.login || !["load", "unload"].includes(field)) return;
+    const raw = String(event.target.value || "");
+    const value = toIso(raw);
+    if (raw && !value) return;
+    const load = field === "load" ? value : toIso(route.loadDate || route.date);
+    const unload = field === "unload" ? value : toIso(route.endDate);
+    if (load && unload && unload < load) {
+      event.target.value = field === "load" ? toIso(route.loadDate || route.date) : toIso(route.endDate);
+      showAppMessage("Nieprawidłowe daty", "Data rozładunku nie może być wcześniejsza niż data załadunku.", "error");
+      return;
+    }
+    if (field === "load") {
+      route.date = value;
+      route.loadDate = value;
+      route.loadDateWindowFrom = "";
+      route.loadDateWindowTo = "";
+    } else route.endDate = value;
+    route.dateUnknown = !load && !unload;
+    route.dateDisplay = "";
+    route.updatedAt = new Date().toISOString();
+    route._centralLocalCreatedAt = Date.now();
+    syncCentralLoadQueueDiff();
+    scheduleCentralLoadQueueDiff(0);
+    if (kind === "proposed") syncProposedPanel(); else syncFuturePanel();
+    const attribute = kind === "proposed" ? "data-proposed-id" : "data-future-id";
+    const card = Array.from(document.querySelectorAll(`[${attribute}]`)).find(node => node.getAttribute(attribute) === String(id));
+    const form = card?.querySelector(".queue-date-edit-v314");
+    if (form) {
+      form.hidden = false;
+      form.previousElementSibling?.setAttribute("aria-expanded", "true");
+    }
   }
 
   function addRangeToModal(html) {
@@ -165,6 +234,8 @@
         delete route.loadDateWindowFrom;
         delete route.loadDateWindowTo;
       }
+      route.dateUnknown = !toIso(route.loadDate || route.date) && !toIso(route.endDate);
+      route.dateDisplay = "";
     });
   }
 
@@ -179,6 +250,7 @@
 
     window.__topDragonQueueDatesV309 = true;
     window.updateQueueRangeFormV309 = updateQueueRangeForm;
+    window.saveQueueDateV314 = saveQueueDate;
     injectStyle();
 
     const previousFutureCard = renderFutureRouteCard;
