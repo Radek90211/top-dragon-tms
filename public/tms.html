@@ -91371,17 +91371,17 @@
       return street ? `ul. ${street}` : "";
     }
 
-    function sampleRelationDatesV276() {
+    function sampleRelationDatesV315() {
       const year = currentAppDate().slice(0, 4);
       const dates = [];
-      for (let date = `${year}-09-28`; date <= `${year}-10-29`; date = addDaysToIso(date, 1)) dates.push(date);
+      for (let date = `${year}-09-28`; date <= `${year}-11-22`; date = addDaysToIso(date, 1)) dates.push(date);
       return dates;
     }
 
-    const RELATION_CUTOFF_DATE_V276 = `${currentAppDate().slice(0, 4)}-10-29`;
+    const RELATION_CUTOFF_DATE_V315 = `${currentAppDate().slice(0, 4)}-11-22`;
     function relationStartsByCutoffV258(route) {
       const iso = String(route?.loadDate || route?.date || "").slice(0, 10);
-      return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V276;
+      return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V315;
     }
     function removeSampleRelationsAfterCutoffV259(routes) {
       // Data graniczna dotyczy wyłącznie danych demonstracyjnych. Rzeczywiste
@@ -91501,14 +91501,14 @@
     }
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
-      const dates = sampleRelationDatesV276();
+      const dates = sampleRelationDatesV315();
       return (drivers || []).flatMap((driver, driverIndex) => {
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
           applySampleTransportProjectV252(route, driverIndex, dayIndex);
           applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex);
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 276;
+          route.sampleScheduleVersion = 315;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91555,7 +91555,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 276 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 315 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -111775,8 +111775,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Mapa obsługuje warstwę klientów", typeof toggleClientsOnMap === "function" && typeof updateLeafletClientMarkers === "function");
       assert("Baza klientów ma kontrolę kodów pocztowych", typeof validateClientAddress === "function" && typeof verifyClientDatabase === "function");
       assert("Relacje można usuwać", typeof deleteRoute === "function" && renderToStringForTest(false).includes("Usuń relację"));
-      assert("Wygenerowano relacje 1-22 września dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * septemberRelationDatesV167().filter(date => !isWeekendIso(date)).length);
-      assert("Każdy kierowca ma ciąg relacji z weekendami", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === septemberRelationDatesV167().filter(date => !isWeekendIso(date)).length));
+      assert("Wygenerowano relacje do 22.11.2026 dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * sampleRelationDatesV315().length);
+      assert("Każdy kierowca ma relacje do 22.11.2026 włącznie", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === sampleRelationDatesV315().length));
+      assert("Ostatnia przykładowa relacja przypada na 22.11.2026", INITIAL_ROUTES.some(route => route.date === "2026-11-22"));
       assert("Przykładowe relacje nie mają kolizji", hasRouteCollisions(INITIAL_ROUTES) === false);
       assert("Rozliczenia nie mogą dodawać tras", renderToStringForTest(false).includes("+ Dodaj trasę") === false);
       assert("Wyszukiwarka najbliższego pojazdu jest dostępna", renderToStringForTest(false).includes("Najbliższy pojazd"));
