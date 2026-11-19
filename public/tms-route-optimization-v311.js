@@ -16,9 +16,10 @@
   function futureRouteSetV311() {
     var today = currentAppDate();
     var horizon = addDaysToIso(today, FUTURE_DAYS);
+    var includeSampleRoutes = typeof isAdminUser === "function" && isAdminUser();
     return activeRoutes()
       .filter(function (route) {
-        if (!route || route.futureQueue || route.sampleRelationV167 || isFreeDayRoute(route)) return false;
+        if (!route || route.futureQueue || (!includeSampleRoutes && route.sampleRelationV167) || isFreeDayRoute(route)) return false;
         if (!route.driverId || !route.load || !operationalPointForRoute(route, "load")) return false;
         if (route.approvalStatus === "rejected") return false;
         var date = iso(route.date);
@@ -35,7 +36,7 @@
       return [
         route.id, route.driverId, route.date, route.endDate, route.startHour, route.endHour,
         route.load, route.unload, route.secondLoad, route.secondUnload, route.approvalStatus,
-        route.trailerHeight, route.weight, route.pallets
+        route.trailerHeight, route.weight, route.pallets, route.sampleRelationV167 ? "sample" : "real"
       ].join("~");
     }).join("|");
   }
@@ -129,6 +130,7 @@
           secondDispatcher: secondDispatcher,
           firstRoute: routeLabelV311(first),
           secondRoute: routeLabelV311(second),
+          sampleOptimization: Boolean(first.sampleRelationV167 || second.sampleRelationV167),
           currentKm: Math.round(currentKm),
           swappedKm: Math.round(swappedKm),
           savingKm: saving.savingKm,
@@ -188,6 +190,7 @@
         secondDispatcher: String(best.candidate.dispatcher || ""),
         firstRoute: routeLabelV311(route),
         secondRoute: "",
+        sampleOptimization: Boolean(route.sampleRelationV167),
         currentKm: Math.round(currentKm),
         swappedKm: Math.round(best.candidateKm),
         savingKm: best.savingKm,
@@ -244,12 +247,14 @@
       ".route-swap-route-v311{display:flex;align-items:center;gap:7px;min-width:0;color:var(--muted);font-size:10px;font-weight:700;line-height:1.25}",
       ".route-swap-route-v311 b{flex:0 0 auto;color:#0e7490;font-size:9px;font-variant-numeric:tabular-nums}",
       ".route-swap-route-v311 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".route-swap-sample-v317{display:inline-flex;align-items:center;padding:3px 6px;border:1px solid #f59e0b;border-radius:999px;background:#fffbeb;color:#92400e;font-size:9px;font-weight:950;letter-spacing:.04em}",
       ".route-swap-offscreen-arrow-v311{position:fixed;z-index:7422;width:min(260px,calc(100vw - 24px));display:grid;grid-template-columns:36px 1fr;grid-template-rows:auto auto;align-items:center;column-gap:8px;padding:8px 10px;border:1px solid #67b9c8;border-radius:12px;background:#083344;color:#ecfeff;box-shadow:0 8px 24px rgba(8,51,68,.32);pointer-events:none}",
       ".route-swap-offscreen-arrow-v311>strong{grid-row:1/3;display:grid;place-items:center;width:34px;height:34px;border-radius:999px;background:#0e7490;color:#fff;font-size:25px;line-height:1;animation:routeSwapOffscreenV311 .8s ease-in-out infinite alternate}",
       ".route-swap-offscreen-arrow-v311>span{overflow:hidden;font-size:11px;font-weight:900;text-overflow:ellipsis;white-space:nowrap}",
       ".route-swap-offscreen-arrow-v311>small{color:#a5f3fc;font-size:9px;font-weight:800}",
       ".app.dark-mode .route-swap-date-v311{border-color:#155e75;background:#083344;color:#a5f3fc}",
       ".app.dark-mode .route-swap-route-v311 b{color:#67e8f9}",
+      ".app.dark-mode .route-swap-sample-v317{border-color:#b45309;background:#451a03;color:#fde68a}",
       "@keyframes routeSwapOffscreenV311{from{transform:translateY(-2px)}to{transform:translateY(2px)}}",
       "@media(prefers-reduced-motion:reduce){.route-swap-offscreen-arrow-v311>strong{animation:none}}"
     ].join("\n");
@@ -268,10 +273,12 @@
         routeRows += '<div class="route-swap-route-v311"><b>' + esc(dateTextV311(item.secondDate || item.date)) + '</b><span>' + esc(item.secondRoute) + '</span></div>';
       }
       routeRows += "</div>";
+      var sampleBadge = item.sampleOptimization ? '<span class="route-swap-sample-v317">PRZYKŁAD</span>' : "";
 
       return '<button type="button" class="route-swap-row" data-route-swap-suggestion="' + attr(item.id) + '" title="' + attr(item.firstRoute + (item.secondRoute ? " / " + item.secondRoute : "")) + '">'
         + '<div class="route-swap-row-top">'
         + '<span class="route-swap-saving"><strong>-' + Math.round(item.savingKm) + ' km</strong><small>' + Math.round(item.savingPercent || 0) + '% mniej dojazdu</small></span>'
+        + sampleBadge
         + '<span class="route-swap-date-v311">' + esc(routeDateLabelV311(item)) + '</span>'
         + '<span class="route-swap-km"><b>' + item.currentKm + ' km</b><i>&rarr;</i><b>' + item.swappedKm + ' km</b></span>'
         + '</div>'
@@ -281,8 +288,9 @@
         + '</button>';
     }).join("");
 
+    var panelTitle = typeof isAdminUser === "function" && isAdminUser() ? "Wszystkie optymalizacje tras" : "Optymalizacja tras";
     return '<div class="route-swap-notice ' + (open ? "open" : "") + '">'
-      + (open ? '<section class="route-swap-panel" aria-label="Propozycje optymalizacji tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij panel">&times;</button></header><div class="route-swap-list">' + rows + '</div></section>' : "")
+      + (open ? '<section class="route-swap-panel" aria-label="Propozycje optymalizacji tras"><header><b>' + esc(panelTitle) + '</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij panel">&times;</button></header><div class="route-swap-list">' + rows + '</div></section>' : "")
       + '<button type="button" class="route-swap-dock" onclick="toggleRouteSwapPanel(event)" title="' + attr(String(suggestions.length) + " propozycji optymalizacji tras") + '" aria-label="Propozycje optymalizacji tras"><span>↔</span><b>' + suggestions.length + '</b></button>'
       + '</div>';
   }

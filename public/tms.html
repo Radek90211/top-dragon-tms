@@ -101573,15 +101573,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const ROUTE_SWAP_MAX_ROUTES = 80;
 
     function routeSwapRouteSet() {
+      const includeSampleRoutes = isAdminUser();
       return activeRoutes()
-        .filter(route => route && !route.futureQueue && !route.sampleRelationV167 && !isFreeDayRoute(route)
+        .filter(route => route && !route.futureQueue && (includeSampleRoutes || !route.sampleRelationV167) && !isFreeDayRoute(route)
           && route.driverId && route.load && operationalPointForRoute(route, "load"))
         .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id)))
         .slice(0, ROUTE_SWAP_MAX_ROUTES);
     }
 
     function routeSwapSignature(routes) {
-      return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus].join("~")).join("|");
+      return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus, route.sampleRelationV167 ? "sample" : "real"].join("~")).join("|");
     }
 
     function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds) {
@@ -101651,6 +101652,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             firstDispatcher, secondDispatcher,
             firstRoute:`${displayCity(first.load) || first.load} → ${displayCity(first.unload) || first.unload}`,
             secondRoute:`${displayCity(second.load) || second.load} → ${displayCity(second.unload) || second.unload}`,
+            sampleOptimization:Boolean(first.sampleRelationV167 || second.sampleRelationV167),
             currentKm:Math.round(currentKm), swappedKm:Math.round(swappedKm), savingKm
           });
         }
@@ -101685,6 +101687,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           firstDispatcher:currentDispatcher, secondDispatcher:String(best.candidate.dispatcher || ""),
           firstRoute:`${displayCity(route.load) || route.load} → ${displayCity(route.unload) || route.unload}`,
           secondRoute:"",
+          sampleOptimization:Boolean(route.sampleRelationV167),
           currentKm:Math.round(currentKm), swappedKm:Math.round(best.candidateKm), savingKm:best.savingKm
         });
       });
@@ -101762,7 +101765,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!suggestions.length) return "";
       const open = Boolean(state.routeSwapPanelOpen);
       return `<div class="route-swap-notice ${open ? "open" : ""}">
-        ${open ? `<section class="route-swap-panel" aria-label="Propozycje optymalizacji tras"><header><b>Optymalizacja tras</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij panel">&times;</button></header><div class="route-swap-list">${suggestions.map(item => `<button type="button" class="route-swap-row" data-route-swap-suggestion="${attr(item.id)}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><div class="route-swap-row-top"><span class="route-swap-saving"><strong>-${Math.round(item.savingKm)} km</strong></span><span class="route-swap-km"><b>${item.currentKm} km</b><i>&rarr;</i><b>${item.swappedKm} km</b></span></div><div class="route-swap-drivers"><span>${esc(item.firstDriver)} <b>${item.kind === "swap" ? "&harr;" : "&rarr;"}</b> ${esc(item.secondDriver)}</span></div><div class="route-swap-dispatchers"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><div class="route-swap-routes"><span>${esc(item.firstRoute)}</span>${item.secondRoute ? `<span>${esc(item.secondRoute)}</span>` : ""}</div></button>`).join("")}</div></section>` : ""}
+        ${open ? `<section class="route-swap-panel" aria-label="Propozycje optymalizacji tras"><header><b>${isAdminUser() ? "Wszystkie optymalizacje tras" : "Optymalizacja tras"}</b><button type="button" onclick="toggleRouteSwapPanel(event)" aria-label="Zamknij panel">&times;</button></header><div class="route-swap-list">${suggestions.map(item => `<button type="button" class="route-swap-row" data-route-swap-suggestion="${attr(item.id)}" title="${attr(`${item.firstRoute}${item.secondRoute ? ` / ${item.secondRoute}` : ""}`)}"><div class="route-swap-row-top"><span class="route-swap-saving"><strong>-${Math.round(item.savingKm)} km</strong></span>${item.sampleOptimization ? `<span class="route-swap-sample-v317">PRZYKŁAD</span>` : ""}<span class="route-swap-km"><b>${item.currentKm} km</b><i>&rarr;</i><b>${item.swappedKm} km</b></span></div><div class="route-swap-drivers"><span>${esc(item.firstDriver)} <b>${item.kind === "swap" ? "&harr;" : "&rarr;"}</b> ${esc(item.secondDriver)}</span></div><div class="route-swap-dispatchers"><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.firstDispatcher)}">${esc(item.firstDispatcher)}</span><span class="dispatcher-map-badge ${dispatcherBadgeClass(item.secondDispatcher)}">${esc(item.secondDispatcher)}</span></div><div class="route-swap-routes"><span>${esc(item.firstRoute)}</span>${item.secondRoute ? `<span>${esc(item.secondRoute)}</span>` : ""}</div></button>`).join("")}</div></section>` : ""}
         <button type="button" class="route-swap-dock" onclick="toggleRouteSwapPanel(event)" title="${attr(`${suggestions.length} propozycji wymiany tras`)}" aria-label="Propozycje wymiany tras"><span>↔</span><b>${suggestions.length}</b></button>
       </div>`;
     }
