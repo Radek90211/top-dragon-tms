@@ -12,6 +12,7 @@ const buildParams = new URLSearchParams({
 })
 const hostViews = createViewLifecycle()
 let activeTmsFrame = null
+let tmsLoadingWatchdog = null
 let activeAuthMessage = null
 let openAdminDataTransferAfterAuth = false
 let activeUserDirectoryMessage = null
@@ -49,6 +50,22 @@ let workflowSchemaAvailable = null
 let currentUser = null
 let currentProfile = null
 let featurePermissionsRefreshTimer = null
+
+function releaseTmsLoadingScreen(frame = activeTmsFrame) {
+  if (frame !== activeTmsFrame) return
+  if (tmsLoadingWatchdog) {
+    clearTimeout(tmsLoadingWatchdog)
+    tmsLoadingWatchdog = null
+  }
+  frame?.classList.remove('is-loading')
+  document.querySelector('#tms-loading')?.remove()
+}
+
+function clearTmsLoadingWatchdog() {
+  if (!tmsLoadingWatchdog) return
+  clearTimeout(tmsLoadingWatchdog)
+  tmsLoadingWatchdog = null
+}
 
 let auditedSessionUserId = ''
 // Administrator może przełączyć wyłącznie kontekst podglądu interfejsu. Konto,
@@ -170,6 +187,7 @@ function canModifyFleetAssignment(assignment) {
 }
 
 function suspendTmsRuntimeForAdminPanel() {
+  clearTmsLoadingWatchdog()
   activeTmsFrame = null
 
   const timeoutSlots = [
@@ -257,6 +275,7 @@ function renderLogin(message = '') {
   currentProfile = null
   adminPreview = null
   activeTmsFrame = null
+  clearTmsLoadingWatchdog()
   activeAuthMessage = null
   activeUserDirectoryMessage = null
   activeFleetMessage = null
@@ -4606,7 +4625,13 @@ async function renderDashboard(user) {
     if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)frame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
   }
 
+  // Osadzony panel jest duży i w słabszej przeglądarce może nie odesłać
+  // potwierdzenia startu. Warstwa startowa nie może wtedy blokować całej strony.
+  clearTmsLoadingWatchdog()
+  tmsLoadingWatchdog = setTimeout(() => releaseTmsLoadingScreen(frame), 8000)
+  viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
   frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
+  frame?.addEventListener('error', () => releaseTmsLoadingScreen(frame), {signal:viewLease.signal})
   sendIdentityToTms()
 
   syncUserDirectoryToTms().catch((error) => {
@@ -4731,8 +4756,7 @@ async function bootstrap() {
     }
 
     if (event.data?.type === 'top-dragon-auth-applied') {
-      document.querySelector('#tms-frame')?.classList.remove('is-loading')
-      document.querySelector('#tms-loading')?.remove()
+      releaseTmsLoadingScreen(activeTmsFrame)
       if (openAdminDataTransferAfterAuth && isActualAdmin()) {
         openAdminDataTransferAfterAuth = false
         activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-open-admin-data-transfer' }, window.location.origin)

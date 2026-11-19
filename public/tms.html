@@ -3,6 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Bezpośredni adres /tms.html był dawnym, samodzielnym wejściem do aplikacji.
+    // Kierujemy go do aktualnej powłoki logowania, zanim załaduje ciężki panel.
+    if (window.top === window.self && new URLSearchParams(window.location.search).get("embedded") !== "1") {
+      window.location.replace("/");
+    }
+  </script>
   <title>TMS Top Dragon</title>
   <link rel="icon" type="image/svg+xml" href="/top-dragon-favicon.svg" />
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" data-tms-leaflet-css="1" />
@@ -91544,11 +91551,21 @@
       if (allowed.length !== target.length) target.splice(0, target.length, ...allowed);
       const realRoutes = target.filter(route => !route?.sampleRelationV167);
       const rebuilt = [];
+      const realRoutesByDriver = new Map();
+      realRoutes.forEach(route => {
+        const driverId = String(route?.driverId || "");
+        if (!realRoutesByDriver.has(driverId)) realRoutesByDriver.set(driverId, []);
+        realRoutesByDriver.get(driverId).push(route);
+      });
+      const rebuiltDays = new Set();
       buildSeptemberRelationsV167(drivers).forEach(route => {
         // Rzeczywista relacja ma pierwszeństwo. Kafelek demonstracyjny, który wszedłby
         // na ten sam czas kierowcy, nie jest ponownie dodawany.
-        if (realRoutes.some(existing => routesOverlapV169(existing, route))) return;
-        if (rebuilt.some(existing => routesOverlapV169(existing, route))) return;
+        const driverId = String(route?.driverId || "");
+        if ((realRoutesByDriver.get(driverId) || []).some(existing => routesOverlapV169(existing, route))) return;
+        const dayKey = `${driverId}|${route.date}`;
+        if (rebuiltDays.has(dayKey)) return;
+        rebuiltDays.add(dayKey);
         rebuilt.push(route);
       });
 
