@@ -128,8 +128,8 @@
           </div>
           <div class="pdf-import-body">
             <label class="field-label" style="margin-top:0;">Wklej tekst</label>
-            <textarea id="text-import-orders" class="textarea" style="min-height:240px;" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość klienta z jedną lub kilkoma relacjami. Brakującą datę można uzupełnić później na karcie relacji.">${esc(state.textImportText || "")}</textarea>
-            <div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus || "")}</div>
+            <textarea id="text-import-orders" class="textarea" style="min-height:240px;" ${aiBusy ? "disabled" : ""}>${esc(state.textImportText || "")}</textarea>
+            ${state.textImportStatus ? `<div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus)}</div>` : ""}
           </div>
           <div class="pdf-import-foot">
             <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -145,7 +145,7 @@
   async function analyzeTextOrdersToQueueV312() {
     const textValue = saveTextImportState();
     if (!textValue) {
-      showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą.");
+      showAppMessage("Brak tekstu", "Najpierw wprowadź tekst relacji.");
       return;
     }
     if (state.aiAnalyzerBusyKind) return;
@@ -255,7 +255,11 @@
       else card.prepend(line);
     }
     line.classList.add("queue-date-unknown-v312");
-    line.innerHTML = `<span><strong>Załadunek: </strong><span class="queue-dates-value">${UNKNOWN_DATE}</span></span><span><strong>Rozładunek: </strong><span class="queue-dates-value">${UNKNOWN_DATE}</span></span>`;
+    const canEditDates = !route.archived && state.user && state.user.role !== "rozliczenia" && String(route.createdBy || "") === String(state.user.login || "") && state.user.login;
+    const pencil = field => canEditDates
+      ? `<button type="button" class="queue-date-pencil-v318" title="Uzupełnij datę ${field === "load" ? "załadunku" : "rozładunku"}" aria-label="Uzupełnij datę ${field === "load" ? "załadunku" : "rozładunku"}" onclick="event.preventDefault();event.stopPropagation();const form=this.closest('.future-card,.proposed-load-card')?.querySelector('.queue-date-edit-v314');if(form){form.hidden=false;form.querySelector('[data-queue-date-field=${field}]')?.focus()}">✎</button>`
+      : "";
+    line.innerHTML = `<span><strong>Załadunek: </strong><span class="queue-dates-value">${UNKNOWN_DATE}</span>${pencil("load")}</span><span><strong>Rozładunek: </strong><span class="queue-dates-value">${UNKNOWN_DATE}</span>${pencil("unload")}</span>`;
 
     card.querySelectorAll(".future-card-meta,.proposed-load-dates").forEach(node => {
       if (/Data relacji:|Załadunek:|Rozładunek:/i.test(String(node.textContent || ""))) {
@@ -303,7 +307,8 @@
       ".ai-quick-text-v312{width:min(620px,calc(100vw - 24px))}",
       ".ai-quick-text-v312 .pdf-import-body{display:grid;gap:10px}",
       ".queue-date-unknown-v312{border-color:#f59e0b!important;background:#fffbeb!important;color:#92400e!important}",
-      ".app.dark-mode .queue-date-unknown-v312{border-color:#b45309!important;background:#451a03!important;color:#fde68a!important}"
+      ".app.dark-mode .queue-date-unknown-v312{border-color:#b45309!important;background:#451a03!important;color:#fde68a!important}",
+      ".queue-date-unknown-v312>span{display:inline-flex;align-items:center;gap:3px}"
     ].join("\n");
     document.head.appendChild(style);
 

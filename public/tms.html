@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TMS Top Dragon</title>
   <link rel="icon" type="image/svg+xml" href="/top-dragon-favicon.svg" />
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" data-tms-leaflet-css="1" />
+  <script defer src="/vendor/leaflet/leaflet.js" data-tms-leaflet-runtime="1"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -92772,7 +92774,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       queueAddMenuTarget: "",
       textImportOpen: false,
       textImportText: "",
-      textImportStatus: "Wklej wiadomość od klienta z jedną lub wieloma relacjami. Po analizie ładunki trafią do zakładki Wolne ładunki.",
+      textImportStatus: "",
       textImportWarning: false,
       textImportPreview: [],
       textImportBatch: [],
@@ -101523,7 +101525,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 </section>
                 <section class="ai-import-source-card">
                   <h3>Wiadomość od klienta</h3>
-                  <textarea id="text-import-orders" class="textarea ai-import-textarea" ${aiBusy ? "disabled" : ""} placeholder="Wklej wiadomość z relacją…" oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
+                  <textarea id="text-import-orders" class="textarea ai-import-textarea" ${aiBusy ? "disabled" : ""} oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
                   <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzeTextOrdersToQueue()">${textBusy ? "Analizuję…" : "Analizuj tekst"}</button>
                 </section>
               </div>
@@ -102238,9 +102240,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="ai-import-target"><label><input type="radio" name="text-import-target" value="future" ${state.aiImportTarget !== "proposed" ? "checked" : ""} onchange="state.aiImportTarget='future'" /> Planowane relacje</label><label><input type="radio" name="text-import-target" value="proposed" ${state.aiImportTarget === "proposed" ? "checked" : ""} onchange="state.aiImportTarget='proposed'" /> Wolne ładunki</label></div>
               <div class="pdf-import-upload">
                 <label class="field-label" style="margin-top:0;">Treść wiadomości od klienta</label>
-                <textarea id="text-import-orders" class="textarea" style="min-height:210px;" ${aiBusy ? "disabled" : ""} placeholder="Np. 15.06 Warszawa 00-001 -> Białystok 15-001, załadunek 08:00, rozładunek 16:00\nŁódź 90-001 -> Rzeszów 35-001, 20.06, 12:00">${esc(state.textImportText || "")}</textarea>
+                <textarea id="text-import-orders" class="textarea" style="min-height:210px;" ${aiBusy ? "disabled" : ""}>${esc(state.textImportText || "")}</textarea>
               </div>
-              <div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus || "")}</div>
+              ${state.textImportStatus ? `<div class="pdf-import-status ${state.textImportWarning ? "warning" : ""}">${esc(state.textImportStatus)}</div>` : ""}
               ${preview.length ? `
                 <div class="section section-soft">
                   <b>Ostatnio wygenerowane wolne ładunki</b>
@@ -102276,7 +102278,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!canUseOperationalAi()) return;
       state.aiImportTarget = target === "proposed" ? "proposed" : "future";
       state.textImportOpen = true;
-      state.textImportStatus = state.textImportStatus || "Wklej wiadomość od klienta z relacjami do importu.";
+      state.textImportStatus = "";
       syncTextImportUi();
     }
 
@@ -102679,7 +102681,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function analyzeTextOrdersToQueue() {
       const textValue = saveTextImportState();
-      if (!textValue) { showAppMessage("Brak tekstu", "Wklej wiadomość klienta przed analizą."); return; }
+      if (!textValue) { showAppMessage("Brak tekstu", "Najpierw wprowadź tekst relacji."); return; }
       if (state.aiAnalyzerBusyKind) return;
       let parsed = [];
       state.aiAnalyzerDockVisible = true;
@@ -104621,6 +104623,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       const sources = [
+        "/vendor/leaflet/leaflet.js",
         "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js",
         "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       ];
@@ -104649,7 +104652,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           script.dataset.tmsLeafletRuntime = "1";
           script.onload = () => finish(true);
           script.onerror = () => finish(false);
-          const timer = setTimeout(() => finish(false), 2600);
+          const timer = setTimeout(() => finish(false), sourceIndex === 1 ? 900 : 2200);
           document.head.appendChild(script);
         };
         tryNextSource();
@@ -106782,6 +106785,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       `;
     }
 
+    function renderOriginalTextToggle(value, extraClass = "") {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      return `<div class="original-text-toggle ${attr(extraClass)}"><button type="button" class="btn-mini original-text-button" aria-expanded="false" onclick="event.preventDefault();event.stopPropagation();const content=this.nextElementSibling;content.hidden=!content.hidden;this.setAttribute('aria-expanded',String(!content.hidden))">Tekst oryginalny</button><div class="original-text-content" hidden>${esc(text)}</div></div>`;
+    }
+
     function renderAddModal() {
       const prefill = state.prefill || {};
       state.newRouteBaseKm = Number(state.newRouteBaseKm || prefill.baseKm || 0);
@@ -106803,7 +106812,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div>
                 <h2 style="margin:0;">${modalTitle}</h2>
                 ${modalHint ? `<div class="hint">${modalHint}</div>` : ""}
-                ${prefill.aiSourceText ? `<details class="ai-source-confirm"><summary>Oryginalna wiadomość Klienta</summary><div>${esc(prefill.aiSourceText)}</div></details>` : ""}
+                ${renderOriginalTextToggle(prefill.aiSourceText, "ai-source-confirm")}
               </div>
               <button type="button" class="btn" onclick="closeAdd()">Zamknij</button>
             </div>
@@ -107105,11 +107114,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.statsDispatcherFilter = role === "spedytor" ? loginValue : "all";
       render();
       requestAnimationFrame(applyFeatureVisibilityV263);
-      // Pobranie biblioteki mapy odbywa się po pierwszym renderze, w czasie
-      // bezczynności. Otwarcie Mapy nie musi wtedy czekać na jej pobranie.
+      // Lokalna biblioteka mapy jest pobierana równolegle z aplikacją. Ten krok
+      // uruchamia ją od razu po identyfikacji użytkownika, zanim otworzy Mapę.
       const preloadMapRuntime = () => preloadLeafletRuntime();
-      if (typeof requestIdleCallback === "function") requestIdleCallback(preloadMapRuntime, { timeout: 2200 });
-      else setTimeout(preloadMapRuntime, 900);
+      setTimeout(preloadMapRuntime, 0);
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         if (!state.user.permissionPreview) {
@@ -113125,8 +113133,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
     }
 
-    // Logowanie nie może czekać na zewnętrzną bibliotekę mapy CDN.
-    // Biblioteka Leaflet jest używana dopiero w zakładce mapy, więc ekran startowy renderujemy od razu.
+    // Leaflet jest lokalnym zasobem ładowanym równolegle; ekran startowy nadal
+    // renderujemy od razu, bez oczekiwania na utworzenie samej mapy.
     if (document.readyState === "loading") {
       window.addEventListener("DOMContentLoaded", bootApp, { once: true });
     } else {
@@ -117012,20 +117020,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       function queueAiSourceDetails(route) {
         const source = String(route?.aiSourceText || "").trim();
-        return source ? `<details class="queue-ai-source"><summary>Oryginalna wiadomość Klienta</summary><div>${esc(source)}</div></details>` : "";
+        return renderOriginalTextToggle(source, "queue-ai-source");
       }
       const originalRenderProposedLoadCard3L31 = renderProposedLoadCard;
       renderProposedLoadCard = function(route) {
         let html = originalRenderProposedLoadCard3L31.apply(this, arguments);
         const details = queueAiSourceDetails(route);
-        if (details || route?.returnedFromBoard) html = html.replace('<div class="proposed-load-owner-actions">', `${details}${queueReturnNote(route)}<div class="proposed-load-owner-actions">`);
+        if (details || route?.returnedFromBoard) html = html.replace('<div class="proposed-load-owner-actions">', `${queueReturnNote(route)}<div class="proposed-load-owner-actions">${details}`);
         return html;
       };
       const originalRenderFutureRouteCard3L31 = renderFutureRouteCard;
       renderFutureRouteCard = function(route) {
         let html = originalRenderFutureRouteCard3L31.apply(this, arguments);
         const details = queueAiSourceDetails(route);
-        if (details || route?.returnedFromBoard) html = html.replace('<div class="future-card-actions">', `${details}${queueReturnNote(route)}<div class="future-card-actions">`);
+        if (details || route?.returnedFromBoard) html = html.replace('<div class="future-card-actions">', `${queueReturnNote(route)}<div class="future-card-actions">${details}`);
         return html;
       };
 
@@ -117102,7 +117110,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         let html = originalRenderSidePanel3L31.apply(this, arguments);
         const route = (state.routes || []).find(item => item.id === state.selectedRouteId);
         if (!route) return html;
-        const extras = `${route.aiSourceText ? `<details class="section" style="border-color:#bfdbfe;background:#eff6ff"><summary><b>Oryginalna wiadomość Klienta</b></summary><div class="small" style="white-space:pre-wrap;margin-top:6px;">${esc(route.aiSourceText)}</div></details>` : ""}${renderRelationTransferSection(route)}`;
+        const extras = `${renderOriginalTextToggle(route.aiSourceText, "section original-text-section")}${renderRelationTransferSection(route)}`;
         if (!extras) return html;
         const smsIndex = html.indexOf('<b>Wiadomość do kierowcy</b>');
         if (smsIndex > 0) {
@@ -122999,8 +123007,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       font-weight:800;
       list-style-position:inside;
     }
-    .queue-archive-list-v189 { display:grid; gap:8px; padding:0 8px 8px; }
+    .queue-archive-list-v189 { display:grid; gap:5px; padding:0 6px 6px; max-height:min(56vh,560px); overflow-y:auto; overscroll-behavior:contain; touch-action:pan-y; scrollbar-gutter:stable; }
     .queue-archive-list-v189 .future-card { opacity:.86; filter:saturate(.72); }
+    .original-text-toggle { display:grid; gap:5px; justify-items:start; }
+    .original-text-button { white-space:nowrap; }
+    .original-text-content { max-width:100%; padding:6px 8px; border:1px solid #bfdbfe; border-radius:8px; background:#eff6ff; color:#1e3a8a; font-size:11px; line-height:1.35; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .original-text-content[hidden] { display:none; }
+    .queue-ai-source { display:contents; }
+    .queue-ai-source .original-text-content { flex:1 0 100%; }
+    .app.dark-mode .original-text-content { border-color:#1d4ed8; background:#172554; color:#dbeafe; }
     .app.dark-mode .queue-board-status-v189.is-added { color:#bbf7d0; background:#14532d; }
     .app.dark-mode .queue-board-status-v189.is-not-added { color:#cbd5e1; background:#334155; }
 

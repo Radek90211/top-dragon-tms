@@ -25,15 +25,23 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = [
-      ".queue-dates-visible-v309{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:8px;padding:8px 10px;border:1px solid #d9e2ed;border-radius:9px;background:#f1f5f9;color:#1e293b;font-size:12px;font-weight:700;line-height:1.5}",
+      ".queue-dates-visible-v309{display:flex;flex-wrap:wrap;align-items:center;gap:3px 10px;margin-top:4px;padding:4px 6px;border:1px solid #d9e2ed;border-radius:7px;background:#f1f5f9;color:#1e293b;font-size:11px;font-weight:700;line-height:1.3}",
       ".queue-dates-visible-v309 strong{font-weight:900;color:#0f172a}",
       ".queue-dates-visible-v309 .queue-dates-value{font-variant-numeric:tabular-nums;font-weight:850;white-space:nowrap}",
       ".app.dark-mode .queue-dates-visible-v309{background:#1e293b;color:#e2e8f0;border-color:#475569}",
       ".app.dark-mode .queue-dates-visible-v309 strong{color:#f8fafc}",
-      ".queue-date-edit-v314{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin-top:8px}",
+      ".queue-date-pencil-v318{display:inline-grid;place-items:center;width:23px;height:23px;padding:0;border:1px solid #d97706;border-radius:6px;background:#fff7ed;color:#9a3412;font-size:15px;font-weight:900;line-height:1;cursor:pointer}",
+      ".queue-date-pencil-v318:hover{background:#ffedd5}",
+      ".app.dark-mode .queue-date-pencil-v318{border-color:#f59e0b;background:#451a03;color:#fde68a}",
+      ".queue-date-edit-v314{display:flex;flex-wrap:wrap;align-items:end;gap:6px;margin-top:4px;padding:5px 6px;border-top:1px solid var(--border,#cbd5e1)}",
       ".queue-date-edit-v314[hidden]{display:none}",
       ".queue-date-edit-v314 label{display:grid;gap:3px;font-size:11px;font-weight:700}",
       ".queue-date-edit-v314 input{min-width:0;padding:5px;border:1px solid var(--border,#cbd5e1);border-radius:7px;background:var(--card,#fff);color:var(--text,#0f172a)}",
+      ".future-drawer-body,.proposed-drawer-body{padding:8px!important;gap:5px!important}",
+      ".future-drawer-body .future-card,.proposed-drawer-body .future-card{padding:6px!important;gap:4px!important;border-radius:9px!important}",
+      ".future-drawer-body .future-card-actions,.proposed-drawer-body .future-card-actions{gap:4px!important}",
+      ".future-drawer-body .proposed-load-owner-actions,.proposed-drawer-body .proposed-load-owner-actions{gap:4px!important;margin-top:2px!important}",
+      ".future-drawer-body .btn-mini,.proposed-drawer-body .btn-mini{padding:4px 7px;min-height:26px}",
       ".queue-date-range-control-v309{display:grid;gap:8px;margin:10px 0 12px;padding:12px;border:1px solid var(--border,#d6dbe3);border-radius:12px;background:var(--card,#fff)}",
       ".queue-date-range-control-v309 .queue-range-toggle{display:flex;align-items:center;gap:8px;font-weight:750;cursor:pointer;font-size:13px}",
       ".queue-date-range-control-v309 .queue-range-toggle input{width:18px;height:18px;accent-color:#0e7490}",
@@ -91,12 +99,6 @@
 
     if (route && !route.archived && state.user && state.user.role !== "rozliczenia" && String(route.createdBy || "") === String(state.user.login || "") && state.user.login) {
       const kind = route.proposedLoad ? "proposed" : "future";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "btn-mini";
-      button.textContent = "Zmień daty";
-      button.setAttribute("onclick", "event.stopPropagation();const form=this.nextElementSibling;form.hidden=!form.hidden;this.setAttribute('aria-expanded',String(!form.hidden))");
-      button.setAttribute("aria-expanded", "false");
       const form = document.createElement("div");
       form.className = "queue-date-edit-v314";
       form.hidden = true;
@@ -107,6 +109,7 @@
         label.textContent = labelText;
         const input = document.createElement("input");
         input.type = "date";
+        input.dataset.queueDateField = field;
         input.value = value;
         input.setAttribute("value", value);
         input.setAttribute("onchange", `saveQueueDateV314(event, ${JSON.stringify(kind)}, ${JSON.stringify(String(route.id))}, ${JSON.stringify(field)})`);
@@ -114,7 +117,34 @@
         form.appendChild(label);
       });
       line.insertAdjacentElement("afterend", form);
-      line.insertAdjacentElement("afterend", button);
+      const addPencil = (host, field, missing) => {
+        if (!missing) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "queue-date-pencil-v318";
+        button.textContent = "✎";
+        button.title = `Uzupełnij datę ${field === "load" ? "załadunku" : "rozładunku"}`;
+        button.setAttribute("aria-label", button.title);
+        button.onclick = event => {
+          event.preventDefault();
+          event.stopPropagation();
+          form.hidden = false;
+          form.querySelector(`[data-queue-date-field="${field}"]`)?.focus();
+        };
+        host.appendChild(button);
+      };
+      addPencil(load, "load", !toIso(route.loadDate || route.date));
+      addPencil(unload, "unload", !toIso(route.endDate));
+      if (toIso(route.loadDate || route.date) && toIso(route.endDate)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "queue-date-pencil-v318";
+        button.textContent = "✎";
+        button.title = "Edytuj daty";
+        button.setAttribute("aria-label", "Edytuj daty");
+        button.onclick = event => { event.preventDefault(); event.stopPropagation(); form.hidden = !form.hidden; };
+        line.appendChild(button);
+      }
     }
 
     const existingDates = card.querySelector(".proposed-load-dates");
