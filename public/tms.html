@@ -103877,6 +103877,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderBoard(drivers) {
+      if (state.boardStartupV188?.active) {
+        return `
+          <div class="board-wrap" id="board-wrap">
+            <div class="board-title"><h2>Plan kierowców</h2></div>
+            <div class="board-startup-v188" role="status" aria-live="polite">
+              <div class="board-startup-card-v188">
+                <span class="board-startup-spinner-v188" aria-hidden="true"></span>
+                <span><b>Przygotowuję aktualny plan…</b><small>Ładuję użytkowników, flotę i relacje.</small></span>
+              </div>
+            </div>
+          </div>`;
+      }
       const dates = dateList();
 
       const header = `
@@ -116400,6 +116412,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           };
           if (state.statsPanelOpen && state.statsRange === "week") scheduleStatsPanelSync();
         } else if (message.type === "top-dragon-weekly-settlement-operation-result") {
+          // Wyniki bez aktywnej operacji są spóźnioną odpowiedzią z poprzedniego
+          // widoku. Nie pokazujemy po starcie fałszywego błędu zapisu.
+          if (!state.weeklySettlementBusy) return;
           state.weeklySettlementBusy = false;
           showAppMessage(message.ok ? "Podsumowanie tygodniowe zaktualizowane" : "Nie udało się zapisać zmiany", String(message.message || ""), message.ok ? "success" : "error");
           if (state.statsPanelOpen && state.statsRange === "week") requestWeeklySettlement(weeklyWeekStart(), true);
@@ -120016,6 +120031,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           setTimeout(closeTool3L48,350);
         } else {
           toolStatus3L48(String(m.message||'Nie udało się zapisać.'),'error');
+          // Narzędzie jest pełnoekranową warstwą. Po błędzie wracamy do planu,
+          // aby komunikat nie sprawiał wrażenia zawieszonej aplikacji.
+          closeTool3L48();
           showAppMessage('Nie udało się zapisać zmiany',String(m.message||''),'error');
         }
       },true);
