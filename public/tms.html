@@ -101593,34 +101593,46 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeSwapRouteSet() {
       const includeSampleRoutes = isAdminUser();
-      return activeRoutes()
+      const ordered = activeRoutes()
         .filter(route => route && !route.futureQueue && (includeSampleRoutes || !route.sampleRelationV167) && !isFreeDayRoute(route)
-          && route.driverId && route.load && operationalPointForRoute(route, "load"))
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id)))
-        .slice(0, ROUTE_SWAP_MAX_ROUTES);
+          && route.driverId && route.load)
+        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id)));
+      const selected = [];
+      for (const route of ordered) {
+        if (!operationalPointForRoute(route, "load")) continue;
+        selected.push(route);
+        if (selected.length === ROUTE_SWAP_MAX_ROUTES) break;
+      }
+      return selected;
     }
 
     function routeSwapSignature(routes) {
       return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus, route.sampleRelationV167 ? "sample" : "real"].join("~")).join("|");
     }
 
-    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds) {
-      const startsBefore = (routesByDriver.get(driver.id) || [])
-        .filter(route => !ignoredIds.has(route.id) && routeGlobalEnd(route) <= routeGlobalStart(ownRoute))
-        .sort((a, b) => routeGlobalEnd(b) - routeGlobalEnd(a));
-      const previous = startsBefore[0] || null;
+    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds, moment) {
+      const ownStart = moment(ownRoute).start;
+      let previous = null;
+      let previousEnd = -Infinity;
+      for (const route of routesByDriver.get(driver.id) || []) {
+        if (ignoredIds.has(route.id)) continue;
+        const end = moment(route).end;
+        if (end <= ownStart && end > previousEnd) {
+          previous = route;
+          previousEnd = end;
+        }
+      }
       const unload = previous ? finalUnloadPointForRoute(previous) : null;
       if (unload) return { coords:[Number(unload.lat), Number(unload.lng)], route:previous };
       const base = driverBasePoint(driver);
       return base?.coords ? { coords:base.coords, route:null } : null;
     }
 
-    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds) {
+    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds, moment) {
       if (!driverLoadCompatibility(driver, route).ok) return false;
-      const start = routeGlobalStart(route);
-      const end = routeGlobalEnd(route);
+      const { start, end } = moment(route);
       return !(routesByDriver.get(driver.id) || []).some(item => !ignoredIds.has(item.id)
-        && routeGlobalStart(item) < end && routeGlobalEnd(item) > start);
+        && moment(item).start < end && moment(item).end > start);
     }
 
     function routeSwapDistance(position, route) {
@@ -101629,23 +101641,36 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
     }
 
-    function buildRouteSwapSuggestions() {
-      const routes = routeSwapRouteSet();
+    async function buildRouteSwapSuggestions(routes, isCurrent) {
+      const routeMoments = new WeakMap();
+      const moment = route => {
+        let result = routeMoments.get(route);
+        if (!result) {
+          result = { start:routeGlobalStart(route), end:routeGlobalEnd(route) };
+          routeMoments.set(route, result);
+        }
+        return result;
+      };
       const routesByDriver = new Map();
       activeRoutes().filter(route => !route.futureQueue && !isFreeDayRoute(route)).forEach(route => {
         const list = routesByDriver.get(route.driverId) || [];
         list.push(route);
         routesByDriver.set(route.driverId, list);
       });
-      routesByDriver.forEach(list => list.sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b)));
       const suggestions = [];
 
       for (let left = 0; left < routes.length; left += 1) {
+        // Analiza przykładowych tras może obejmować tysiące porównań. Oddajemy
+        // przeglądarce sterowanie po każdym kierowcy, żeby kliknięcia działały.
+        if (left) await new Promise(resolve => setTimeout(resolve, 0));
+        if (!isCurrent()) return [];
         const first = routes[left];
         const firstDriver = driverById(first.driverId);
         const firstDispatcher = routeDispatcherLogin(first);
         if (!firstDriver || !firstDispatcher) continue;
         for (let right = left + 1; right < routes.length; right += 1) {
+          if ((right - left) % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+          if (!isCurrent()) return [];
           const second = routes[right];
           if (String(first.date || "") !== String(second.date || "") || first.driverId === second.driverId) continue;
           const secondDriver = driverById(second.driverId);
@@ -101653,11 +101678,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!secondDriver || !secondDispatcher || firstDispatcher === secondDispatcher) continue;
 
           const ignoredIds = new Set([first.id, second.id]);
-          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds)
-            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds)) continue;
+          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, moment)
+            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, moment)) continue;
 
-          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds);
-          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds);
+          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, moment);
+          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, moment);
           const currentKm = routeSwapDistance(firstPosition, first) + routeSwapDistance(secondPosition, second);
           const swappedKm = routeSwapDistance(firstPosition, second) + routeSwapDistance(secondPosition, first);
           const savingKm = Math.round(currentKm - swappedKm);
@@ -101678,25 +101703,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
       // Gdy pełna zamiana nie jest możliwa, sprawdzamy także prostą podmianę
       // kierowcy. Nadal pokazujemy wyłącznie propozycje między spedytorami.
-      routes.forEach(route => {
+      for (const route of routes) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!isCurrent()) return [];
         const currentDriver = driverById(route.driverId);
         const currentDispatcher = routeDispatcherLogin(route);
-        if (!currentDriver || !currentDispatcher) return;
+        if (!currentDriver || !currentDispatcher) continue;
         const ignoredIds = new Set([route.id]);
-        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds);
+        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds, moment);
         const currentKm = routeSwapDistance(currentPosition, route);
-        if (!Number.isFinite(currentKm)) return;
+        if (!Number.isFinite(currentKm)) continue;
         let best = null;
         operationalDrivers().forEach(candidate => {
           if (!candidate || candidate.id === currentDriver.id || String(candidate.dispatcher || "") === currentDispatcher) return;
-          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds)) return;
-          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds);
+          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, moment)) return;
+          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, moment);
           const candidateKm = routeSwapDistance(candidatePosition, route);
           const savingKm = Math.round(currentKm - candidateKm);
           if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return;
           if (!best || savingKm > best.savingKm) best = { candidate, candidateKm, savingKm };
         });
-        if (!best) return;
+        if (!best) continue;
         suggestions.push({
           kind:"reassign",
           id:`${route.id}::${best.candidate.id}`,
@@ -101709,7 +101736,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           sampleOptimization:Boolean(route.sampleRelationV167),
           currentKm:Math.round(currentKm), swappedKm:Math.round(best.candidateKm), savingKm:best.savingKm
         });
-      });
+      }
       return suggestions.sort((a, b) => b.savingKm - a.savingKm || String(a.date).localeCompare(String(b.date))).slice(0, 12);
     }
 
@@ -101851,16 +101878,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
     }, true);
 
+    let routeSwapAnalysisRevision = 0;
     function scheduleRouteSwapAnalysis() {
       if (!state.user || document.hidden) return;
+      const revision = ++routeSwapAnalysisRevision;
       clearTimeout(state.routeSwapAnalysisTimer);
       state.routeSwapAnalysisTimer = setTimeout(() => {
-        const run = () => {
+        const run = async () => {
           const routes = routeSwapRouteSet();
           const signature = routeSwapSignature(routes);
           if (signature === state.routeSwapAnalysisSignature) return;
+          const suggestions = await buildRouteSwapSuggestions(routes, () => revision === routeSwapAnalysisRevision);
+          if (revision !== routeSwapAnalysisRevision) return;
           state.routeSwapAnalysisSignature = signature;
-          state.routeSwapSuggestions = buildRouteSwapSuggestions();
+          state.routeSwapSuggestions = suggestions;
           if (!state.routeSwapSuggestions.length) state.routeSwapPanelOpen = false;
           syncRouteSwapDock();
         };

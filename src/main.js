@@ -14,6 +14,14 @@ const hostViews = createViewLifecycle()
 let activeTmsFrame = null
 let tmsLoadingWatchdog = null
 let activeAuthMessage = null
+const initialAuthDocuments = new WeakSet()
+function postInitialAuthToTms(frame) {
+  if (!frame?.contentWindow || !activeAuthMessage) return
+  const document = frame.contentDocument
+  if (!document || document.URL === 'about:blank' || initialAuthDocuments.has(document)) return
+  initialAuthDocuments.add(document)
+  frame.contentWindow.postMessage(activeAuthMessage, window.location.origin)
+}
 let openAdminDataTransferAfterAuth = false
 let activeUserDirectoryMessage = null
 let activeFleetMessage = null
@@ -4622,7 +4630,7 @@ async function renderDashboard(user) {
   startFeaturePermissionsRefresh()
 
   const sendIdentityToTms = () => {
-    if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)frame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+    if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)postInitialAuthToTms(frame)
   }
 
   // Osadzony panel jest duży i w słabszej przeglądarce może nie odesłać
@@ -4632,7 +4640,6 @@ async function renderDashboard(user) {
   viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
   frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
   frame?.addEventListener('error', () => releaseTmsLoadingScreen(frame), {signal:viewLease.signal})
-  sendIdentityToTms()
 
   syncUserDirectoryToTms().catch((error) => {
     console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
@@ -4721,7 +4728,7 @@ async function bootstrap() {
     if (!activeTmsFrame?.contentWindow || event.source !== activeTmsFrame.contentWindow) return
 
     if (event.data?.type === 'top-dragon-ready') {
-      activeTmsFrame?.contentWindow?.postMessage(activeAuthMessage, window.location.origin)
+      postInitialAuthToTms(activeTmsFrame)
       if (activeUserDirectoryMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeUserDirectoryMessage, window.location.origin)
       }
