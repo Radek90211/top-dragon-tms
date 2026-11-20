@@ -101610,13 +101610,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus, route.sampleRelationV167 ? "sample" : "real"].join("~")).join("|");
     }
 
-    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds, moment) {
-      const ownStart = moment(ownRoute).start;
+    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds) {
+      const ownStart = routeGlobalStart(ownRoute);
       let previous = null;
       let previousEnd = -Infinity;
       for (const route of routesByDriver.get(driver.id) || []) {
         if (ignoredIds.has(route.id)) continue;
-        const end = moment(route).end;
+        const end = routeGlobalEnd(route);
         if (end <= ownStart && end > previousEnd) {
           previous = route;
           previousEnd = end;
@@ -101628,11 +101628,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return base?.coords ? { coords:base.coords, route:null } : null;
     }
 
-    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds, moment) {
+    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds) {
       if (!driverLoadCompatibility(driver, route).ok) return false;
-      const { start, end } = moment(route);
+      const start = routeGlobalStart(route);
+      const end = routeGlobalEnd(route);
       return !(routesByDriver.get(driver.id) || []).some(item => !ignoredIds.has(item.id)
-        && moment(item).start < end && moment(item).end > start);
+        && routeGlobalStart(item) < end && routeGlobalEnd(item) > start);
     }
 
     function routeSwapDistance(position, route) {
@@ -101642,15 +101643,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     async function buildRouteSwapSuggestions(routes, isCurrent) {
-      const routeMoments = new WeakMap();
-      const moment = route => {
-        let result = routeMoments.get(route);
-        if (!result) {
-          result = { start:routeGlobalStart(route), end:routeGlobalEnd(route) };
-          routeMoments.set(route, result);
-        }
-        return result;
-      };
       const routesByDriver = new Map();
       activeRoutes().filter(route => !route.futureQueue && !isFreeDayRoute(route)).forEach(route => {
         const list = routesByDriver.get(route.driverId) || [];
@@ -101678,11 +101670,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!secondDriver || !secondDispatcher || firstDispatcher === secondDispatcher) continue;
 
           const ignoredIds = new Set([first.id, second.id]);
-          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, moment)
-            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, moment)) continue;
+          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds)
+            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds)) continue;
 
-          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, moment);
-          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, moment);
+          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds);
+          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds);
           const currentKm = routeSwapDistance(firstPosition, first) + routeSwapDistance(secondPosition, second);
           const swappedKm = routeSwapDistance(firstPosition, second) + routeSwapDistance(secondPosition, first);
           const savingKm = Math.round(currentKm - swappedKm);
@@ -101710,14 +101702,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const currentDispatcher = routeDispatcherLogin(route);
         if (!currentDriver || !currentDispatcher) continue;
         const ignoredIds = new Set([route.id]);
-        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds, moment);
+        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds);
         const currentKm = routeSwapDistance(currentPosition, route);
         if (!Number.isFinite(currentKm)) continue;
         let best = null;
         operationalDrivers().forEach(candidate => {
           if (!candidate || candidate.id === currentDriver.id || String(candidate.dispatcher || "") === currentDispatcher) return;
-          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, moment)) return;
-          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, moment);
+          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds)) return;
+          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds);
           const candidateKm = routeSwapDistance(candidatePosition, route);
           const savingKm = Math.round(currentKm - candidateKm);
           if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return;
