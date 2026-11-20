@@ -12,6 +12,10 @@ button, input, select, textarea { font: inherit; }
 button { touch-action: manipulation; }
 .workspace, .tms-frame { display: block; width: 100%; min-height: 100vh; border: 0; }
 .tms-frame { height: 100dvh; }
+.tms-frame.is-loading { visibility: hidden; }
+.tms-loading { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #f8fafc; color: #334155; text-align: center; font-size: 14px; font-weight: 700; }
+.tms-loading-spinner { width: 34px; height: 34px; border: 3px solid #dbe3ee; border-top-color: #2563eb; border-radius: 50%; animation: tms-loading-spin .8s linear infinite; }
+@keyframes tms-loading-spin { to { transform: rotate(360deg); } }
 
 /* Ekran logowania i aktywacji konta. Celowo niezależny od stylów osadzonego TMS. */
 .login-shell {

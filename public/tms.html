@@ -107123,6 +107123,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       boardRenderCache = null;
       cachedPlanMainFragment = null;
       render();
+      if (EMBEDDED_MODE) window.parent?.postMessage({ type: "top-dragon-view-ready" }, window.location.origin);
       return true;
     }
 

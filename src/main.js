@@ -4611,8 +4611,8 @@ async function renderDashboard(user) {
 
   app.innerHTML = `
     <main class="workspace">
-      <div id="tms-loading" class="tms-loading" aria-live="polite" style="position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#fff;text-align:center;">
-        <img src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" style="width:min(220px,62vw);height:auto;object-fit:contain;" />
+      <div id="tms-loading" class="tms-loading" aria-live="polite">
+        <span class="tms-loading-spinner" aria-hidden="true"></span>
         <span>Uruchamianie panelu…</span>
       </div>
       <iframe
@@ -4763,11 +4763,15 @@ async function bootstrap() {
     }
 
     if (event.data?.type === 'top-dragon-auth-applied') {
-      releaseTmsLoadingScreen(activeTmsFrame)
       if (openAdminDataTransferAfterAuth && isActualAdmin()) {
         openAdminDataTransferAfterAuth = false
         activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-open-admin-data-transfer' }, window.location.origin)
       }
+      return
+    }
+
+    if (event.data?.type === 'top-dragon-view-ready') {
+      releaseTmsLoadingScreen(activeTmsFrame)
       return
     }
 
