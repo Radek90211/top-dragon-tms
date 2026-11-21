@@ -1480,9 +1480,9 @@ async function loadVisibleUserDirectory() {
 }
 
 let syncUserDirectoryToTmsGenerationV154=0;
-async function syncUserDirectoryToTms() {
+async function syncUserDirectoryToTms(profilesPromise = loadVisibleUserDirectory()) {
   const generation=++syncUserDirectoryToTmsGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
-  const profiles = await loadVisibleUserDirectory()
+  const profiles = await profilesPromise
   if(generation!==syncUserDirectoryToTmsGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
 
   activeUserDirectoryMessage = {
@@ -1662,9 +1662,9 @@ async function saveFleetExtraDetails(assignmentId, payload = {}) {
 }
 
 let syncFleetDataToTmsGenerationV154=0;
-async function syncFleetDataToTms() {
+async function syncFleetDataToTms(rowsPromise = loadFleetData()) {
   const generation=++syncFleetDataToTmsGenerationV154, actor=currentActorId(), profile=currentProfile, frame=activeTmsFrame;
-  const rows = await loadFleetData()
+  const rows = await rowsPromise
   if(generation!==syncFleetDataToTmsGenerationV154 || actor!==currentActorId() || profile!==currentProfile || frame!==activeTmsFrame) return;
   activeFleetMessage = {
     type: 'top-dragon-fleet-data',
@@ -1745,10 +1745,10 @@ async function loadCentralRelations() {
 }
 
 let relationReadGenerationV154 = 0;
-async function syncCentralRelationsToTms() {
+async function syncCentralRelationsToTms(rowsPromise = loadCentralRelations()) {
   const generation = ++relationReadGenerationV154;
   const actor = currentActorId(), profile = currentProfile, frame = activeTmsFrame;
-  const rows = await loadCentralRelations();
+  const rows = await rowsPromise;
   if (generation !== relationReadGenerationV154 || actor !== currentActorId() || profile !== currentProfile || frame !== activeTmsFrame) return;
   activeRelationsMessage = {
     type: 'top-dragon-relations-data',
@@ -4669,6 +4669,14 @@ async function renderDashboard(user) {
   if (!hostViews.isCurrent(viewLease)) return
   currentUser = user
   currentProfile = profile
+  // Snapshoty startowe pobieramy podczas parsowania ramki. Wysyłamy je
+  // dopiero po potwierdzeniu, że ramka zastosowała autoryzację.
+  const startupUsers = loadVisibleUserDirectory()
+  const startupFleet = loadFleetData()
+  const startupRelations = loadCentralRelations()
+  startupUsers.catch(() => {})
+  startupFleet.catch(() => {})
+  startupRelations.catch(() => {})
   if (auditedSessionUserId !== String(user.id || '')) {
     auditedSessionUserId = String(user.id || '')
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
@@ -4683,16 +4691,16 @@ async function renderDashboard(user) {
 
   activeTmsStartupSync = () => {
     if (!hostViews.isCurrent(viewLease) || activeTmsFrame !== frame) return
-    syncUserDirectoryToTms().catch((error) => {
+    syncUserDirectoryToTms(startupUsers).catch((error) => {
       console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
     })
 
-    syncFleetDataToTms().catch((error) => {
+    syncFleetDataToTms(startupFleet).catch((error) => {
       console.error('Nie udało się zsynchronizować floty z TMS:', error)
     })
     subscribeFleetRealtime()
 
-    syncCentralRelationsToTms().catch((error) => {
+    syncCentralRelationsToTms(startupRelations).catch((error) => {
       console.error('Nie udało się zsynchronizować relacji z TMS:', error)
     })
     subscribeCentralRelations()

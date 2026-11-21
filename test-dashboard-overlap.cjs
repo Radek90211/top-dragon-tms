@@ -12,6 +12,9 @@ const section = (from, to) => {
 const code = [
   section('function postInitialAuthToTms(', 'let openAdminDataTransferAfterAuth'),
   section('async function readCurrentFeaturePermissions(', 'async function refreshCurrentFeaturePermissions('),
+  section('let syncUserDirectoryToTmsGenerationV154', 'function firstRelated('),
+  section('let syncFleetDataToTmsGenerationV154', 'function scheduleFleetReload('),
+  section('let relationReadGenerationV154', 'async function exportCentralRelationsArchiveToTms('),
   section('async function renderDashboard(', 'async function routeSession('),
 ].join('\n');
 
@@ -25,6 +28,7 @@ async function scenario(active) {
   const profileResponse = deferred();
   const permissionResponse = deferred();
   const posted = [];
+  const loaded = [];
   const frame = {
     contentDocument: { URL: 'http://localhost/tms.html?embedded=1' },
     contentWindow: { postMessage: (message) => posted.push(message) },
@@ -55,6 +59,12 @@ async function scenario(active) {
       auth: { signOut: async () => { signedOut = true; } },
     },
     buildTmsAuthMessage: (user, profile) => ({ type: 'top-dragon-auth', user, permissions: profile.feature_permissions }),
+    currentActorId: () => 'admin-1',
+    loadVisibleUserDirectory: async () => { loaded.push('users'); return []; },
+    loadFleetData: async () => { loaded.push('fleet'); return []; },
+    loadCentralRelations: async () => { loaded.push('relations'); return []; },
+    subscribeFleetRealtime() {},
+    subscribeCentralRelations() {},
     startFeaturePermissionsRefresh() {},
     renderAdminPanel() {},
     renderLogin() {},
@@ -74,6 +84,7 @@ async function scenario(active) {
   const startup = vm.runInContext("renderDashboard({ id:'admin-1', email:'admin@example.test' })", context);
   assert.equal(frameCreated, true, 'Panel powinien zacząć się ładować przed odpowiedzią serwera');
   assert.equal(posted.length, 0, 'Ramka nie może dostać tożsamości przed autoryzacją');
+  assert.equal(loaded.length, 0, 'Dane mogą być pobierane dopiero po weryfikacji konta');
   profileResponse.resolve({ data: { active, role:'admin', feature_permissions:{ old:true } }, error:null });
   await Promise.resolve();
   if (active) {
@@ -86,9 +97,17 @@ async function scenario(active) {
     assert.equal(posted[0].type, 'top-dragon-auth');
     assert.equal(posted[0].permissions.new, true);
     assert.equal(signedOut, false);
+    assert.deepEqual(loaded, ['users', 'fleet', 'relations'], 'Snapshoty powinny ruszyć jeszcze przed gotowością ramki');
+    vm.runInContext('activeTmsStartupSync()', context);
+    await new Promise((done) => setImmediate(done));
+    assert.deepEqual(posted.map(message => message.type), [
+      'top-dragon-auth', 'top-dragon-user-directory', 'top-dragon-fleet-data', 'top-dragon-relations-data',
+    ]);
+    assert.equal(loaded.length, 3, 'Gotowe snapshoty nie powinny być pobierane ponownie');
   } else {
     assert.equal(posted.length, 0, 'Nieaktywne konto nie może dostać dostępu');
     assert.equal(signedOut, true);
+    assert.equal(loaded.length, 0, 'Nieaktywne konto nie może pobierać danych panelu');
   }
 }
 
