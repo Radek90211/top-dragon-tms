@@ -12,6 +12,8 @@ const buildParams = new URLSearchParams({
 })
 const hostViews = createViewLifecycle()
 let activeTmsFrame = null
+let activeTmsStartupSync = null
+let activeTmsSyncedDocument = null
 let tmsLoadingWatchdog = null
 let activeAuthMessage = null
 const initialAuthDocuments = new WeakSet()
@@ -4578,6 +4580,8 @@ async function renderDashboard(user) {
   if(!user?.id){renderLogin();return;}
   const viewLease=hostViews.begin('dashboard')
   suspendTmsRuntimeForAdminPanel()
+  activeTmsStartupSync = null
+  activeTmsSyncedDocument = null
   activeAuthMessage=activeUserDirectoryMessage=activeFleetMessage=activeRelationsMessage=activeClientsMessage=activeLoadQueueMessage=activeLoadQueueChatMessage=activeLoadRequestsMessage=activeAuditMessage=activeWeeklySettlementMessage=activeWorkflowMessage=null
   let profileResult
   try {
@@ -4653,59 +4657,62 @@ async function renderDashboard(user) {
   frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
   frame?.addEventListener('error', () => releaseTmsLoadingScreen(frame), {signal:viewLease.signal})
 
-  syncUserDirectoryToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
-  })
+  activeTmsStartupSync = () => {
+    if (!hostViews.isCurrent(viewLease) || activeTmsFrame !== frame) return
+    syncUserDirectoryToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować użytkowników z TMS:', error)
+    })
 
-  syncFleetDataToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować floty z TMS:', error)
-  })
-  subscribeFleetRealtime()
+    syncFleetDataToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować floty z TMS:', error)
+    })
+    subscribeFleetRealtime()
 
-  syncCentralRelationsToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować relacji z TMS:', error)
-  })
-  subscribeCentralRelations()
+    syncCentralRelationsToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować relacji z TMS:', error)
+    })
+    subscribeCentralRelations()
 
-  syncCentralClientsToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować klientów z TMS:', error)
-  })
-  subscribeCentralClients()
+    syncCentralClientsToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować klientów z TMS:', error)
+    })
+    subscribeCentralClients()
 
-  syncCentralLoadQueueToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować kolejki ładunków z TMS:', error)
-  })
-  subscribeCentralLoadQueue()
-
-  syncCentralLoadQueueChatToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować czatu relacji z TMS:', error)
-  })
-  subscribeCentralLoadQueueChat()
-
-  if (loadQueueHousekeepingTimer) clearInterval(loadQueueHousekeepingTimer)
-  loadQueueHousekeepingTimer = setInterval(() => {
-    if (document.hidden || !activeTmsFrame || !currentProfile) return
     syncCentralLoadQueueToTms().catch((error) => {
-      console.warn('Nie udało się wykonać okresowego porządkowania Wolnych ładunków:', error)
+      console.error('Nie udało się zsynchronizować kolejki ładunków z TMS:', error)
     })
-  }, 60000)
+    subscribeCentralLoadQueue()
 
-  syncCentralLoadRequestsToTms().catch((error) => {
-    console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
-  })
-  subscribeCentralLoadRequests()
-  subscribeWeeklySettlement()
-
-  syncWorkflowToTms()
-    .then(() => {if(hostViews.isCurrent(viewLease))subscribeWorkflow()})
-    .catch((error) => {
-      console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
+    syncCentralLoadQueueChatToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować czatu relacji z TMS:', error)
     })
+    subscribeCentralLoadQueueChat()
 
-  // Historia operacji jest pobierana dopiero po otwarciu jej widoku.
-  // Duży dziennik nie może blokować pierwszego renderu administratora.
-  activeAuditMessage = null
-  subscribeCentralAudit()
+    if (loadQueueHousekeepingTimer) clearInterval(loadQueueHousekeepingTimer)
+    loadQueueHousekeepingTimer = setInterval(() => {
+      if (document.hidden || !activeTmsFrame || !currentProfile) return
+      syncCentralLoadQueueToTms().catch((error) => {
+        console.warn('Nie udało się wykonać okresowego porządkowania Wolnych ładunków:', error)
+      })
+    }, 60000)
+
+    syncCentralLoadRequestsToTms().catch((error) => {
+      console.error('Nie udało się zsynchronizować zapytań o ładunek z TMS:', error)
+    })
+    subscribeCentralLoadRequests()
+    subscribeWeeklySettlement()
+
+    syncWorkflowToTms()
+      .then(() => {if(hostViews.isCurrent(viewLease))subscribeWorkflow()})
+      .catch((error) => {
+        console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
+      })
+
+    // Historia operacji jest pobierana dopiero po otwarciu jej widoku.
+    // Duży dziennik nie może blokować pierwszego renderu administratora.
+    activeAuditMessage = null
+    subscribeCentralAudit()
+  }
 }
 
 async function routeSession(session) {
@@ -4776,6 +4783,11 @@ async function bootstrap() {
     }
 
     if (event.data?.type === 'top-dragon-auth-applied') {
+      const iframeDocument = activeTmsFrame.contentDocument
+      if (iframeDocument && iframeDocument !== activeTmsSyncedDocument) {
+        activeTmsSyncedDocument = iframeDocument
+        activeTmsStartupSync?.()
+      }
       if (openAdminDataTransferAfterAuth && isActualAdmin()) {
         openAdminDataTransferAfterAuth = false
         activeTmsFrame?.contentWindow?.postMessage({ type: 'top-dragon-open-admin-data-transfer' }, window.location.origin)

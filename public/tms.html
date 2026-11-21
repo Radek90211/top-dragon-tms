@@ -107211,10 +107211,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           CENTRAL_CLIENTS_READY = false;
           CENTRAL_LOAD_QUEUE_READY = false;
           CENTRAL_LOAD_REQUESTS_READY = false;
-          setTimeout(requestCentralRelations, 0);
-          setTimeout(requestCentralClients, 20);
-          setTimeout(requestCentralLoadQueue, 40);
-          setTimeout(requestCentralLoadRequests, 60);
         }
       }
       if (sharedDbIsConfigured()) setTimeout(() => syncDriverAssignmentsOnline(), 0);
