@@ -1131,7 +1131,17 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
     renderDashboard(currentUser)
   })
   document.querySelector('#admin-audit-refresh')?.addEventListener('click', () => renderAdminPanel('', 'success', true))
-  document.querySelector('#admin-audit-export')?.addEventListener('click', () => exportAdminAuditCsv(auditRows))
+  document.querySelector('#admin-audit-export')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget
+    button.disabled = true
+    try {
+      exportAdminAuditCsv(await loadCentralAudit())
+    } catch (error) {
+      showAdminMessage(error.message || 'Nie udało się pobrać historii operacji.', 'error')
+    } finally {
+      button.disabled = false
+    }
+  })
 
   const inviteRole = document.querySelector('#invite-role')
   const inviteBranch = document.querySelector('#invite-branch')
@@ -1383,7 +1393,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   if (adminCache && !forceReload) {
     if (!Array.isArray(adminCache.audit)) {
       let audit=[]
-      try { audit = await loadCentralAudit() } catch {}
+      try { audit = await loadRecentCentralAudit() } catch {}
       if(!hostViews.isCurrent(viewLease))return
       adminCache.audit=audit
     }
@@ -1401,7 +1411,7 @@ async function renderAdminPanel(message = '', messageType = 'success', forceRelo
   `
 
   try {
-    const [adminData, audit] = await Promise.all([loadAdminData(), loadCentralAudit().catch(() => [])])
+    const [adminData, audit] = await Promise.all([loadAdminData(), loadRecentCentralAudit().catch(() => [])])
     if(!hostViews.isCurrent(viewLease))return
     adminCache = { ...adminData, audit }
     renderAdminPanelFromCache(message, messageType)
@@ -2950,11 +2960,11 @@ async function upsertCentralLoadRequestFromTms(message) {
   }
 }
 
-async function loadCentralAudit() {
+async function loadCentralAudit(maxRows = Infinity) {
   if (!currentProfile || currentProfile.role !== 'admin') return []
   const allRows = []
-  const pageSize = 1000
-  for (let from = 0; ; from += pageSize) {
+  const pageSize = Math.min(1000, maxRows)
+  for (let from = 0; from < maxRows; from += pageSize) {
     const { data, error } = await supabase
       .from('operation_audit')
       .select('id, actor_id, actor_name, actor_role, branch_id, branch_name, action, entity_type, entity_id, details, created_at')
@@ -2981,6 +2991,8 @@ async function loadCentralAudit() {
     createdAt: String(row.created_at || ''),
   }))
 }
+
+const loadRecentCentralAudit = () => loadCentralAudit(500)
 
 async function syncCentralAuditToTms() {
   const readLease=hostViews.read('syncCentralAuditToTms'), actor=currentActorId(), profile=currentProfile;
@@ -3009,7 +3021,7 @@ function subscribeCentralAudit() {
     auditChannel = null
   }
 
-  if (!currentProfile || currentProfile.role !== 'admin') return
+  if (!currentProfile || currentProfile.role !== 'admin' || !activeAuditMessage) return
 
   const channelName = `tms-audit-${currentUser?.id || 'admin'}`
   auditChannel = supabase
@@ -4690,15 +4702,10 @@ async function renderDashboard(user) {
       console.error('Nie udało się zsynchronizować akceptacji i transferów z TMS:', error)
     })
 
-  if (currentProfile.role === 'admin') {
-    syncCentralAuditToTms().catch((error) => {
-      console.error('Nie udało się zsynchronizować historii operacji z TMS:', error)
-    })
-    subscribeCentralAudit()
-  } else {
-    activeAuditMessage = null
-    subscribeCentralAudit()
-  }
+  // Historia operacji jest pobierana dopiero po otwarciu jej widoku.
+  // Duży dziennik nie może blokować pierwszego renderu administratora.
+  activeAuditMessage = null
+  subscribeCentralAudit()
 }
 
 async function routeSession(session) {
@@ -5044,6 +5051,7 @@ async function bootstrap() {
       if (currentProfile?.role === 'admin') {
         try {
           await syncCentralAuditToTms()
+          subscribeCentralAudit()
         } catch (error) {
           console.error('Nie udało się pobrać historii operacji:', error)
         }
