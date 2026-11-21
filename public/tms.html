@@ -104347,7 +104347,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button type="button" data-action="toggle-map-clients" class="btn map-client-toggle ${state.showClientsOnMap ? "btn-dark" : ""}" onclick="toggleClientsOnMap(event)">${state.showClientsOnMap ? "Ukryj bazy klientów" : "Bazy klientów"} (${allClientMapCount()})</button>
                 <button type="button" data-action="toggle-map-unassigned-clients" class="btn map-client-toggle ${state.showUnassignedClientsOnMap ? "btn-dark" : ""}" onclick="toggleUnassignedClientsOnMap(event)">${state.showUnassignedClientsOnMap ? "Ukryj klientów z relacją" : "Klienci z relacją w okresie"}</button>
                 <button type="button" data-action="toggle-map-driver-bases" class="btn map-client-toggle map-driver-bases-toggle ${state.showDriverBasesOnMap ? "btn-dark" : ""}" aria-pressed="${state.showDriverBasesOnMap ? "true" : "false"}" onclick="toggleDriverBasesOnMap(event)">Bazy kierowców (${driverBaseMapPoints().length})</button>
-                <button type="button" data-action="toggle-performance-monitor" class="btn map-client-toggle ${state.performanceMonitorEnabled ? "btn-dark" : ""}" aria-pressed="${state.performanceMonitorEnabled ? "true" : "false"}" onclick="togglePerformanceMonitor(event)">FPS</button>
                 </div>
                 <div class="map-toolbar-secondary">
                 <label class="map-client-period" title="Klienci z co najmniej jedną relacją od dzisiaj wstecz">

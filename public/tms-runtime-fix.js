@@ -70,20 +70,6 @@
               setTimeout(forcePolandMapCenter, 260);
             };
 
-            function removeFpsButtonFromMap() {
-              document.querySelectorAll('.map-card button, .map-card [role="button"]').forEach(control => {
-                if (String(control.textContent || '').trim().toUpperCase() === 'FPS') {
-                  control.remove();
-                }
-              });
-            }
-
-            // Mapa jest przebudowywana po zmianie filtrów i dat; usuwamy FPS po każdym renderze.
-            removeFpsButtonFromMap();
-            if (document.body) {
-              new MutationObserver(removeFpsButtonFromMap).observe(document.body, { childList: true, subtree: true });
-            }
-
             setTimeout(forcePolandMapCenter, 0);
             setTimeout(forcePolandMapCenter, 180);
             setTimeout(forcePolandMapCenter, 420);
@@ -107,35 +93,7 @@
     }
   }
 
-  // Przyciski mapy są generowane ponownie przy odświeżeniu dat i filtrów.
-  // Obserwujemy właściwy dokument iframe (nie tylko stronę nadrzędną).
-  const fpsFrameHooks = new WeakSet();
-  const fpsDocumentObservers = new WeakMap();
-
-  function removeMapFpsButton(doc) {
-    if (!doc || !doc.querySelectorAll) return;
-    const map = doc.querySelector(".map-card");
-    if (!map) return;
-    map.querySelectorAll("button, [role='button']").forEach(button => {
-      const text = String(button.textContent || "").replace(/\s+/g, " ").trim();
-      const action = String(button.getAttribute("data-action") || "");
-      const description = String(button.getAttribute("aria-label") || button.getAttribute("title") || "");
-      if (/^fps$/i.test(text) || /^fps$/i.test(description.trim()) || /^(?:map-)?fps(?:-toggle)?$/i.test(action)) {
-        button.remove();
-      }
-    });
-  }
-
-  function attachFpsObserver(frame) {
-    let doc = null;
-    try { doc = frame.contentDocument; } catch (error) { return; }
-    if (!doc || doc.URL === "about:blank" || !doc.documentElement || fpsDocumentObservers.has(doc)) return;
-    const scanFps = () => removeMapFpsButton(doc);
-    scanFps();
-    const observer = new MutationObserver(scanFps);
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
-    fpsDocumentObservers.set(doc, observer);
-  }
+  const frameHooks = new WeakSet();
 
   function installQueueDatesInFrame(frame) {
     let doc = null;
@@ -185,31 +143,29 @@
     doc.head.appendChild(script);
   }
 
-  function installFpsObserver(frame) {
+  function installFrameScripts(frame) {
     if (!frame) return;
-    if (!fpsFrameHooks.has(frame)) {
-      fpsFrameHooks.add(frame);
+    if (!frameHooks.has(frame)) {
+      frameHooks.add(frame);
       frame.addEventListener("load", () => {
-        attachFpsObserver(frame);
         installQueueDatesInFrame(frame);
         installRouteOptimizationInFrame(frame);
         installAiQuickAddInFrame(frame);
-        requestAnimationFrame(() => { attachFpsObserver(frame); installQueueDatesInFrame(frame); installRouteOptimizationInFrame(frame); installAiQuickAddInFrame(frame); });
+        requestAnimationFrame(() => { installQueueDatesInFrame(frame); installRouteOptimizationInFrame(frame); installAiQuickAddInFrame(frame); });
       });
     }
-    attachFpsObserver(frame);
   }
 
   function scan() {
     const frame = document.querySelector('#tms-frame');
-    installFpsObserver(frame);
+    installFrameScripts(frame);
     installQueueDatesInFrame(frame);
     installRouteOptimizationInFrame(frame);
     installAiQuickAddInFrame(frame);
     injectFix(frame);
   }
 
-  new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(scan).observe(document.querySelector('#app'), { childList: true });
   window.addEventListener('pageshow', scan);
   scan();
 })();
