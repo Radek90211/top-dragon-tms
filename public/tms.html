@@ -12,8 +12,6 @@
   </script>
   <title>TMS Top Dragon</title>
   <link rel="icon" type="image/svg+xml" href="/top-dragon-favicon.svg" />
-  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" data-tms-leaflet-css="1" />
-  <script defer src="/vendor/leaflet/leaflet.js" data-tms-leaflet-runtime="1"></script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -104693,7 +104691,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!document.querySelector('link[data-tms-leaflet-css]')) {
         const stylesheet = document.createElement("link");
         stylesheet.rel = "stylesheet";
-        stylesheet.href = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css";
+        stylesheet.href = "/vendor/leaflet/leaflet.css";
         stylesheet.dataset.tmsLeafletCss = "1";
         document.head.appendChild(stylesheet);
       }
@@ -107199,10 +107197,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       render();
       reportEmbeddedStartupPhase("auth-render-done");
       requestAnimationFrame(applyFeatureVisibilityV263);
-      // Lokalna biblioteka mapy jest pobierana równolegle z aplikacją. Ten krok
-      // uruchamia ją od razu po identyfikacji użytkownika, zanim otworzy Mapę.
-      const preloadMapRuntime = () => preloadLeafletRuntime();
-      setTimeout(preloadMapRuntime, 0);
       if (EMBEDDED_MODE) {
         window.parent?.postMessage({ type: "top-dragon-auth-applied" }, window.location.origin);
         if (!state.user.permissionPreview) {

@@ -607,7 +607,7 @@ function featurePermissionsFingerprint(value) {
 }
 
 async function readCurrentFeaturePermissions(userId, fallback = {}) {
-  const fallbackPermissions = fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {}
+  const fallbackPermissions = fallback === null ? null : fallback && typeof fallback === 'object' && !Array.isArray(fallback) ? fallback : {}
   try {
     const { data, error } = await supabase.rpc('get_tms_feature_permissions')
     if (error) return fallbackPermissions
@@ -4598,6 +4598,40 @@ async function renderDashboard(user) {
   activeTmsSecondarySync = null
   activeTmsReadyDocument = null
   activeAuthMessage=activeUserDirectoryMessage=activeFleetMessage=activeRelationsMessage=activeClientsMessage=activeLoadQueueMessage=activeLoadQueueChatMessage=activeLoadRequestsMessage=activeAuditMessage=activeWeeklySettlementMessage=activeWorkflowMessage=null
+  // Wczytujemy ciężki panel równolegle z profilem. Bez autoryzacji ramka
+  // pozostaje zakryta i nie otrzymuje danych użytkownika.
+  app.innerHTML = `
+    <main class="workspace">
+      <div id="tms-loading" class="tms-loading" aria-live="polite">
+        <span class="tms-loading-spinner" aria-hidden="true"></span>
+        <span class="tms-loading-message">Uruchamianie panelu…</span>
+        <div class="tms-loading-recovery" hidden>
+          <button id="tms-retry" type="button">Odśwież panel</button>
+        </div>
+      </div>
+      <iframe
+        id="tms-frame"
+        class="tms-frame is-loading"
+        src="/tms.html?${buildParams.toString()}"
+        title="Top Dragon TMS"
+      ></iframe>
+    </main>
+  `
+  const frame = document.querySelector('#tms-frame')
+  activeTmsFrame = frame
+  document.querySelector('#tms-retry')?.addEventListener('click', () => window.location.reload(), { signal:viewLease.signal })
+  clearTmsLoadingWatchdog()
+  tmsLoadingWatchdog = setTimeout(() => {
+    tmsLoadingWatchdog = null
+    showTmsLoadingRecovery(frame)
+  }, 8000)
+  viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
+  frame?.addEventListener('load', () => {
+    if (hostViews.isCurrent(viewLease) && frame === activeTmsFrame) postInitialAuthToTms(frame)
+  }, { signal:viewLease.signal })
+  frame?.addEventListener('error', () => showTmsLoadingRecovery(frame, true), { signal:viewLease.signal })
+
+  const featurePermissionsPromise = readCurrentFeaturePermissions(user.id, null)
   let profileResult
   try {
     // PostgrestBuilder jest obiektem thenable, ale w części wersji klienta
@@ -4631,7 +4665,7 @@ async function renderDashboard(user) {
     return
   }
 
-  profile.feature_permissions = await readCurrentFeaturePermissions(user.id, profile.feature_permissions)
+  profile.feature_permissions = (await featurePermissionsPromise) ?? profile.feature_permissions ?? {}
   if (!hostViews.isCurrent(viewLease)) return
   currentUser = user
   currentProfile = profile
@@ -4640,46 +4674,12 @@ async function renderDashboard(user) {
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
   }
 
-  app.innerHTML = `
-    <main class="workspace">
-      <div id="tms-loading" class="tms-loading" aria-live="polite">
-        <span class="tms-loading-spinner" aria-hidden="true"></span>
-        <span class="tms-loading-message">Uruchamianie panelu…</span>
-        <div class="tms-loading-recovery" hidden>
-          <button id="tms-retry" type="button">Odśwież panel</button>
-          ${profile.role === 'admin' ? '<button id="tms-open-admin" type="button">Otwórz administrację</button>' : ''}
-        </div>
-      </div>
-      <iframe
-        id="tms-frame"
-        class="tms-frame is-loading"
-        src="/tms.html?${buildParams.toString()}"
-        title="Top Dragon TMS"
-      ></iframe>
-    </main>
-  `
-
-  const frame = document.querySelector('#tms-frame')
-  activeTmsFrame = frame
+  if (profile.role === 'admin') {
+    document.querySelector('#tms-loading .tms-loading-recovery')?.insertAdjacentHTML('beforeend', '<button id="tms-open-admin" type="button">Otwórz administrację</button>')
+    document.querySelector('#tms-open-admin')?.addEventListener('click', () => renderAdminPanel(), { signal:viewLease.signal })
+  }
   activeAuthMessage = buildTmsAuthMessage(user, profile)
   startFeaturePermissionsRefresh()
-
-  const sendIdentityToTms = () => {
-    if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)postInitialAuthToTms(frame)
-  }
-
-  document.querySelector('#tms-retry')?.addEventListener('click', () => window.location.reload(), { signal:viewLease.signal })
-  document.querySelector('#tms-open-admin')?.addEventListener('click', () => renderAdminPanel(), { signal:viewLease.signal })
-  // Nie odsłaniamy ramki, zanim potwierdzi wyrenderowanie pierwszego widoku.
-  // Przy wolnym starcie pokazujemy działające przyciski odzyskiwania.
-  clearTmsLoadingWatchdog()
-  tmsLoadingWatchdog = setTimeout(() => {
-    tmsLoadingWatchdog = null
-    showTmsLoadingRecovery(frame)
-  }, 8000)
-  viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
-  frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
-  frame?.addEventListener('error', () => showTmsLoadingRecovery(frame, true), {signal:viewLease.signal})
 
   activeTmsStartupSync = () => {
     if (!hostViews.isCurrent(viewLease) || activeTmsFrame !== frame) return
@@ -4740,6 +4740,7 @@ async function renderDashboard(user) {
     activeAuditMessage = null
     subscribeCentralAudit()
   }
+  postInitialAuthToTms(frame)
 }
 
 async function routeSession(session) {
