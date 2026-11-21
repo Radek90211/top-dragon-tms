@@ -90941,7 +90941,6 @@
 
     const HOUR_SLOTS = [0, 4, 8, 12, 16, 20];
     const HOUR_LABELS_HTML = HOUR_SLOTS.map(hour => `<span>${String(hour).padStart(2, "0")}:00</span>`).join("");
-    const HOUR_GRID_HTML = HOUR_SLOTS.map(() => `<span></span>`).join("");
 
     const DEFAULT_ROUTE_HOURS = {
       r1: [8, 12],
@@ -94180,6 +94179,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routesForCell(driverId, date) {
+      if (boardRenderCache?.routesByCell) return boardRenderCache.routesByCell.get(cellKey(driverId, date)) || [];
       const source = boardRenderCache?.routesByDriver?.get(driverId) || activeRoutes().filter(route => route.driverId === driverId);
       return source
         .filter(route => routeOverlapsDate(route, date))
@@ -101596,9 +101596,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const ordered = activeRoutes()
         .filter(route => route && !route.futureQueue && (includeSampleRoutes || !route.sampleRelationV167) && !isFreeDayRoute(route)
           && route.driverId && route.load)
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id)));
+        .map(route => ({ route, start:routeGlobalStart(route) }))
+        .sort((a, b) => a.start - b.start || String(a.route.id).localeCompare(String(b.route.id)));
       const selected = [];
-      for (const route of ordered) {
+      for (const { route } of ordered) {
         if (!operationalPointForRoute(route, "load")) continue;
         selected.push(route);
         if (selected.length === ROUTE_SWAP_MAX_ROUTES) break;
@@ -101610,13 +101611,22 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus, route.sampleRelationV167 ? "sample" : "real"].join("~")).join("|");
     }
 
-    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds) {
-      const ownStart = routeGlobalStart(ownRoute);
+    function routeSwapTime(route, times) {
+      let value = times?.get(route);
+      if (!value) {
+        value = { start:routeGlobalStart(route), end:routeGlobalEnd(route) };
+        times?.set(route, value);
+      }
+      return value;
+    }
+
+    function routeSwapPosition(driver, ownRoute, routesByDriver, ignoredIds, times) {
+      const ownStart = routeSwapTime(ownRoute, times).start;
       let previous = null;
       let previousEnd = -Infinity;
       for (const route of routesByDriver.get(driver.id) || []) {
         if (ignoredIds.has(route.id)) continue;
-        const end = routeGlobalEnd(route);
+        const end = routeSwapTime(route, times).end;
         if (end <= ownStart && end > previousEnd) {
           previous = route;
           previousEnd = end;
@@ -101628,12 +101638,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return base?.coords ? { coords:base.coords, route:null } : null;
     }
 
-    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds) {
+    function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds, times) {
       if (!driverLoadCompatibility(driver, route).ok) return false;
-      const start = routeGlobalStart(route);
-      const end = routeGlobalEnd(route);
+      const { start, end } = routeSwapTime(route, times);
       return !(routesByDriver.get(driver.id) || []).some(item => !ignoredIds.has(item.id)
-        && routeGlobalStart(item) < end && routeGlobalEnd(item) > start);
+        && routeSwapTime(item, times).start < end && routeSwapTime(item, times).end > start);
     }
 
     function routeSwapDistance(position, route) {
@@ -101643,6 +101652,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     async function buildRouteSwapSuggestions(routes, isCurrent) {
+      const routeTimes = new WeakMap();
       const routesByDriver = new Map();
       activeRoutes().filter(route => !route.futureQueue && !isFreeDayRoute(route)).forEach(route => {
         const list = routesByDriver.get(route.driverId) || [];
@@ -101670,11 +101680,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!secondDriver || !secondDispatcher || firstDispatcher === secondDispatcher) continue;
 
           const ignoredIds = new Set([first.id, second.id]);
-          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds)
-            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds)) continue;
+          if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, routeTimes)
+            || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, routeTimes)) continue;
 
-          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds);
-          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds);
+          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, routeTimes);
+          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, routeTimes);
           const currentKm = routeSwapDistance(firstPosition, first) + routeSwapDistance(secondPosition, second);
           const swappedKm = routeSwapDistance(firstPosition, second) + routeSwapDistance(secondPosition, first);
           const savingKm = Math.round(currentKm - swappedKm);
@@ -101702,14 +101712,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const currentDispatcher = routeDispatcherLogin(route);
         if (!currentDriver || !currentDispatcher) continue;
         const ignoredIds = new Set([route.id]);
-        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds);
+        const currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds, routeTimes);
         const currentKm = routeSwapDistance(currentPosition, route);
         if (!Number.isFinite(currentKm)) continue;
         let best = null;
         operationalDrivers().forEach(candidate => {
           if (!candidate || candidate.id === currentDriver.id || String(candidate.dispatcher || "") === currentDispatcher) return;
-          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds)) return;
-          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds);
+          if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, routeTimes)) return;
+          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, routeTimes);
           const candidateKm = routeSwapDistance(candidatePosition, route);
           const savingKm = Math.round(currentKm - candidateKm);
           if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return;
@@ -103726,6 +103736,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const dateIndexMap = buildDateIndexMap(safeDates);
       const active = state.routes.filter(route => !route.futureQueue);
       const routesByDriver = new Map();
+      const routesByCell = new Map();
+      const routeStarts = new WeakMap();
       const localRouteStart = route => {
         const idx = Math.max(0, dateIndexMap.get(route.date) ?? 0);
         return idx * 24 + routeStartHour(route);
@@ -103735,9 +103747,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!route.driverId) return;
         if (!routesByDriver.has(route.driverId)) routesByDriver.set(route.driverId, []);
         routesByDriver.get(route.driverId).push(route);
+        const start = routeGlobalStart(route);
+        const end = routeGlobalEnd(route);
+        routeStarts.set(route, start);
+        const firstDay = Math.max(0, Math.floor(start / 24));
+        const lastDay = Math.min(safeDates.length - 1, Math.ceil(end / 24) - 1);
+        for (let dayIndex = firstDay; dayIndex <= lastDay; dayIndex += 1) {
+          const key = cellKey(route.driverId, safeDates[dayIndex]);
+          if (!routesByCell.has(key)) routesByCell.set(key, []);
+          routesByCell.get(key).push(route);
+        }
       });
 
       routesByDriver.forEach(routes => routes.sort((a, b) => localRouteStart(a) - localRouteStart(b)));
+      routesByCell.forEach(routes => routes.sort((a, b) => routeStarts.get(a) - routeStarts.get(b)));
       const weekDatesSet = new Set(safeDates.slice(0, 7));
       const weeklyByDriver = new Map();
       active.forEach(route => {
@@ -103754,6 +103777,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         dateIndexMap,
         activeRoutes: active,
         routesByDriver,
+        routesByCell,
         weeklyByDriver
       };
     }
@@ -103771,9 +103795,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     /* 3L.50 - fizyczna kolumna rozliczeń tygodnia.
        Kolumna jest prawdziwym torem CSS Grid, a nie warstwą absolutną na granicy dni. */
     const WEEK_SETTLEMENT_COLUMN_PX = 36;
+    const BOARD_WEEK_BOUNDARIES_CACHE = new WeakMap();
 
     function boardWeekSettlementBoundaries(dates = dateList()) {
       const safeDates = Array.isArray(dates) ? dates : [];
+      const cached = BOARD_WEEK_BOUNDARIES_CACHE.get(safeDates);
+      if (cached) return cached;
       const out = [];
       let prior = 0;
       safeDates.forEach((date, index) => {
@@ -103787,6 +103814,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         });
         prior += 1;
       });
+      BOARD_WEEK_BOUNDARIES_CACHE.set(safeDates, out);
       return out;
     }
 
@@ -104012,9 +104040,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         >
           <div class="time-labels">
             ${HOUR_LABELS_HTML}
-          </div>
-          <div class="time-grid">
-            ${HOUR_GRID_HTML}
           </div>
 
           ${renderFutureDayMarker(driver, date)}
