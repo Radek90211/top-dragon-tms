@@ -101882,7 +101882,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     let routeSwapAnalysisRevision = 0;
     function scheduleRouteSwapAnalysis() {
-      if (!state.user || document.hidden) return;
+      if (!state.user || document.hidden || state.boardStartupV188?.active) return;
       const revision = ++routeSwapAnalysisRevision;
       clearTimeout(state.routeSwapAnalysisTimer);
       state.routeSwapAnalysisTimer = setTimeout(() => {
@@ -113069,6 +113069,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (message.type === "top-dragon-auth") {
         applyAuthenticatedUser(message.user || null);
       } else if (message.type === "top-dragon-user-directory") {
+        reportEmbeddedStartupPhase("users-start");
         const profiles = Array.isArray(message.profiles) ? message.profiles : [];
         const mappedUsers = profiles.map(profile => {
           const role = internalRoleFromSupabase(String(profile.role || ""));
@@ -113113,6 +113114,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         } else if (state.user && !state.boardStartupV188?.active) {
           render();
         }
+        reportEmbeddedStartupPhase("users-done");
       } else if (message.type === "top-dragon-fleet-data") {
         window.__topDragonLastFleetRows = Array.isArray(message.rows) ? message.rows : [];
         window.applySupabaseFleetRows?.(window.__topDragonLastFleetRows);

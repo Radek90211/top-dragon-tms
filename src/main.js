@@ -14,6 +14,8 @@ const hostViews = createViewLifecycle()
 let activeTmsFrame = null
 let activeTmsStartupSync = null
 let activeTmsSyncedDocument = null
+let activeTmsSecondarySync = null
+let activeTmsReadyDocument = null
 let tmsLoadingWatchdog = null
 let activeAuthMessage = null
 const initialAuthDocuments = new WeakSet()
@@ -69,6 +71,17 @@ function releaseTmsLoadingScreen(frame = activeTmsFrame) {
   }
   frame?.classList.remove('is-loading')
   document.querySelector('#tms-loading')?.remove()
+}
+
+function showTmsLoadingRecovery(frame = activeTmsFrame, failed = false) {
+  if (frame !== activeTmsFrame) return
+  const loading = document.querySelector('#tms-loading')
+  if (!loading) return
+  loading.querySelector('.tms-loading-message').textContent = failed
+    ? 'Nie udało się uruchomić panelu.'
+    : 'Uruchamianie panelu trwa dłużej niż zwykle.'
+  loading.querySelector('.tms-loading-recovery').hidden = false
+  loading.classList.toggle('has-error', failed)
 }
 
 function clearTmsLoadingWatchdog() {
@@ -4582,6 +4595,8 @@ async function renderDashboard(user) {
   suspendTmsRuntimeForAdminPanel()
   activeTmsStartupSync = null
   activeTmsSyncedDocument = null
+  activeTmsSecondarySync = null
+  activeTmsReadyDocument = null
   activeAuthMessage=activeUserDirectoryMessage=activeFleetMessage=activeRelationsMessage=activeClientsMessage=activeLoadQueueMessage=activeLoadQueueChatMessage=activeLoadRequestsMessage=activeAuditMessage=activeWeeklySettlementMessage=activeWorkflowMessage=null
   let profileResult
   try {
@@ -4629,7 +4644,11 @@ async function renderDashboard(user) {
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <span class="tms-loading-spinner" aria-hidden="true"></span>
-        <span>Uruchamianie panelu…</span>
+        <span class="tms-loading-message">Uruchamianie panelu…</span>
+        <div class="tms-loading-recovery" hidden>
+          <button id="tms-retry" type="button">Odśwież panel</button>
+          ${profile.role === 'admin' ? '<button id="tms-open-admin" type="button">Otwórz administrację</button>' : ''}
+        </div>
       </div>
       <iframe
         id="tms-frame"
@@ -4649,13 +4668,18 @@ async function renderDashboard(user) {
     if(hostViews.isCurrent(viewLease) && frame===activeTmsFrame)postInitialAuthToTms(frame)
   }
 
-  // Osadzony panel jest duży i w słabszej przeglądarce może nie odesłać
-  // potwierdzenia startu. Warstwa startowa nie może wtedy blokować całej strony.
+  document.querySelector('#tms-retry')?.addEventListener('click', () => window.location.reload(), { signal:viewLease.signal })
+  document.querySelector('#tms-open-admin')?.addEventListener('click', () => renderAdminPanel(), { signal:viewLease.signal })
+  // Nie odsłaniamy ramki, zanim potwierdzi wyrenderowanie pierwszego widoku.
+  // Przy wolnym starcie pokazujemy działające przyciski odzyskiwania.
   clearTmsLoadingWatchdog()
-  tmsLoadingWatchdog = setTimeout(() => releaseTmsLoadingScreen(frame), 8000)
+  tmsLoadingWatchdog = setTimeout(() => {
+    tmsLoadingWatchdog = null
+    showTmsLoadingRecovery(frame)
+  }, 8000)
   viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
   frame?.addEventListener('load', sendIdentityToTms, {signal:viewLease.signal})
-  frame?.addEventListener('error', () => releaseTmsLoadingScreen(frame), {signal:viewLease.signal})
+  frame?.addEventListener('error', () => showTmsLoadingRecovery(frame, true), {signal:viewLease.signal})
 
   activeTmsStartupSync = () => {
     if (!hostViews.isCurrent(viewLease) || activeTmsFrame !== frame) return
@@ -4672,7 +4696,10 @@ async function renderDashboard(user) {
       console.error('Nie udało się zsynchronizować relacji z TMS:', error)
     })
     subscribeCentralRelations()
+  }
 
+  activeTmsSecondarySync = () => {
+    if (!hostViews.isCurrent(viewLease) || activeTmsFrame !== frame) return
     syncCentralClientsToTms().catch((error) => {
       console.error('Nie udało się zsynchronizować klientów z TMS:', error)
     })
@@ -4797,6 +4824,14 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-view-ready') {
       releaseTmsLoadingScreen(activeTmsFrame)
+      const iframeDocument = activeTmsFrame.contentDocument
+      if (iframeDocument && iframeDocument !== activeTmsReadyDocument) {
+        activeTmsReadyDocument = iframeDocument
+        const readyFrame = activeTmsFrame
+        requestAnimationFrame(() => setTimeout(() => {
+          if (activeTmsFrame === readyFrame) activeTmsSecondarySync?.()
+        }, 0))
+      }
       return
     }
 
