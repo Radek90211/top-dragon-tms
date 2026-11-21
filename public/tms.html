@@ -91397,6 +91397,14 @@
       });
     }
 
+    const SAMPLE_ROUTE_LOCATION_LABELS_V333 = new Map();
+    function sampleRouteLocationV333(city) {
+      if (!SAMPLE_ROUTE_LOCATION_LABELS_V333.has(city)) {
+        SAMPLE_ROUTE_LOCATION_LABELS_V333.set(city, locationWithPostal(city));
+      }
+      return SAMPLE_ROUTE_LOCATION_LABELS_V333.get(city);
+    }
+
     function sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex) {
       const loadIndex = deterministicFleetValueV165(driverIndex * 31 + dayIndex, 21, SEPTEMBER_RELATION_CITY_POOL_V167.length);
       let unloadIndex = deterministicFleetValueV165(driverIndex * 37 + dayIndex, 22, SEPTEMBER_RELATION_CITY_POOL_V167.length);
@@ -91416,9 +91424,9 @@
         driverId: String(driver.id || ""),
         date,
         loadDate: date,
-        load: locationWithPostal(load),
+        load: sampleRouteLocationV333(load),
         loadAddress: sampleRouteStreetAddressV223(load),
-        unload: locationWithPostal(unload),
+        unload: sampleRouteLocationV333(unload),
         unloadAddress: sampleRouteStreetAddressV223(unload),
         client: `Klient ${String(sequence).padStart(4, "0")}`,
         approachKm,
@@ -112357,6 +112365,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function applyCentralRelationsData(message) {
       reportEmbeddedStartupPhase("relations-start");
+      const duringStartup = Boolean(state.boardStartupV188?.active);
       const rows = Array.isArray(message?.rows) ? message.rows : [];
       const beforeFingerprint = centralRelationsSetFingerprint(state.routes || []);
       const currentByKey = new Map();
@@ -112434,15 +112443,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       ensureSeptemberRelationsV167(merged, DRIVERS);
       const afterFingerprint = centralRelationsSetFingerprint(merged);
       state.routes = merged;
+      const relationsChanged = beforeFingerprint !== afterFingerprint;
+      if (relationsChanged) {
+        boardRenderCache = null;
+        invalidateCombinedClientHistoryCache();
+      }
       CENTRAL_RELATIONS_READY = true;
       markBoardStartupReadyV188("relations");
 
       // Supabase Realtime odsyła również zmianę wykonaną przez tę samą kartę.
       // Jeśli stan po stronie serwera jest identyczny z lokalnym, nie przebudowujemy
       // całej tablicy. To usuwa krótkie przycięcie po każdym przesunięciu kafelka.
-      if (beforeFingerprint !== afterFingerprint && !state.boardStartupV188?.active) {
-        boardRenderCache = null;
-        invalidateCombinedClientHistoryCache();
+      if (relationsChanged && !duringStartup) {
         renderKeepingScroll();
       }
       scheduleCentralRelationsDiff(120);
@@ -113063,6 +113075,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         applyAuthenticatedUser(message.user || null);
       } else if (message.type === "top-dragon-user-directory") {
         reportEmbeddedStartupPhase("users-start");
+        const duringStartup = Boolean(state.boardStartupV188?.active);
         const profiles = Array.isArray(message.profiles) ? message.profiles : [];
         const mappedUsers = profiles.map(profile => {
           const role = internalRoleFromSupabase(String(profile.role || ""));
@@ -113086,7 +113099,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         USERS.splice(0, USERS.length, ...mappedUsers);
         syncDispatcherColorStyles?.();
-        markBoardStartupReadyV188("users");
 
         if (state.user?.supabaseRole === "admin" && !USERS.some(user => user.supabaseId === state.user.supabaseId)) {
           USERS.push({
@@ -113104,9 +113116,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         if (window.__topDragonLastFleetRows && typeof window.applySupabaseFleetRows === "function") {
           window.applySupabaseFleetRows(window.__topDragonLastFleetRows);
-        } else if (state.user && !state.boardStartupV188?.active) {
+        } else if (state.user && !duringStartup) {
           render();
         }
+        markBoardStartupReadyV188("users");
         reportEmbeddedStartupPhase("users-done");
       } else if (message.type === "top-dragon-fleet-data") {
         window.__topDragonLastFleetRows = Array.isArray(message.rows) ? message.rows : [];
@@ -114995,6 +115008,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       window.applySupabaseFleetRows = function(rows) {
         reportEmbeddedStartupPhase("fleet-start");
+        const duringStartup = Boolean(state.boardStartupV188?.active);
         const sourceRows = Array.isArray(rows) ? rows : [];
         window.__topDragonLastFleetRows = sourceRows;
         CARRIER_RATE_HISTORY_BY_ID.clear();
@@ -115072,7 +115086,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
         const host = document.querySelector('[data-role="commercial-body"]');
         if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
-        if (state.user && !state.boardStartupV188?.active) {
+        if (state.user && !duringStartup) {
           syncBoardOnly();
           syncUnloadMapCard();
         }

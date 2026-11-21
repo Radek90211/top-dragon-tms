@@ -24,14 +24,14 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-async function scenario(active) {
+async function scenario(active, readyBeforeAuth = false) {
   const profileResponse = deferred();
   const permissionResponse = deferred();
   const posted = [];
   const loaded = [];
   let loadingMarkup = '';
   const frame = {
-    contentDocument: { URL: 'http://localhost/tms.html?embedded=1' },
+    contentDocument: { URL: 'http://localhost/tms.html?embedded=1', readyState: 'loading' },
     contentWindow: { postMessage: (message) => posted.push(message) },
     addEventListener() {},
   };
@@ -72,6 +72,7 @@ async function scenario(active) {
     roleLabel: () => 'Administrator',
     auditedSessionUserId: 'admin-1',
     initialAuthDocuments: new WeakSet(),
+    readyTmsDocuments: new WeakSet(),
     activeTmsFrame: null,
     tmsLoadingWatchdog: null,
     activeAuthMessage: null,
@@ -85,17 +86,26 @@ async function scenario(active) {
   const startup = vm.runInContext("renderDashboard({ id:'admin-1', email:'admin@example.test' })", context);
   assert.equal(frameCreated, true, 'Panel powinien zacząć się ładować przed odpowiedzią serwera');
   assert.match(loadingMarkup, /src="\/top-dragon-logo\.jpg"/, 'Ekran ładowania powinien pokazać logo Top Dragon');
+  assert.doesNotMatch(loadingMarkup, /Odśwież panel|Otwórz administrację|tms-loading-recovery/);
   assert.equal(posted.length, 0, 'Ramka nie może dostać tożsamości przed autoryzacją');
   assert.equal(loaded.length, 0, 'Dane mogą być pobierane dopiero po weryfikacji konta');
   profileResponse.resolve({ data: { active, role:'admin', feature_permissions:{ old:true } }, error:null });
-  await Promise.resolve();
+  await new Promise((done) => setImmediate(done));
   if (active) {
     assert.equal(posted.length, 0, 'Panel powinien poczekać na aktualne uprawnienia');
+    assert.deepEqual(loaded, ['users', 'fleet', 'relations'], 'Dane powinny ruszyć po weryfikacji konta, równolegle z uprawnieniami');
+    if (readyBeforeAuth) vm.runInContext('markTmsFrameReady(activeTmsFrame)', context);
     permissionResponse.resolve({ data:[{user_id:'admin-1', feature_permissions:{ new:true }}], error:null });
   }
   await startup;
   if (active) {
+    if (!readyBeforeAuth) {
+      assert.equal(posted.length, 0, 'Autoryzacja nie może zginąć przed rejestracją odbiornika');
+      vm.runInContext('markTmsFrameReady(activeTmsFrame)', context);
+    }
     assert.equal(posted.length, 1);
+    vm.runInContext('markTmsFrameReady(activeTmsFrame); postInitialAuthToTms(activeTmsFrame)', context);
+    assert.equal(posted.length, 1, 'Sygnały ready i load nie mogą powtarzać autoryzacji');
     assert.equal(posted[0].type, 'top-dragon-auth');
     assert.equal(posted[0].permissions.new, true);
     assert.equal(signedOut, false);
@@ -115,6 +125,7 @@ async function scenario(active) {
 
 (async () => {
   await scenario(true);
+  await scenario(true, true);
   await scenario(false);
   console.log('Równoległe ładowanie panelu i autoryzacja: OK');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

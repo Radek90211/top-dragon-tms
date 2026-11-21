@@ -19,12 +19,22 @@ let activeTmsReadyDocument = null
 let tmsLoadingWatchdog = null
 let activeAuthMessage = null
 const initialAuthDocuments = new WeakSet()
+const readyTmsDocuments = new WeakSet()
 function postInitialAuthToTms(frame) {
   if (!frame?.contentWindow || !activeAuthMessage) return
   const document = frame.contentDocument
   if (!document || document.URL === 'about:blank' || initialAuthDocuments.has(document)) return
+  // Dokument ramki istnieje już w trakcie parsowania. Wiadomość wysłana
+  // przed rejestracją odbiornika ginie, więc czekamy na sygnał gotowości.
+  if (!readyTmsDocuments.has(document) && document.readyState !== 'complete') return
   initialAuthDocuments.add(document)
   frame.contentWindow.postMessage(activeAuthMessage, window.location.origin)
+}
+function markTmsFrameReady(frame) {
+  const document = frame?.contentDocument
+  if (!document || document.URL === 'about:blank') return
+  readyTmsDocuments.add(document)
+  postInitialAuthToTms(frame)
 }
 let openAdminDataTransferAfterAuth = false
 let activeUserDirectoryMessage = null
@@ -80,7 +90,6 @@ function showTmsLoadingRecovery(frame = activeTmsFrame, failed = false) {
   loading.querySelector('.tms-loading-message').textContent = failed
     ? 'Nie udało się uruchomić panelu.'
     : 'Uruchamianie panelu trwa dłużej niż zwykle.'
-  loading.querySelector('.tms-loading-recovery').hidden = false
   loading.classList.toggle('has-error', failed)
 }
 
@@ -620,6 +629,7 @@ async function readCurrentFeaturePermissions(userId, fallback = {}) {
 
 async function refreshCurrentFeaturePermissions() {
   if (document.hidden || !currentUser?.id || !currentProfile || !activeTmsFrame?.contentWindow) return
+  if (!initialAuthDocuments.has(activeTmsFrame.contentDocument)) return
   const currentPermissions = await readCurrentFeaturePermissions(currentUser.id, currentProfile.feature_permissions)
   if (featurePermissionsFingerprint(currentPermissions) === featurePermissionsFingerprint(currentProfile.feature_permissions)) return
   currentProfile.feature_permissions = currentPermissions
@@ -1521,60 +1531,52 @@ async function loadFleetData() {
     .eq('active', true)
     .order('created_at', { ascending: true })
 
-  const { data: assignments, error: assignmentsError } = await assignmentsQuery
+  const actorId = currentActorId()
+  const optionalResult = (query) => Promise.resolve(query).catch(error => ({ data: null, error }))
+  const [assignmentsResult, usageResult, extrasResult, preferencesResult, ratesResult] = await Promise.all([
+    assignmentsQuery,
+    supabase.from('fleet_relation_usage').select('fleet_assignment_id, driver_id, vehicle_id, trailer_id'),
+    optionalResult(supabase.rpc('get_tms_fleet_extra_details')),
+    ['dispatcher', 'admin'].includes(currentRole()) && actorId
+      ? supabase.from('driver_row_preferences').select('driver_id, color').eq('user_id', actorId)
+      : Promise.resolve({ data: [], error: null }),
+    optionalResult(supabase.from('tms_carrier_rate_history')
+      .select('id,carrier_id,branch_id,rate_per_km,effective_from,created_at,created_by')
+      .order('effective_from', { ascending: true })
+      .order('created_at', { ascending: true })),
+  ])
+  const { data: assignments, error: assignmentsError } = assignmentsResult
 
   if (assignmentsError) {
     throw new Error(`Nie udało się pobrać floty: ${assignmentsError.message}`)
   }
 
-  const { data: usage, error: usageError } = await supabase
-    .from('fleet_relation_usage')
-    .select('fleet_assignment_id, driver_id, vehicle_id, trailer_id')
+  const { data: usage, error: usageError } = usageResult
 
   if (usageError) {
     throw new Error(`Nie udało się sprawdzić historii relacji: ${usageError.message}`)
   }
 
   const usageRows = usage || []
+  const usageAssignments = new Set(usageRows.map(row => row.fleet_assignment_id).filter(Boolean))
+  const usageDrivers = new Set(usageRows.map(row => row.driver_id).filter(Boolean))
+  const usageVehicles = new Set(usageRows.map(row => row.vehicle_id).filter(Boolean))
+  const usageTrailers = new Set(usageRows.map(row => row.trailer_id).filter(Boolean))
 
-  let fleetExtraRows = []
-  try {
-    const { data, error } = await supabase.rpc('get_tms_fleet_extra_details')
-    if (!error) fleetExtraRows = Array.isArray(data) ? data : []
-  } catch {}
+  const fleetExtraRows = !extrasResult.error && Array.isArray(extrasResult.data) ? extrasResult.data : []
   const fleetExtrasByAssignment = new Map(fleetExtraRows.map((item) => [String(item?.assignment_id || ''), item || {}]))
 
-  let preferenceRows = []
-  if (['dispatcher', 'admin'].includes(currentRole()) && currentActorId()) {
-    const { data: preferences, error: preferencesError } = await supabase
-      .from('driver_row_preferences')
-      .select('driver_id, color')
-      .eq('user_id', currentActorId())
-
-    if (preferencesError) {
-      throw new Error(`Nie udało się pobrać prywatnych kolorów kierowców: ${preferencesError.message}`)
-    }
-    preferenceRows = preferences || []
+  if (preferencesResult.error) {
+    throw new Error(`Nie udało się pobrać prywatnych kolorów kierowców: ${preferencesResult.error.message}`)
   }
+  const preferenceRows = preferencesResult.data || []
   const preferenceByDriver = new Map(preferenceRows.map((item) => [String(item.driver_id || ''), String(item.color || '')]))
 
   // 3L.54: historia stawek przewoźników jest dołączana do floty.
   // Brak tabeli przed wykonaniem migracji 032 nie może blokować całej aplikacji.
-  let carrierRateRows = []
-  try {
-    const { data: rates, error: ratesError } = await supabase
-      .from('tms_carrier_rate_history')
-      .select('id,carrier_id,branch_id,rate_per_km,effective_from,created_at,created_by')
-      .order('effective_from', { ascending: true })
-      .order('created_at', { ascending: true })
-    if (ratesError) {
-      const message = String(ratesError.message || '')
-      if (!/does not exist|schema cache|could not find/i.test(message)) throw ratesError
-    } else {
-      carrierRateRows = rates || []
-    }
-  } catch (error) {
-    console.warn('Nie udało się pobrać historii stawek przewoźników:', error)
+  const carrierRateRows = ratesResult.error ? [] : ratesResult.data || []
+  if (ratesResult.error && !/does not exist|schema cache|could not find/i.test(String(ratesResult.error.message || ''))) {
+    console.warn('Nie udało się pobrać historii stawek przewoźników:', ratesResult.error)
   }
   const ratesByCarrier = new Map()
   for (const row of carrierRateRows) {
@@ -1598,12 +1600,10 @@ async function loadFleetData() {
     const trailer = firstRelated(assignment.trailer)
     const extra = fleetExtrasByAssignment.get(String(assignment.id || '')) || {}
 
-    const relationLocked = usageRows.some((item) =>
-      item.fleet_assignment_id === assignment.id ||
-      item.driver_id === driver?.id ||
-      (vehicle?.id && item.vehicle_id === vehicle.id) ||
-      (trailer?.id && item.trailer_id === trailer.id)
-    )
+    const relationLocked = usageAssignments.has(assignment.id)
+      || usageDrivers.has(driver?.id)
+      || usageVehicles.has(vehicle?.id)
+      || usageTrailers.has(trailer?.id)
 
     return {
       id: assignment.id,
@@ -4605,9 +4605,6 @@ async function renderDashboard(user) {
       <div id="tms-loading" class="tms-loading" aria-live="polite">
         <img class="tms-loading-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         <span class="tms-loading-message">Uruchamianie panelu…</span>
-        <div class="tms-loading-recovery" hidden>
-          <button id="tms-retry" type="button">Odśwież panel</button>
-        </div>
       </div>
       <iframe
         id="tms-frame"
@@ -4619,7 +4616,6 @@ async function renderDashboard(user) {
   `
   const frame = document.querySelector('#tms-frame')
   activeTmsFrame = frame
-  document.querySelector('#tms-retry')?.addEventListener('click', () => window.location.reload(), { signal:viewLease.signal })
   clearTmsLoadingWatchdog()
   tmsLoadingWatchdog = setTimeout(() => {
     tmsLoadingWatchdog = null
@@ -4627,7 +4623,7 @@ async function renderDashboard(user) {
   }, 8000)
   viewLease.signal.addEventListener('abort', clearTmsLoadingWatchdog, { once: true })
   frame?.addEventListener('load', () => {
-    if (hostViews.isCurrent(viewLease) && frame === activeTmsFrame) postInitialAuthToTms(frame)
+    if (hostViews.isCurrent(viewLease) && frame === activeTmsFrame) markTmsFrameReady(frame)
   }, { signal:viewLease.signal })
   frame?.addEventListener('error', () => showTmsLoadingRecovery(frame, true), { signal:viewLease.signal })
 
@@ -4665,8 +4661,6 @@ async function renderDashboard(user) {
     return
   }
 
-  profile.feature_permissions = (await featurePermissionsPromise) ?? profile.feature_permissions ?? {}
-  if (!hostViews.isCurrent(viewLease)) return
   currentUser = user
   currentProfile = profile
   // Snapshoty startowe pobieramy podczas parsowania ramki. Wysyłamy je
@@ -4677,15 +4671,13 @@ async function renderDashboard(user) {
   startupUsers.catch(() => {})
   startupFleet.catch(() => {})
   startupRelations.catch(() => {})
+  profile.feature_permissions = (await featurePermissionsPromise) ?? profile.feature_permissions ?? {}
+  if (!hostViews.isCurrent(viewLease)) return
   if (auditedSessionUserId !== String(user.id || '')) {
     auditedSessionUserId = String(user.id || '')
     writeCurrentUserAudit('Logowanie', 'session', user.id || '', `Rola: ${roleLabel(profile.role)}`)
   }
 
-  if (profile.role === 'admin') {
-    document.querySelector('#tms-loading .tms-loading-recovery')?.insertAdjacentHTML('beforeend', '<button id="tms-open-admin" type="button">Otwórz administrację</button>')
-    document.querySelector('#tms-open-admin')?.addEventListener('click', () => renderAdminPanel(), { signal:viewLease.signal })
-  }
   activeAuthMessage = buildTmsAuthMessage(user, profile)
   startFeaturePermissionsRefresh()
 
@@ -4784,7 +4776,7 @@ async function bootstrap() {
 
     if (event.data?.type === 'top-dragon-ready') {
       activeTmsFrame.dataset.startupPhase = 'iframe-ready'
-      postInitialAuthToTms(activeTmsFrame)
+      markTmsFrameReady(activeTmsFrame)
       if (activeUserDirectoryMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeUserDirectoryMessage, window.location.origin)
       }
