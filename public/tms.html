@@ -107093,6 +107093,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     const BOARD_STARTUP_RECEIVED_V188 = { users:false, fleet:false, relations:false };
 
+    function reportEmbeddedStartupPhase(phase) {
+      if (EMBEDDED_MODE) window.parent?.postMessage({ type: "top-dragon-startup-phase", phase }, window.location.origin);
+    }
+
     function beginBoardStartupV188() {
       clearTimeout(state.boardStartupV188?.timeout);
       // Plan jest widoczny natychmiast, lecz snapshoty z autoryzacją, flotą i
@@ -107147,13 +107151,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       startup.active = false;
       boardRenderCache = null;
       cachedPlanMainFragment = null;
+      reportEmbeddedStartupPhase("final-render-start");
       render();
+      reportEmbeddedStartupPhase("final-render-done");
       if (EMBEDDED_MODE) window.parent?.postMessage({ type: "top-dragon-view-ready" }, window.location.origin);
       return true;
     }
 
     function applyAuthenticatedUser(user) {
       if (!user) return;
+      reportEmbeddedStartupPhase("auth-start");
       const role = internalRoleFromSupabase(String(user.role || ""));
       const loginValue = normalizeEmbeddedLogin(user);
       state.user = {
@@ -107191,6 +107198,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       state.statsCustomDraftTo = currentAppDate();
       state.statsDispatcherFilter = role === "spedytor" ? loginValue : "all";
       render();
+      reportEmbeddedStartupPhase("auth-render-done");
       requestAnimationFrame(applyFeatureVisibilityV263);
       // Lokalna biblioteka mapy jest pobierana równolegle z aplikacją. Ten krok
       // uruchamia ją od razu po identyfikacji użytkownika, zanim otworzy Mapę.
@@ -112359,6 +112367,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function applyCentralRelationsData(message) {
+      reportEmbeddedStartupPhase("relations-start");
       const rows = Array.isArray(message?.rows) ? message.rows : [];
       const beforeFingerprint = centralRelationsSetFingerprint(state.routes || []);
       const currentByKey = new Map();
@@ -112448,6 +112457,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         renderKeepingScroll();
       }
       scheduleCentralRelationsDiff(120);
+      reportEmbeddedStartupPhase("relations-done");
     }
 
     function syncCentralRelationsDiff() {
@@ -114993,6 +115003,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       window.applySupabaseFleetRows = function(rows) {
+        reportEmbeddedStartupPhase("fleet-start");
         const sourceRows = Array.isArray(rows) ? rows : [];
         window.__topDragonLastFleetRows = sourceRows;
         CARRIER_RATE_HISTORY_BY_ID.clear();
@@ -115075,6 +115086,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           syncUnloadMapCard();
         }
         if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
+        reportEmbeddedStartupPhase("fleet-done");
       };
 
       window.handleFleetOperationResult = function(message) {

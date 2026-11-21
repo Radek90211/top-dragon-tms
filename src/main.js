@@ -4734,7 +4734,13 @@ async function bootstrap() {
     if (event.origin !== window.location.origin) return
     if (!activeTmsFrame?.contentWindow || event.source !== activeTmsFrame.contentWindow) return
 
+    if (event.data?.type === 'top-dragon-startup-phase') {
+      activeTmsFrame.dataset.startupPhase = String(event.data.phase || '').slice(0, 60)
+      return
+    }
+
     if (event.data?.type === 'top-dragon-ready') {
+      activeTmsFrame.dataset.startupPhase = 'iframe-ready'
       postInitialAuthToTms(activeTmsFrame)
       if (activeUserDirectoryMessage) {
         activeTmsFrame?.contentWindow?.postMessage(activeUserDirectoryMessage, window.location.origin)

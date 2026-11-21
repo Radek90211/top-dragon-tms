@@ -12,6 +12,7 @@ const context = {
   state: { boardStartupV188: { active:true, usersReady:false, fleetReady:false, relationsReady:false, weeklyReady:true, timeout:1 } },
   clearTimeout:() => {},
   render:() => events.push('render'),
+  reportEmbeddedStartupPhase:phase => events.push(phase),
   EMBEDDED_MODE:true,
   window:{ location:{ origin:'https://example.test' }, parent:{ postMessage:message => events.push(message.type) } },
   boardRenderCache:null,
@@ -24,5 +25,5 @@ assert.equal(vm.runInContext('finishBoardStartupV188(false)', context), false);
 assert.deepEqual(events, [], 'Nie wolno odsłaniać niegotowego panelu');
 Object.assign(context.state.boardStartupV188, { usersReady:true, fleetReady:true, relationsReady:true });
 assert.equal(vm.runInContext('finishBoardStartupV188(false)', context), true);
-assert.deepEqual(events, ['render', 'top-dragon-view-ready'], 'Panel można odsłonić dopiero po pełnym renderze');
+assert.deepEqual(events, ['final-render-start', 'render', 'final-render-done', 'top-dragon-view-ready'], 'Panel można odsłonić dopiero po pełnym renderze');
 console.log('Pierwszy widok: OK');
