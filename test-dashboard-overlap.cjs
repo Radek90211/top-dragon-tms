@@ -29,6 +29,7 @@ async function scenario(active) {
   const permissionResponse = deferred();
   const posted = [];
   const loaded = [];
+  let loadingMarkup = '';
   const frame = {
     contentDocument: { URL: 'http://localhost/tms.html?embedded=1' },
     contentWindow: { postMessage: (message) => posted.push(message) },
@@ -37,7 +38,7 @@ async function scenario(active) {
   let frameCreated = false;
   let signedOut = false;
   const context = {
-    app: { set innerHTML(value) { frameCreated = value.includes('id="tms-frame"'); } },
+    app: { set innerHTML(value) { loadingMarkup = value; frameCreated = value.includes('id="tms-frame"'); } },
     document: { querySelector: (selector) => selector === '#tms-frame' ? frame : { addEventListener() {}, insertAdjacentHTML() {} } },
     window: { location: { origin: 'http://localhost', reload() {} } },
     buildParams: new URLSearchParams({ embedded: '1' }),
@@ -83,6 +84,7 @@ async function scenario(active) {
   vm.runInContext(code, context);
   const startup = vm.runInContext("renderDashboard({ id:'admin-1', email:'admin@example.test' })", context);
   assert.equal(frameCreated, true, 'Panel powinien zacząć się ładować przed odpowiedzią serwera');
+  assert.match(loadingMarkup, /src="\/top-dragon-logo\.jpg"/, 'Ekran ładowania powinien pokazać logo Top Dragon');
   assert.equal(posted.length, 0, 'Ramka nie może dostać tożsamości przed autoryzacją');
   assert.equal(loaded.length, 0, 'Dane mogą być pobierane dopiero po weryfikacji konta');
   profileResponse.resolve({ data: { active, role:'admin', feature_permissions:{ old:true } }, error:null });

@@ -4603,7 +4603,7 @@ async function renderDashboard(user) {
   app.innerHTML = `
     <main class="workspace">
       <div id="tms-loading" class="tms-loading" aria-live="polite">
-        <span class="tms-loading-spinner" aria-hidden="true"></span>
+        <img class="tms-loading-logo" src="/top-dragon-logo.jpg" onerror="this.onerror=null;this.src='/top-dragon-logo.svg'" alt="Top Dragon" />
         <span class="tms-loading-message">Uruchamianie panelu…</span>
         <div class="tms-loading-recovery" hidden>
           <button id="tms-retry" type="button">Odśwież panel</button>

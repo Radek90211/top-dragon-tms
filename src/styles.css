@@ -13,15 +13,13 @@ button { touch-action: manipulation; }
 .workspace, .tms-frame { display: block; width: 100%; min-height: 100vh; border: 0; }
 .tms-frame { height: 100dvh; }
 .tms-frame.is-loading { visibility: hidden; }
-.tms-loading { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #f8fafc; color: #334155; text-align: center; font-size: 14px; font-weight: 700; }
-.tms-loading-spinner { width: 34px; height: 34px; border: 3px solid #dbe3ee; border-top-color: #2563eb; border-radius: 50%; animation: tms-loading-spin .8s linear infinite; }
-.tms-loading.has-error .tms-loading-spinner { display: none; }
+.tms-loading { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #fff; color: #334155; text-align: center; font-size: 14px; font-weight: 700; }
+.tms-loading-logo { display: block; width: min(220px, 62vw); height: auto; object-fit: contain; }
 .tms-loading-recovery[hidden] { display: none; }
 .tms-loading-recovery { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 4px; }
 .tms-loading-recovery button { min-height: 38px; padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; color: #1e293b; cursor: pointer; font-weight: 700; }
 .tms-loading-recovery button:hover { background: #eaf2ff; border-color: #93c5fd; }
 .tms-loading-recovery button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
-@keyframes tms-loading-spin { to { transform: rotate(360deg); } }
 
 /* Ekran logowania i aktywacji konta. Celowo niezależny od stylów osadzonego TMS. */
 .login-shell {
