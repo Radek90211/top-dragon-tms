@@ -17,18 +17,25 @@
     var today = currentAppDate();
     var horizon = addDaysToIso(today, FUTURE_DAYS);
     var includeSampleRoutes = typeof isAdminUser === "function" && isAdminUser();
-    return activeRoutes()
+    var ordered = activeRoutes()
       .filter(function (route) {
         if (!route || route.futureQueue || (!includeSampleRoutes && route.sampleRelationV167) || isFreeDayRoute(route)) return false;
-        if (!route.driverId || !route.load || !operationalPointForRoute(route, "load")) return false;
+        if (!route.driverId || !route.load) return false;
         if (route.approvalStatus === "rejected") return false;
         var date = iso(route.date);
         return Boolean(date && date >= today && date <= horizon);
       })
+      .map(function (route) { return { route: route, start: routeGlobalStart(route) }; })
       .sort(function (a, b) {
-        return routeGlobalStart(a) - routeGlobalStart(b) || String(a.id).localeCompare(String(b.id));
-      })
-      .slice(0, MAX_ROUTES);
+        return a.start - b.start || String(a.route.id).localeCompare(String(b.route.id));
+      });
+    var selected = [];
+    for (var item of ordered) {
+      if (!operationalPointForRoute(item.route, "load")) continue;
+      selected.push(item.route);
+      if (selected.length === MAX_ROUTES) break;
+    }
+    return selected;
   }
 
   function signatureV311(routes) {
@@ -61,8 +68,10 @@
     return (displayCity(route.load) || route.load || "-") + " → " + (displayCity(route.unload) || route.unload || "-");
   }
 
-  function buildSuggestionsV311() {
-    var routes = futureRouteSetV311();
+  async function buildSuggestionsV311(routes, isCurrent) {
+    routes = routes || futureRouteSetV311();
+    isCurrent = isCurrent || function () { return true; };
+    var routeTimes = new WeakMap();
     var routesByDriver = new Map();
 
     activeRoutes()
@@ -76,18 +85,31 @@
       });
 
     routesByDriver.forEach(function (list) {
-      list.sort(function (a, b) { return routeGlobalStart(a) - routeGlobalStart(b); });
+      list.sort(function (a, b) { return routeSwapTime(a, routeTimes).start - routeSwapTime(b, routeTimes).start; });
     });
 
     var candidates = [];
+    var sliceStarted = performance.now();
 
     for (var left = 0; left < routes.length; left += 1) {
+      // Instalowany dodatek musi także oddawać sterowanie przeglądarce.
+      // Krótkie porcje pozwalają klikać plan podczas obliczeń w tle.
+      await new Promise(function (resolve) { setTimeout(resolve, 0); });
+      sliceStarted = performance.now();
+      if (!isCurrent()) return [];
       var first = routes[left];
       var firstDriver = driverById(first.driverId);
       var firstDispatcher = routeDispatcherLogin(first);
       if (!firstDriver || !firstDispatcher) continue;
 
       for (var right = left + 1; right < routes.length; right += 1) {
+        if ((right - left) % 5 === 0) {
+          if (performance.now() - sliceStarted >= 6) {
+            await new Promise(function (resolve) { setTimeout(resolve, 0); });
+            sliceStarted = performance.now();
+          }
+          if (!isCurrent()) return [];
+        }
         var second = routes[right];
         if (first.driverId === second.driverId) continue;
 
@@ -101,13 +123,13 @@
         if (!secondDriver || !secondDispatcher || firstDispatcher === secondDispatcher) continue;
 
         var ignoredIds = new Set([first.id, second.id]);
-        if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds)) continue;
-        if (!routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds)) continue;
+        if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, routeTimes)) continue;
+        if (!routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, routeTimes)) continue;
 
-        var firstOwnPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds);
-        var secondOwnPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds);
-        var firstSwapPosition = routeSwapPosition(firstDriver, second, routesByDriver, ignoredIds);
-        var secondSwapPosition = routeSwapPosition(secondDriver, first, routesByDriver, ignoredIds);
+        var firstOwnPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, routeTimes);
+        var secondOwnPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, routeTimes);
+        var firstSwapPosition = routeSwapPosition(firstDriver, second, routesByDriver, ignoredIds, routeTimes);
+        var secondSwapPosition = routeSwapPosition(secondDriver, first, routesByDriver, ignoredIds, routeTimes);
 
         var currentKm = routeSwapDistance(firstOwnPosition, first) + routeSwapDistance(secondOwnPosition, second);
         var swappedKm = routeSwapDistance(firstSwapPosition, second) + routeSwapDistance(secondSwapPosition, first);
@@ -139,26 +161,37 @@
       }
     }
 
-    routes.forEach(function (route) {
+    for (var route of routes) {
+      await new Promise(function (resolve) { setTimeout(resolve, 0); });
+      sliceStarted = performance.now();
+      if (!isCurrent()) return [];
       var currentDriver = driverById(route.driverId);
       var currentDispatcher = routeDispatcherLogin(route);
-      if (!currentDriver || !currentDispatcher) return;
+      if (!currentDriver || !currentDispatcher) continue;
 
       var ignoredIds = new Set([route.id]);
-      var currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds);
+      var currentPosition = routeSwapPosition(currentDriver, route, routesByDriver, ignoredIds, routeTimes);
       var currentKm = routeSwapDistance(currentPosition, route);
-      if (!Number.isFinite(currentKm)) return;
+      if (!Number.isFinite(currentKm)) continue;
 
       var best = null;
-      operationalDrivers().forEach(function (candidate) {
-        if (!candidate || candidate.id === currentDriver.id) return;
-        if (String(candidate.dispatcher || "") === currentDispatcher) return;
-        if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds)) return;
+      var candidateIndex = 0;
+      for (var candidate of operationalDrivers()) {
+        if (candidateIndex++ % 5 === 0) {
+          if (performance.now() - sliceStarted >= 6) {
+            await new Promise(function (resolve) { setTimeout(resolve, 0); });
+            sliceStarted = performance.now();
+          }
+          if (!isCurrent()) return [];
+        }
+        if (!candidate || candidate.id === currentDriver.id) continue;
+        if (String(candidate.dispatcher || "") === currentDispatcher) continue;
+        if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, routeTimes)) continue;
 
-        var candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds);
+        var candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, routeTimes);
         var candidateKm = routeSwapDistance(candidatePosition, route);
         var saving = meaningfulSavingV311(currentKm, candidateKm);
-        if (!saving) return;
+        if (!saving) continue;
 
         var score = saving.savingKm + saving.savingPercent;
         if (!best || score > best.score) {
@@ -170,9 +203,9 @@
             score: score
           };
         }
-      });
+      }
 
-      if (!best) return;
+      if (!best) continue;
       var date = iso(route.date);
       candidates.push({
         kind: "reassign",
@@ -196,7 +229,7 @@
         savingKm: best.savingKm,
         savingPercent: best.savingPercent
       });
-    });
+    }
 
     candidates.sort(function (a, b) {
       return scoreV311(b) - scoreV311(a)
@@ -517,7 +550,6 @@
       document.querySelectorAll('[data-action="toggle-performance-monitor"]').forEach(function (button) { button.remove(); });
     };
     remove();
-    new MutationObserver(remove).observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function installV311() {
@@ -544,9 +576,7 @@
     window.highlightRouteSwapSuggestion = highlightV311;
 
     state.routeSwapAnalysisSignature = "";
-    state.routeSwapSuggestions = buildSuggestionsV311();
-    if (!state.routeSwapSuggestions.length) state.routeSwapPanelOpen = false;
-    syncRouteSwapDock();
+    scheduleRouteSwapAnalysis();
     return true;
   }
 
