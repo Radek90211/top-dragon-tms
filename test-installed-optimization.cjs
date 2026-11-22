@@ -11,7 +11,7 @@ const visibility = html.slice(html.indexOf('    function routeSwapSuggestionsFor
 function setup(routes, drivers, admin = true) {
   let scheduled=0, yields=0, startReads=0, endReads=0, pointReads=0, current=true;
   const context = {
-    state:{user:{role:admin?'admin':'spedytor'},routeSwapSuggestions:[]}, ROUTE_SWAP_MIN_SAVING_KM:49,
+    state:{user:{role:admin?'admin':'spedytor'},routeSwapSuggestions:[]}, ROUTE_SWAP_MIN_SAVING_KM:49, ROUTE_SWAP_MAX_APPROACH_KM:1000,
     window:{}, document:{head:{appendChild(){}},createElement:()=>({}),getElementById:()=>null,querySelectorAll:()=>[]},
     performance, console,
     setTimeout:callback=>setImmediate(()=>{yields++;callback();}), clearInterval(){},
@@ -41,10 +41,10 @@ function setup(routes, drivers, admin = true) {
 }
 
 (async()=>{
-  const drivers=[{id:'a',driver:'A',dispatcher:'SP1',basePoint:0},{id:'b',driver:'B',dispatcher:'SP2',basePoint:1000}];
+  const drivers=[{id:'a',driver:'A',dispatcher:'SP1',basePoint:0},{id:'b',driver:'B',dispatcher:'SP2',basePoint:400}];
   const routes=[
-    {id:'one',driverId:'a',date:'2026-11-22',load:'Wschód',unload:'Zachód',loadPoint:1000,unloadPoint:0,sampleRelationV167:true},
-    {id:'two',driverId:'b',date:'2026-11-22',load:'Zachód',unload:'Wschód',loadPoint:0,unloadPoint:1000,sampleRelationV167:true},
+    {id:'one',driverId:'a',date:'2026-11-22',load:'Wschód',unload:'Zachód',loadPoint:400,unloadPoint:0,sampleRelationV167:true},
+    {id:'two',driverId:'b',date:'2026-11-22',load:'Zachód',unload:'Wschód',loadPoint:0,unloadPoint:400,sampleRelationV167:true},
   ];
   const test=setup(routes,drivers);
   const selected=test.context.routeSwapRouteSet();
@@ -56,15 +56,18 @@ function setup(routes, drivers, admin = true) {
   const suggestions=await analysis;
   assert.equal(inputHandled,true,'Obsługa kliknięcia musi być możliwa podczas obliczeń');
   assert.equal(suggestions[0].kind,'swap');
-  assert.equal(suggestions[0].savingKm,2000);
+  assert.equal(suggestions[0].savingKm,800);
   assert.equal(suggestions[0].sampleOptimization,true);
   assert.ok(test.stats().yields>0);
   assert.equal(setup(routes,drivers,false).context.routeSwapRouteSet().length,0,'Przykłady pozostają ograniczone do administratora');
 
   const ctx=test.context;
-  for (const [before,after,expected] of [[49,0,null],[50,0,50],[100.4,50.6,null],[100.6,50.4,51],[1000,950,50],[NaN,0,null],[100,Infinity,null],[100,-1,null]]) {
+  for (const [before,after,expected] of [[49,0,null],[50,0,50],[100.4,50.6,null],[100.6,50.4,51],[1000,950,50],[999,0,999],[1000,0,null],[1250,0,null],[NaN,0,null],[100,Infinity,null],[100,-1,null]]) {
     assert.equal(ctx.routeSwapSaving(before,after)?.savingKm??null,expected,`Próg i zaokrąglenia: ${before} → ${after}`);
   }
+  assert.equal(ctx.routeSwapDistance({coords:[0,0]},{loadPoint:999}),999);
+  assert.ok(Number.isNaN(ctx.routeSwapDistance({coords:[0,0]},{loadPoint:1000})),'Dolot 1000 km nie może zostać obcięty ani pokazany');
+  assert.ok(Number.isNaN(ctx.routeSwapDistance({coords:[0,0]},{loadPoint:1250})),'Dolot powyżej 1000 km musi odrzucić propozycję');
   for(const km of [49,50]) {
     const item={id:'threshold',driverId:'a',date:'2026-11-22',load:'X',unload:'Y',loadPoint:km,unloadPoint:km};
     const boundary=setup([item],[drivers[0],{...drivers[1],basePoint:km}]).context;
@@ -73,6 +76,8 @@ function setup(routes, drivers, admin = true) {
   }
   ctx.state.routeSwapSuggestions=[{currentKm:100,swappedKm:51,savingKm:49},{currentKm:100,swappedKm:50,savingKm:50},{currentKm:100,swappedKm:50,savingKm:51}];
   assert.equal(ctx.routeSwapSuggestionsForUser().length,1,'Widok odrzuca również stare propozycje poniżej progu i niespójne wyniki');
+  ctx.state.routeSwapSuggestions=[{currentKm:1250,swappedKm:0,savingKm:1250}];
+  assert.equal(ctx.routeSwapSuggestionsForUser().length,0,'Wcześniejsza zawyżona propozycja nie może pozostać w panelu');
   const oldSignature=ctx.routeSwapSignature(routes);
   drivers[0].basePoint=10;
   assert.notEqual(ctx.routeSwapSignature(routes),oldSignature,'Zmiana bazy wymaga ponownego liczenia');

@@ -35,7 +35,8 @@ const context = {
   displayCity:value => value,
   setTimeout:resolve => resolve(),
   ROUTE_SWAP_MAX_ROUTES:80,
-  ROUTE_SWAP_MIN_SAVING_KM:49
+  ROUTE_SWAP_MIN_SAVING_KM:49,
+  ROUTE_SWAP_MAX_APPROACH_KM:1000
 };
 vm.createContext(context);
 vm.runInContext(html.slice(start, end), context);

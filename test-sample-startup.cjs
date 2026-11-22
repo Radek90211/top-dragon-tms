@@ -16,6 +16,7 @@ const context={
   addDaysToIso:(iso,days)=>new Date(Date.parse(iso+'T12:00:00Z')+days*86400000).toISOString().slice(0,10),
   deterministicFleetValueV165:(index,seed,max)=>Math.abs(index+seed)%max,
   locationWithPostal:city=>{lookups++;return city+' 00-001';}, sampleRouteStreetAddressV223:()=> 'ul. Testowa',
+  displayCity:label=>label.replace(' 00-001',''),
   applySampleTransportProjectV252() {}, applyDailyTransportProjectsV255() {},
 };
 vm.createContext(context);
@@ -24,12 +25,13 @@ vm.runInContext(section('    const SAMPLE_ROUTE_LOCATION_LABELS_V333', '    cons
 vm.runInContext(section('    function buildSeptemberRelationsV167(', '    function relationMomentV169('),context);
 const routes=vm.runInContext('buildSeptemberRelationsV167()',context);
 assert.equal(routes.length,3360);
-assert.equal(lookups,cities.length,'Kod miejscowości obliczamy raz zamiast 6720 razy');
+assert.ok(lookups<=22,'Kod każdej miejscowości obliczamy tylko raz');
 assert.ok(routes.every(route=>route.load.endsWith('00-001')&&route.unload.endsWith('00-001')));
-assert.ok(routes.every(route=>route.sampleScheduleVersion===315 && route.startHour===0 && route.endHour===24));
+assert.ok(routes.every(route=>route.sampleScheduleVersion===336 && route.startHour===0 && route.endHour===24));
+for(let i=1;i<56;i+=2) assert.equal(routes[i+1].load,routes[i].unload,'Co drugi kolejny załadunek rozpoczyna się w mieście ostatniego rozładunku');
 assert.equal(routes.at(-1).date,'2026-11-22');
 routes[0].load='Zmieniona miejscowość';
 const next=vm.runInContext('buildSeptemberRelationsV167()',context);
 assert.notEqual(next[0].load,routes[0].load,'Każdy zestaw relacji musi mieć oddzielne obiekty');
-assert.equal(lookups,cities.length,'Kolejne generowanie nie powtarza normalizacji miejscowości');
+assert.ok(lookups<=22,'Kolejne generowanie nie powtarza normalizacji miejscowości');
 console.log('3360 przykładowych relacji: zgodne daty i niezależne obiekty; lokalizacje obliczane raz: OK');

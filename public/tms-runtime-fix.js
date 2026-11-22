@@ -133,7 +133,7 @@
     if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
     if (doc.querySelector('script[data-topdragon-route-optimization-v311]')) return;
     const script = doc.createElement("script");
-    script.src = "/tms-route-optimization-v311.js?build=v335-savings-validation";
+    script.src = "/tms-route-optimization-v311.js?build=v336-realistic-approaches";
     script.async = false;
     script.setAttribute("data-topdragon-route-optimization-v311", "true");
     script.onerror = () => {

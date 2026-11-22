@@ -91517,12 +91517,31 @@
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = sampleRelationDatesV315();
       return (drivers || []).flatMap((driver, driverIndex) => {
+        let previousUnload = "";
         return dates.map((date, dayIndex) => {
           const route = sampleSeptemberRouteV167(driver, driverIndex, date, dayIndex);
           applySampleTransportProjectV252(route, driverIndex, dayIndex);
           applyDailyTransportProjectsV255(route, driverIndex, date, dayIndex);
+          // W pokazowym planie kolejny załadunek jest w pobliżu ostatniego
+          // rozładunku, zamiast losowo przeskakiwać na drugi koniec kraju.
+          if (previousUnload && !route.projectTransport) {
+            const nearby = {
+              "Warszawa":"Radom", "Radom":"Warszawa", "Poznań":"Gorzów Wielkopolski",
+              "Gorzów Wielkopolski":"Zielona Góra", "Zielona Góra":"Gorzów Wielkopolski",
+              "Wrocław":"Opole", "Opole":"Gliwice", "Gdańsk":"Gdańsk",
+              "Kraków":"Katowice", "Katowice":"Gliwice", "Gliwice":"Katowice",
+              "Łódź":"Częstochowa", "Szczecin":"Gorzów Wielkopolski",
+              "Lublin":"Lublin", "Rzeszów":"Rzeszów", "Białystok":"Białystok",
+              "Bydgoszcz":"Toruń", "Toruń":"Bydgoszcz", "Olsztyn":"Olsztyn",
+              "Kielce":"Radom", "Częstochowa":"Gliwice", "Bielsko-Biała":"Katowice"
+            };
+            const city = dayIndex % 2 ? (nearby[previousUnload] || previousUnload) : previousUnload;
+            route.load = sampleRouteLocationV333(city);
+            route.loadAddress = sampleRouteStreetAddressV223(city);
+          }
+          previousUnload = String(route.unload || "").replace(/\s+\d{2}-\d{3}\b/g, "").trim();
           route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 315;
+          route.sampleScheduleVersion = 336;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91579,7 +91598,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 315 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => route.sampleScheduleVersion === 336 && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
@@ -101595,6 +101614,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     // Analizator wymian nie korzysta z AI ani routingu sieciowego. Pracuje na
     // lokalnych współrzędnych, harmonogramie i wymaganiach już obecnych w planie.
     const ROUTE_SWAP_MIN_SAVING_KM = 49;
+    const ROUTE_SWAP_MAX_APPROACH_KM = 1000;
     const ROUTE_SWAP_MAX_ROUTES = 80;
 
     function routeSwapRouteSet() {
@@ -101681,7 +101701,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeSwapDistance(position, route) {
       const load = operationalPointForRoute(route, "load");
       if (!position?.coords || !routeSwapValidPoint(load)) return Number.NaN;
-      return preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
+      const km = preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
+      // Nie przycinamy wyniku: niepewną lub niepraktyczną propozycję pomijamy.
+      return Number.isFinite(km) && km >= 0 && km < ROUTE_SWAP_MAX_APPROACH_KM ? km : Number.NaN;
     }
 
     function routeSwapSaving(currentKm, candidateKm) {
@@ -101689,7 +101711,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         || currentKm - candidateKm <= ROUTE_SWAP_MIN_SAVING_KM) return null;
       const before = Math.round(currentKm), after = Math.round(candidateKm);
       const savingKm = before - after;
-      if (savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return null;
+      if (savingKm <= ROUTE_SWAP_MIN_SAVING_KM || savingKm >= ROUTE_SWAP_MAX_APPROACH_KM) return null;
       return { currentKm:before, swappedKm:after, savingKm, savingPercent:Math.round(savingKm / before * 100) };
     }
 
@@ -101818,7 +101840,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function routeSwapSuggestionsForUser() {
       if (!tmsFeatureEnabledV261("routeOptimization")) return [];
       const suggestions = (state.routeSwapSuggestions || []).filter(item => Number.isFinite(item.savingKm)
-        && item.savingKm > ROUTE_SWAP_MIN_SAVING_KM && item.currentKm - item.swappedKm === item.savingKm);
+        && item.savingKm > ROUTE_SWAP_MIN_SAVING_KM && item.savingKm < ROUTE_SWAP_MAX_APPROACH_KM
+        && item.currentKm - item.swappedKm === item.savingKm);
       const login = String(state.user?.login || "");
       if (isAdminUser()) return suggestions;
       return suggestions.filter(item => item.firstDispatcher === login || item.secondDispatcher === login);
