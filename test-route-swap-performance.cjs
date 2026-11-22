@@ -22,20 +22,20 @@ const context = {
   isAdminUser:() => true,
   activeRoutes:() => routes,
   isFreeDayRoute:() => false,
-  operationalPointForRoute:route => ({ lat:51, lng:Number(route.driverId.split('-')[1]) * 1000 }),
+  operationalPointForRoute:route => ({ lat:51, lng:14 + Number(route.driverId.split('-')[1]) / 10 }),
   routeGlobalStart:route => { startReads += 1; return Date.parse(`${route.date}T00:00:00Z`); },
   routeGlobalEnd:route => { endReads += 1; return Date.parse(`${route.date}T00:00:00Z`) + 86400000; },
   driverById:id => drivers.find(driver => driver.id === id),
   routeDispatcherLogin:route => drivers.find(driver => driver.id === route.driverId)?.dispatcher,
   driverLoadCompatibility:() => ({ ok:true }),
   finalUnloadPointForRoute:() => null,
-  driverBasePoint:driver => ({ coords:[51, Number(driver.id.split('-')[1]) * 1000] }),
-  preferredMainRoadKm:(from, to) => Math.abs(from[1] - to[1]) / 1000,
+  driverBasePoint:driver => ({ lat:51, lng:14 + Number(driver.id.split('-')[1]) / 10 }),
+  preferredMainRoadKm:(from, to) => Math.abs(from[1] - to[1]) * 1000,
   operationalDrivers:() => drivers,
   displayCity:value => value,
   setTimeout:resolve => resolve(),
   ROUTE_SWAP_MAX_ROUTES:80,
-  ROUTE_SWAP_MIN_SAVING_KM:30
+  ROUTE_SWAP_MIN_SAVING_KM:49
 };
 vm.createContext(context);
 vm.runInContext(html.slice(start, end), context);

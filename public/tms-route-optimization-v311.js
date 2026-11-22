@@ -2,8 +2,6 @@
   "use strict";
   if (window.__topDragonRouteOptimizationV311) return;
 
-  var MIN_SAVING_KM = 30;
-  var MIN_SAVING_PERCENT = 8;
   var MAX_ROUTES = 160;
   var FUTURE_DAYS = 45;
   var PAIR_MAX_DAY_GAP = 1;
@@ -38,24 +36,6 @@
     return selected;
   }
 
-  function signatureV311(routes) {
-    return routes.map(function (route) {
-      return [
-        route.id, route.driverId, route.date, route.endDate, route.startHour, route.endHour,
-        route.load, route.unload, route.secondLoad, route.secondUnload, route.approvalStatus,
-        route.trailerHeight, route.weight, route.pallets, route.sampleRelationV167 ? "sample" : "real"
-      ].join("~");
-    }).join("|");
-  }
-
-  function meaningfulSavingV311(currentKm, candidateKm) {
-    var savingKm = Math.round(Number(currentKm) - Number(candidateKm));
-    if (!Number.isFinite(savingKm) || savingKm <= MIN_SAVING_KM) return null;
-    var savingPercent = currentKm > 0 ? Math.round((savingKm / currentKm) * 100) : 0;
-    if (savingPercent < MIN_SAVING_PERCENT && savingKm < 60) return null;
-    return { savingKm: savingKm, savingPercent: savingPercent };
-  }
-
   function scoreV311(item) {
     var saving = Math.max(0, Number(item && item.savingKm || 0));
     var percent = Math.max(0, Number(item && item.savingPercent || 0));
@@ -72,21 +52,8 @@
     routes = routes || futureRouteSetV311();
     isCurrent = isCurrent || function () { return true; };
     var routeTimes = new WeakMap();
-    var routesByDriver = new Map();
-
-    activeRoutes()
-      .filter(function (route) {
-        return route && !route.futureQueue && !isFreeDayRoute(route) && route.approvalStatus !== "rejected";
-      })
-      .forEach(function (route) {
-        var list = routesByDriver.get(route.driverId) || [];
-        list.push(route);
-        routesByDriver.set(route.driverId, list);
-      });
-
-    routesByDriver.forEach(function (list) {
-      list.sort(function (a, b) { return routeSwapTime(a, routeTimes).start - routeSwapTime(b, routeTimes).start; });
-    });
+    var realPlan = routeSwapDriverBuckets(false);
+    var samplePlan = routeSwapDriverBuckets(true);
 
     var candidates = [];
     var sliceStarted = performance.now();
@@ -98,6 +65,7 @@
       sliceStarted = performance.now();
       if (!isCurrent()) return [];
       var first = routes[left];
+      var routesByDriver = first.sampleRelationV167 ? samplePlan : realPlan;
       var firstDriver = driverById(first.driverId);
       var firstDispatcher = routeDispatcherLogin(first);
       if (!firstDriver || !firstDispatcher) continue;
@@ -111,6 +79,7 @@
           if (!isCurrent()) return [];
         }
         var second = routes[right];
+        if (Boolean(first.sampleRelationV167) !== Boolean(second.sampleRelationV167)) continue;
         if (first.driverId === second.driverId) continue;
 
         var firstDate = iso(first.date);
@@ -126,14 +95,8 @@
         if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, routeTimes)) continue;
         if (!routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, routeTimes)) continue;
 
-        var firstOwnPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, routeTimes);
-        var secondOwnPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, routeTimes);
-        var firstSwapPosition = routeSwapPosition(firstDriver, second, routesByDriver, ignoredIds, routeTimes);
-        var secondSwapPosition = routeSwapPosition(secondDriver, first, routesByDriver, ignoredIds, routeTimes);
-
-        var currentKm = routeSwapDistance(firstOwnPosition, first) + routeSwapDistance(secondOwnPosition, second);
-        var swappedKm = routeSwapDistance(firstSwapPosition, second) + routeSwapDistance(secondSwapPosition, first);
-        var saving = meaningfulSavingV311(currentKm, swappedKm);
+        var cost = routeSwapChangeCost(firstDriver, first, secondDriver, second, routesByDriver, routeTimes);
+        var saving = routeSwapSaving(cost.currentKm, cost.candidateKm);
         if (!saving) continue;
 
         candidates.push({
@@ -153,8 +116,8 @@
           firstRoute: routeLabelV311(first),
           secondRoute: routeLabelV311(second),
           sampleOptimization: Boolean(first.sampleRelationV167 || second.sampleRelationV167),
-          currentKm: Math.round(currentKm),
-          swappedKm: Math.round(swappedKm),
+          currentKm: saving.currentKm,
+          swappedKm: saving.swappedKm,
           savingKm: saving.savingKm,
           savingPercent: saving.savingPercent
         });
@@ -165,6 +128,7 @@
       await new Promise(function (resolve) { setTimeout(resolve, 0); });
       sliceStarted = performance.now();
       if (!isCurrent()) return [];
+      var routesByDriver = route.sampleRelationV167 ? samplePlan : realPlan;
       var currentDriver = driverById(route.driverId);
       var currentDispatcher = routeDispatcherLogin(route);
       if (!currentDriver || !currentDispatcher) continue;
@@ -188,16 +152,16 @@
         if (String(candidate.dispatcher || "") === currentDispatcher) continue;
         if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, routeTimes)) continue;
 
-        var candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, routeTimes);
-        var candidateKm = routeSwapDistance(candidatePosition, route);
-        var saving = meaningfulSavingV311(currentKm, candidateKm);
+        var cost = routeSwapChangeCost(currentDriver, route, candidate, null, routesByDriver, routeTimes);
+        var saving = routeSwapSaving(cost.currentKm, cost.candidateKm);
         if (!saving) continue;
 
         var score = saving.savingKm + saving.savingPercent;
         if (!best || score > best.score) {
           best = {
             candidate: candidate,
-            candidateKm: candidateKm,
+            currentKm: saving.currentKm,
+            candidateKm: saving.swappedKm,
             savingKm: saving.savingKm,
             savingPercent: saving.savingPercent,
             score: score
@@ -224,8 +188,8 @@
         firstRoute: routeLabelV311(route),
         secondRoute: "",
         sampleOptimization: Boolean(route.sampleRelationV167),
-        currentKm: Math.round(currentKm),
-        swappedKm: Math.round(best.candidateKm),
+        currentKm: best.currentKm,
+        swappedKm: best.candidateKm,
         savingKm: best.savingKm,
         savingPercent: best.savingPercent
       });
@@ -310,7 +274,7 @@
 
       return '<button type="button" class="route-swap-row" data-route-swap-suggestion="' + attr(item.id) + '" title="' + attr(item.firstRoute + (item.secondRoute ? " / " + item.secondRoute : "")) + '">'
         + '<div class="route-swap-row-top">'
-        + '<span class="route-swap-saving"><strong>-' + Math.round(item.savingKm) + ' km</strong><small>' + Math.round(item.savingPercent || 0) + '% mniej dojazdu</small></span>'
+        + '<span class="route-swap-saving" title="Szacunkowe kilometry dojazdów ze współrzędnych, z uwzględnieniem kolejnej relacji; bez wyznaczania trasy po drogach"><strong>-' + Math.round(item.savingKm) + ' km</strong><small>szac. ' + Math.round(item.savingPercent || 0) + '% mniej dojazdu</small></span>'
         + sampleBadge
         + '<span class="route-swap-date-v311">' + esc(routeDateLabelV311(item)) + '</span>'
         + '<span class="route-swap-km"><b>' + item.currentKm + ' km</b><i>&rarr;</i><b>' + item.swappedKm + ' km</b></span>'
@@ -568,7 +532,6 @@
     disablePerformanceMonitorV311();
 
     routeSwapRouteSet = futureRouteSetV311;
-    routeSwapSignature = signatureV311;
     buildRouteSwapSuggestions = buildSuggestionsV311;
     renderRouteSwapDock = renderDockV311;
     renderRouteSwapGuide = renderGuideV311;

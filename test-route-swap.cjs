@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const html = fs.readFileSync('public/tms.html', 'utf8');
-const start = html.indexOf('    const ROUTE_SWAP_MIN_SAVING_KM = 30;');
+const start = html.indexOf('    const ROUTE_SWAP_MIN_SAVING_KM = 49;');
 const end = html.indexOf('    function routeSwapSuggestionsForUser()', start);
 assert.ok(start >= 0 && end > start, 'Nie znaleziono analizatora wymian tras');
 
@@ -28,7 +28,7 @@ const context = {
   routeDispatcherLogin:route => drivers.find(driver => driver.id === route.driverId)?.dispatcher,
   driverLoadCompatibility:() => ({ ok:true }),
   finalUnloadPointForRoute:() => null,
-  driverBasePoint:driver => ({ coords:driver.id === 'a' ? [0, 0] : [0, 100] }),
+  driverBasePoint:driver => ({ lat:0, lng:driver.id === 'a' ? 0 : 100 }),
   preferredMainRoadKm:(a, b) => Math.abs(a[1] - b[1]),
   displayCity:() => '',
   operationalDrivers:() => drivers,

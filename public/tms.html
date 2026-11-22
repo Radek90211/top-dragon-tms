@@ -101594,7 +101594,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // Analizator wymian nie korzysta z AI ani routingu sieciowego. Pracuje na
     // lokalnych współrzędnych, harmonogramie i wymaganiach już obecnych w planie.
-    const ROUTE_SWAP_MIN_SAVING_KM = 30;
+    const ROUTE_SWAP_MIN_SAVING_KM = 49;
     const ROUTE_SWAP_MAX_ROUTES = 80;
 
     function routeSwapRouteSet() {
@@ -101614,7 +101614,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeSwapSignature(routes) {
-      return routes.map(route => [route.id, route.driverId, route.date, route.endDate, route.load, route.unload, route.approvalStatus, route.sampleRelationV167 ? "sample" : "real"].join("~")).join("|");
+      // Także poprzednie/następne relacje i parametry kierowców wpływają na wynik.
+      return JSON.stringify([routes.map(route => route.id), activeRoutes().map(route => [
+        route.id, route.driverId, route.date, route.endDate, route.startHour, route.endHour,
+        route.load, route.unload, route.secondLoad, route.secondUnload,
+        route.loadAddress, route.unloadAddress, route.secondLoadAddress, route.secondUnloadAddress,
+        route.routeOriginCoords, route.routeDestinationCoords, route.routeSecondLoadCoords, route.routeSecondUnloadCoords,
+        route.loadDate, route.unloadDate, route.secondLoadDate, route.secondUnloadDate,
+        route.approvalStatus, route.futureQueue, route.freeDay, route.loadHeightM, route.requirePolishDriver, route.militaryTransport,
+        route.sampleRelationV167
+      ]), operationalDrivers()]);
     }
 
     function routeSwapTime(route, times) {
@@ -101639,9 +101648,27 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
       }
       const unload = previous ? finalUnloadPointForRoute(previous) : null;
-      if (unload) return { coords:[Number(unload.lat), Number(unload.lng)], route:previous };
+      if (previous) return routeSwapValidPoint(unload) ? { coords:[Number(unload.lat), Number(unload.lng)], route:previous } : null;
       const base = driverBasePoint(driver);
-      return base?.coords ? { coords:base.coords, route:null } : null;
+      return routeSwapValidPoint(base) ? { coords:[Number(base.lat), Number(base.lng)], route:null } : null;
+    }
+
+    function routeSwapValidPoint(point) {
+      return point?.lat != null && point?.lng != null
+        && Number.isFinite(Number(point.lat)) && Math.abs(Number(point.lat)) <= 90
+        && Number.isFinite(Number(point.lng)) && Math.abs(Number(point.lng)) <= 180;
+    }
+
+    function routeSwapDriverBuckets(sample) {
+      const buckets = new Map();
+      for (const route of activeRoutes()) {
+        if (!route || route.futureQueue || isFreeDayRoute(route) || route.approvalStatus === "rejected"
+          || Boolean(route.sampleRelationV167) !== sample) continue;
+        const list = buckets.get(route.driverId) || [];
+        list.push(route);
+        buckets.set(route.driverId, list);
+      }
+      return buckets;
     }
 
     function routeSwapDriverCanCover(driver, route, routesByDriver, ignoredIds, times) {
@@ -101653,18 +101680,59 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeSwapDistance(position, route) {
       const load = operationalPointForRoute(route, "load");
-      if (!position?.coords || !load) return Number.NaN;
+      if (!position?.coords || !routeSwapValidPoint(load)) return Number.NaN;
       return preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
+    }
+
+    function routeSwapSaving(currentKm, candidateKm) {
+      if (!Number.isFinite(currentKm) || !Number.isFinite(candidateKm) || currentKm < 0 || candidateKm < 0
+        || currentKm - candidateKm <= ROUTE_SWAP_MIN_SAVING_KM) return null;
+      const before = Math.round(currentKm), after = Math.round(candidateKm);
+      const savingKm = before - after;
+      if (savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return null;
+      return { currentKm:before, swappedKm:after, savingKm, savingPercent:Math.round(savingKm / before * 100) };
+    }
+
+    function routeSwapAssignmentCost(driver, removed, added, routesByDriver, times) {
+      const original = routesByDriver.get(driver.id) || [];
+      const remaining = original.filter(route => route.id !== removed?.id);
+      // Zmienione odcinki to dojazd do przenoszonej relacji oraz do pierwszych
+      // relacji po jej usunięciu/wstawieniu. Pozostałe odcinki się nie zmieniają.
+      const affected = new Map();
+      if (removed) affected.set(removed.id, removed);
+      if (added) affected.set(added.id, added);
+      for (const boundary of [removed, added].filter(Boolean)) {
+        const end = routeSwapTime(boundary, times).end;
+        let next = null;
+        for (const route of remaining) {
+          const start = routeSwapTime(route, times).start;
+          if (start >= end && (!next || start < routeSwapTime(next, times).start)) next = route;
+        }
+        if (next) affected.set(next.id, next);
+      }
+      const changed = new Map([[driver.id, added ? remaining.concat(added) : remaining]]);
+      let currentKm = 0, candidateKm = 0;
+      for (const route of affected.values()) {
+        const ignored = new Set([route.id]);
+        if (route.id !== added?.id || route.id === removed?.id) {
+          currentKm += routeSwapDistance(routeSwapPosition(driver, route, routesByDriver, ignored, times), route);
+        }
+        if (route.id !== removed?.id || route.id === added?.id) {
+          candidateKm += routeSwapDistance(routeSwapPosition(driver, route, changed, ignored, times), route);
+        }
+      }
+      return { currentKm, candidateKm };
+    }
+
+    function routeSwapChangeCost(firstDriver, first, secondDriver, second, routesByDriver, times) {
+      const left = routeSwapAssignmentCost(firstDriver, first, second, routesByDriver, times);
+      const right = routeSwapAssignmentCost(secondDriver, second, first, routesByDriver, times);
+      return { currentKm:left.currentKm + right.currentKm, candidateKm:left.candidateKm + right.candidateKm };
     }
 
     async function buildRouteSwapSuggestions(routes, isCurrent) {
       const routeTimes = new WeakMap();
-      const routesByDriver = new Map();
-      activeRoutes().filter(route => !route.futureQueue && !isFreeDayRoute(route)).forEach(route => {
-        const list = routesByDriver.get(route.driverId) || [];
-        list.push(route);
-        routesByDriver.set(route.driverId, list);
-      });
+      const realPlan = routeSwapDriverBuckets(false), samplePlan = routeSwapDriverBuckets(true);
       const suggestions = [];
 
       for (let left = 0; left < routes.length; left += 1) {
@@ -101673,6 +101741,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (left) await new Promise(resolve => setTimeout(resolve, 0));
         if (!isCurrent()) return [];
         const first = routes[left];
+        const routesByDriver = first.sampleRelationV167 ? samplePlan : realPlan;
         const firstDriver = driverById(first.driverId);
         const firstDispatcher = routeDispatcherLogin(first);
         if (!firstDriver || !firstDispatcher) continue;
@@ -101680,6 +101749,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if ((right - left) % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
           if (!isCurrent()) return [];
           const second = routes[right];
+          if (Boolean(first.sampleRelationV167) !== Boolean(second.sampleRelationV167)) continue;
           if (String(first.date || "") !== String(second.date || "") || first.driverId === second.driverId) continue;
           const secondDriver = driverById(second.driverId);
           const secondDispatcher = routeDispatcherLogin(second);
@@ -101689,12 +101759,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!routeSwapDriverCanCover(firstDriver, second, routesByDriver, ignoredIds, routeTimes)
             || !routeSwapDriverCanCover(secondDriver, first, routesByDriver, ignoredIds, routeTimes)) continue;
 
-          const firstPosition = routeSwapPosition(firstDriver, first, routesByDriver, ignoredIds, routeTimes);
-          const secondPosition = routeSwapPosition(secondDriver, second, routesByDriver, ignoredIds, routeTimes);
-          const currentKm = routeSwapDistance(firstPosition, first) + routeSwapDistance(secondPosition, second);
-          const swappedKm = routeSwapDistance(firstPosition, second) + routeSwapDistance(secondPosition, first);
-          const savingKm = Math.round(currentKm - swappedKm);
-          if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) continue;
+          const cost = routeSwapChangeCost(firstDriver, first, secondDriver, second, routesByDriver, routeTimes);
+          const saving = routeSwapSaving(cost.currentKm, cost.candidateKm);
+          if (!saving) continue;
           suggestions.push({
             kind:"swap",
             id:[first.id, second.id].sort().join("::"),
@@ -101705,7 +101772,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             firstRoute:`${displayCity(first.load) || first.load} → ${displayCity(first.unload) || first.unload}`,
             secondRoute:`${displayCity(second.load) || second.load} → ${displayCity(second.unload) || second.unload}`,
             sampleOptimization:Boolean(first.sampleRelationV167 || second.sampleRelationV167),
-            currentKm:Math.round(currentKm), swappedKm:Math.round(swappedKm), savingKm
+            ...saving
           });
         }
       }
@@ -101714,6 +101781,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       for (const route of routes) {
         await new Promise(resolve => setTimeout(resolve, 0));
         if (!isCurrent()) return [];
+        const routesByDriver = route.sampleRelationV167 ? samplePlan : realPlan;
         const currentDriver = driverById(route.driverId);
         const currentDispatcher = routeDispatcherLogin(route);
         if (!currentDriver || !currentDispatcher) continue;
@@ -101725,11 +101793,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         operationalDrivers().forEach(candidate => {
           if (!candidate || candidate.id === currentDriver.id || String(candidate.dispatcher || "") === currentDispatcher) return;
           if (!routeSwapDriverCanCover(candidate, route, routesByDriver, ignoredIds, routeTimes)) return;
-          const candidatePosition = routeSwapPosition(candidate, route, routesByDriver, ignoredIds, routeTimes);
-          const candidateKm = routeSwapDistance(candidatePosition, route);
-          const savingKm = Math.round(currentKm - candidateKm);
-          if (!Number.isFinite(savingKm) || savingKm <= ROUTE_SWAP_MIN_SAVING_KM) return;
-          if (!best || savingKm > best.savingKm) best = { candidate, candidateKm, savingKm };
+          const cost = routeSwapChangeCost(currentDriver, route, candidate, null, routesByDriver, routeTimes);
+          const saving = routeSwapSaving(cost.currentKm, cost.candidateKm);
+          if (!saving) return;
+          if (!best || saving.savingKm > best.savingKm) best = { candidate, ...saving };
         });
         if (!best) continue;
         suggestions.push({
@@ -101742,7 +101809,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           firstRoute:`${displayCity(route.load) || route.load} → ${displayCity(route.unload) || route.unload}`,
           secondRoute:"",
           sampleOptimization:Boolean(route.sampleRelationV167),
-          currentKm:Math.round(currentKm), swappedKm:Math.round(best.candidateKm), savingKm:best.savingKm
+          currentKm:best.currentKm, swappedKm:best.swappedKm, savingKm:best.savingKm, savingPercent:best.savingPercent
         });
       }
       return suggestions.sort((a, b) => b.savingKm - a.savingKm || String(a.date).localeCompare(String(b.date))).slice(0, 12);
@@ -101750,13 +101817,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeSwapSuggestionsForUser() {
       if (!tmsFeatureEnabledV261("routeOptimization")) return [];
+      const suggestions = (state.routeSwapSuggestions || []).filter(item => Number.isFinite(item.savingKm)
+        && item.savingKm > ROUTE_SWAP_MIN_SAVING_KM && item.currentKm - item.swappedKm === item.savingKm);
       const login = String(state.user?.login || "");
-      if (isAdminUser()) return state.routeSwapSuggestions || [];
-      return (state.routeSwapSuggestions || []).filter(item => item.firstDispatcher === login || item.secondDispatcher === login);
+      if (isAdminUser()) return suggestions;
+      return suggestions.filter(item => item.firstDispatcher === login || item.secondDispatcher === login);
     }
 
     function routeSwapShortLine(item) {
-      return `−${Math.round(item.savingKm)} km · ${item.currentKm}→${item.swappedKm} km`;
+      return `szac. −${Math.round(item.savingKm)} km · ${item.currentKm}→${item.swappedKm} km`;
     }
 
     function routeSwapHighlightClass(route) {
