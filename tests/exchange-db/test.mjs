@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {PGlite} from '@electric-sql/pglite';
+const db=new PGlite();
+const branch='20000000-0000-4000-8000-000000000001',otherBranch='20000000-0000-4000-8000-000000000002';
+const ids=Array.from({length:6},(_,i)=>`10000000-0000-4000-8000-00000000000${i+1}`);
+await db.exec(`create role authenticated;create role anon;create schema auth;
+create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;
+create table public.branches(id uuid primary key,name text);
+create table public.profiles(id uuid primary key,display_name text,role text,active boolean,branch_id uuid references public.branches);
+grant select on public.profiles to authenticated;
+create table public.audit(id bigint generated always as identity,action text);
+create function public.write_tms_operation_audit(text,text,text,text) returns bigint language sql as $$insert into public.audit(action) values($1) returning id$$;`);
+await db.query('insert into public.branches values($1,$2),($3,$4)',[branch,'A',otherBranch,'B']);
+for(const [i,role]of ['dispatcher','dispatcher','admin','accounting','dispatcher','dispatcher'].entries())await db.query('insert into profiles values($1,$2,$3,$4,$5)',[ids[i],['Kasia','Piotr','Admin','Rozliczenia','Inny oddział','Nieaktywny'][i],role,i!==5,i===4?otherBranch:branch]);
+const migration=fs.readFileSync(new URL('../../supabase/migrations/035_exchange_assistant.sql',import.meta.url),'utf8');
+await db.exec(migration);
+async function actor(index){await db.exec('reset role;set role authenticated;');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[ids[index]]);}
+async function save(version,action='write',key='id:123',payload={offer:{client:'Test'},work:{status:'new'}},scope=branch){return (await db.query('select public.save_tms_exchange_record($1,$2,$3,$4,$5,$6) as result',[scope,'offer',key,JSON.stringify(payload),version,action])).rows[0].result;}
+async function list(scope=branch){return (await db.query('select public.list_tms_exchange_records($1) as result',[scope])).rows[0].result;}
+await actor(0);const first=await save(0,'claim');assert.equal(first.owner_name,'Kasia');assert.equal(first.version,1);
+await actor(1);assert.equal((await list())[0].owner_name,'Kasia');
+await assert.rejects(()=>save(1,'claim'),/zajmuje się już/);
+const changed=await save(1,'write','id:123',{offer:{client:'Test'},work:{status:'waiting'}});assert.equal(changed.version,2);assert.equal(changed.owner_name,'Kasia');
+await assert.rejects(()=>save(2,'release'),/Tylko opiekun/);
+await actor(0);await assert.rejects(()=>save(1),/zmieniona przez inną osobę/);
+await assert.rejects(()=>db.query("update public.tms_exchange_records set owner_name='Fałszywy'"),/permission denied/);
+await actor(2);const released=await save(2,'release');assert.equal(released.owner_id,null);assert.equal(released.version,3);
+await actor(0);const again=await save(3,'claim');assert.equal(again.owner_id,ids[0]);
+await actor(4);assert.equal((await list()).length,0);await assert.rejects(()=>save(4),/Brak dostępu/);
+await actor(3);assert.equal((await list()).length,1);await assert.rejects(()=>save(4),/Brak uprawnień/);
+await actor(5);assert.equal((await list()).length,0);await assert.rejects(()=>save(4),/Brak uprawnień/);
+await actor(0);await assert.rejects(()=>save(0,'write','id:big',{note:'x'.repeat(20001)}),/Nieprawidłowe dane/);
+await assert.rejects(()=>save(99,'write','id:new'),/zmieniona przez inną osobę/);
+assert.equal((await list()).some(row=>row.record_key==='id:new'),false,'Nie pozostawiaj rekordu po nieudanej transakcji');
+await db.exec('reset role;set role anon;');await assert.rejects(()=>list(),/permission denied/);
+await db.exec('reset role;');assert.equal(Number((await db.query('select count(*) as n from audit')).rows[0].n),4);
+await db.close();
+console.log('PostgreSQL/PGlite: migracja, RLS oddziałów, 2 spedytorów, zajmowanie, wersje, zwalnianie, administrator, rozliczenia, anonimowy dostęp i audyt: OK');

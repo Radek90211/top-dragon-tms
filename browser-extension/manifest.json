@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "TOP DRAGON — Asystent spedytora",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "description": "Panel planowania, kalkulacje, oznaczenia zespołu i własne skróty tekstowe. Bez API Trans.eu.",
+  "permissions": ["storage", "sidePanel", "activeTab", "scripting"],
+  "host_permissions": ["https://topdragon.dyspiqon.pl/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "action": {"default_title": "Otwórz asystenta TOP DRAGON"},
+  "side_panel": {"default_path": "sidepanel.html"},
+  "background": {"service_worker": "background.js", "type": "module"},
+  "content_scripts": [
+    {"matches": ["https://*.trans.eu/*", "https://topdragon.dyspiqon.pl/*"], "js": ["snippets.js"], "run_at": "document_idle", "all_frames": true},
+    {"matches": ["https://topdragon.dyspiqon.pl/*"], "js": ["connector.js"], "run_at": "document_idle"}
+  ],
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}

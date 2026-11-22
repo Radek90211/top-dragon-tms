@@ -1,0 +1,17 @@
+<!doctype html><html lang="pl"><head><meta charset="utf-8"><title>Test edytorów TOP DRAGON</title>
+<style>label{display:block;margin:12px} [contenteditable]{min-height:40px;border:1px solid gray;margin:12px} ::highlight(top-dragon-clients){background:#fef08a;color:#713f12}</style></head>
+<body><h1>Test skrótów — dane sztuczne</h1>
+<label>Tekst<input id="plain"></label><label>Wielowierszowe<textarea id="multi"></textarea></label>
+<label>Hasło testowe<input id="password" type="password" autocomplete="off"></label>
+<label>Pole tylko do odczytu<input id="readonly" readonly value="Stały tekst"></label>
+<label>Limit 2 znaków<input id="limited" maxlength="2"></label>
+<div id="rich" contenteditable="true" role="textbox" aria-label="Edytor sformatowany"></div>
+<div id="nested" contenteditable="true" role="textbox" aria-label="Edytor z formatowaniem"><b>Wstęp </b></div>
+<output id="events">0</output>
+<p>AlfaTestSpedycja — klient testowy.</p><button id="highlight-test">Sprawdź wyróżnienie nazwy</button><output id="highlight-output"></output>
+<script src="/browser-extension/snippets.js"></script><script src="/browser-extension/highlights.js"></script>
+<script>
+document.addEventListener('input',e=>{if(e.inputType==='insertReplacementText')document.querySelector('#events').textContent=String(Number(document.querySelector('#events').textContent)+1);});
+document.querySelector('#password').addEventListener('input',e=>document.querySelector('#events').setAttribute('data-password-literal',String(e.target.value==='=1')));
+document.querySelector('#highlight-test').addEventListener('click',async()=>{const result=await tdHighlightClients(['AlfaTestSpedycja']);document.querySelector('#highlight-output').textContent=String(result.count);});
+</script></body></html>

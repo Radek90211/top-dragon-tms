@@ -1,4 +1,5 @@
 import { createViewLifecycle } from './view-lifecycle.js'
+import { installExchangeAssistant } from './exchange-assistant.js'
 import './styles.css'
 import { supabase } from './lib/supabase.js'
 
@@ -5156,4 +5157,5 @@ async function bootstrap() {
 }
 
 bootstrap().catch(renderFatalError)
+installExchangeAssistant({supabase,getProfile:()=>currentProfile,getUser:()=>currentUser,getFrame:()=>activeTmsFrame,loadClients:loadCentralClients})
 
