@@ -101808,7 +101808,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         sampleRoadDemoRunningV339 = false;
         if (changed && state.user && !state.boardStartupV188?.active) {
           syncBoardOnly();
-          if (state.detailsOpen && state.selectedRouteId) syncDetailsPanel();
+          const selectedDemo = state.routes.find(route => route.id === state.selectedRouteId && route.sampleRoadDemoV339);
+          const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(String(document.activeElement?.tagName || ""));
+          if (state.detailsOpen && selectedDemo && !editing) syncDetailsPanel();
         }
         if (state.user && activeRoutes().some(route => route?.sampleRoadDemoV339 && !route.sampleRoadRoutingStatusV339)) scheduleSampleRoadDemosV339();
       }
@@ -107058,6 +107060,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
             <section class="section section-soft">
               <div class="details-section-title" style="margin-bottom:0;">Koszty i kilometry</div>
+              ${route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 !== "ready"
+                ? `<div class="small" style="margin-top:6px;">${route.sampleRoadRoutingStatusV339 === "unavailable" ? "Przykład: nie udało się potwierdzić kilometrów." : "Przykład: wyznaczanie kilometrów dla ciężarówki…"}</div>`
+                : `<div class="small" style="margin-top:6px;">Dolot: ${Math.round(Number(route.approachKm || 0))} km · Z ładunkiem: ${Math.round(Number(route.loadedKm || 0))} km${route.sampleRoadDemoV339 ? " · TomTom, zestaw 14/40 t" : ""}</div>`}
 
               <div class="grid-4 details-finance-grid" style="margin-top:10px;">
                 ${numberInput(route, "loadedKm", "Kilometry")}

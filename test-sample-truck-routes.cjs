@@ -15,7 +15,7 @@ function scenario(fail=false) {
     routeSwapValidPoint:p=>Number.isFinite(p?.lat)&&Number.isFinite(p?.lng),
     requestTruckRouting:async(mode,payload)=>{calls.push(payload);if(fail)throw Error('offline');return {distanceKm:payload.vehicleState==='empty'?64.3:271.6,source:'tomtom-truck'};},
     applyAutomaticCarrierCost:route=>{route.cost=route.approachKm+route.loadedKm;},
-    syncBoardOnly:()=>renders++,syncDetailsPanel(){},setTimeout,clearTimeout,WeakMap,Map,Set,JSON,Number,Math
+    document:{activeElement:null},syncBoardOnly:()=>renders++,syncDetailsPanel(){},setTimeout,clearTimeout,WeakMap,Map,Set,JSON,Number,Math
   };
   vm.createContext(ctx);vm.runInContext(html.slice(start,end),ctx);
   return {demo,calls,ctx,renders:()=>renders};
