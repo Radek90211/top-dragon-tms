@@ -103332,7 +103332,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `<div class="workspace-tool-tabs" aria-label="Narzędzia planu">
         <button type="button" class="workspace-tool-tab side-tool-tab side-tool-assistant ${state.commercialPanelOpen ? "btn-dark" : ""}" data-tutorial="assistant-toggle" onclick="toggleCommercialIntelligence();event.stopPropagation();" aria-label="Asystent spedytora">${sideToolIcon("assistant")}<span class="side-tool-label">Asystent spedytora</span></button>
         <button type="button" class="workspace-tool-tab side-tool-tab side-tool-nearest ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel();event.stopPropagation();" aria-label="Najbliższy pojazd">${sideToolIcon("nearest")}<span class="side-tool-label">Najbliższy pojazd</span></button>
-        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-settings ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools();event.stopPropagation();" aria-label="Ustawienia Planu kierowców">${sideToolIcon("settings")}<span class="side-tool-label">Ustawienia planu</span></button>
       </div>`;
     }
 
@@ -103431,13 +103430,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderStatsTab(stats = null) {
-      const alerts = stats ? stats.accountingIssues.length : activeRoutes().filter(statsRouteHasAccountingIssue).length;
-      return `
-        <button class="stats-tab side-tool-tab side-tool-stats ${state.statsPanelOpen ? "btn-dark" : ""}" type="button" onclick="toggleStatsPanel();event.stopPropagation();" aria-label="Statystyki">
-          ${sideToolIcon("stats")}<span class="side-tool-label">Statystyki</span>
-          ${alerts ? `<span class="proposed-tab-alert">${alerts}</span>` : ""}
-        </button>
-      `;
+      return "";
     }
 
     function renderStatsDispatcherScope(stats) {
@@ -116129,7 +116122,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const tabs = [["rates","Historia"],["region","Klienci w rejonie"],["requests","Zapytania o ładunek"],["database","Baza klientów"]].filter(([key]) => tmsCommercialViewEnabledV261(key));
         if (["spedytor","kierownik","admin"].includes(state.user?.role)) tabs.push(["fleet","+ Kierowca / pojazd"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-        return `<div class="commercial-intelligence workspace-inline-panel ${state.commercialPanelOpen ? "is-open" : ""}" id="commercial-intelligence"><div class="commercial-head"><h3>Asystent spedytora</h3><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+        return `<div class="commercial-intelligence workspace-inline-panel ${state.commercialPanelOpen ? "is-open" : ""}" id="commercial-intelligence"><div class="commercial-head"><h3>Asystent spedytora</h3><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}<button type="button" class="commercial-tab ${state.boardToolsOpen ? "active" : ""}" onclick="toggleBoardTools();syncCommercialIntelligenceSection()">Ustawienia planu</button>${tmsFeatureEnabledV261("statistics") ? `<button type="button" class="commercial-tab" onclick="window.toggleStatsPanel(true)">Statystyki</button>` : ""}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
       };
 
       const originalSetCommercialView = setCommercialView;
@@ -122593,13 +122586,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app .side-tool-assistant { top:var(--side-tools-top) !important; }
     .app .side-tool-nearest { top:calc(var(--side-tools-top) + 52px) !important; }
     .app .side-tool-settings { top:calc(var(--side-tools-top) + 104px) !important; }
-    .app .map-toggle-tab.side-tool-tab { top:calc(var(--side-tools-top) + 156px) !important; }
+    .app .map-toggle-tab.side-tool-tab { top:calc(var(--side-tools-top) + 104px) !important; }
     .app { --side-planned-space:52px; --side-free-space:52px; }
     html[data-tms-disabled-features~="plannedRelations"] .app { --side-planned-space:0px; }
     html[data-tms-disabled-features~="freeLoads"] .app { --side-free-space:0px; }
-    .app .future-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px) !important; }
-    .app .proposed-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px + var(--side-planned-space)) !important; }
-    .app .stats-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px + var(--side-planned-space) + var(--side-free-space)) !important; }
+    .app .future-tab.side-tool-tab { top:calc(var(--side-tools-top) + 156px) !important; }
+    .app .proposed-tab.side-tool-tab { top:calc(var(--side-tools-top) + 156px + var(--side-planned-space)) !important; }
   </style>
   <style id="targeted-v120-plan-order-sms-choice">
     /* Nazwa relacji pozostaje czytelna, lecz nie dominuje nad całym kafelkiem. */
@@ -124183,7 +124175,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         toggleFuturePanel(false);
         if (!state.unloadPanelCollapsed) toggleUnloadPanel();
         setMobileNavActiveV202('more');
-        document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">${sideToolIcon('settings')}<span>Baza klientów</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">${sideToolIcon('nearest')}<span>Najbliższy pojazd</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleBoardTools()">${sideToolIcon('settings')}<span>Ustawienia planu</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();window.toggleStatsPanel?.()">${sideToolIcon('stats')}<span>Statystyki</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">${sideToolIcon('assistant')}<span>Asystent</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">${sideToolIcon(state.darkMode ? 'sun' : 'moon')}<span>${state.darkMode ? 'Tryb jasny' : 'Tryb ciemny'}</span></button></div></section></div>`);
+        document.body.insertAdjacentHTML('beforeend', `<div class="mobile-more-backdrop-v200" onclick="if(event.target===this)closeMobileMoreV200()"><section class="mobile-more-sheet-v200" role="dialog" aria-modal="true" aria-label="Więcej narzędzi"><h2>Więcej</h2><div class="mobile-more-actions-v200"><button class="btn" type="button" onclick="closeMobileMoreV200();setAppView('clients')">${sideToolIcon('settings')}<span>Baza klientów</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleNearestVehiclePanel()">${sideToolIcon('nearest')}<span>Najbliższy pojazd</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleCommercialIntelligence()">${sideToolIcon('assistant')}<span>Asystent</span></button><button class="btn" type="button" onclick="closeMobileMoreV200();toggleDarkMode()">${sideToolIcon(state.darkMode ? 'sun' : 'moon')}<span>${state.darkMode ? 'Tryb jasny' : 'Tryb ciemny'}</span></button></div></section></div>`);
       };
       window.closeMobileMoreV200 = closeMobileMoreV200;
 
