@@ -91944,12 +91944,12 @@
     function loadClientMapHistoryDays() {
       try {
         const value = Number(localStorage.getItem(CLIENT_MAP_HISTORY_DAYS_STORAGE_KEY));
-        return Number.isFinite(value) && value > 0 ? Math.min(730, Math.max(1, Math.round(value))) : 30;
-      } catch (error) { return 30; }
+        return Number.isFinite(value) && value > 0 ? Math.min(730, Math.max(1, Math.round(value))) : 7;
+      } catch (error) { return 7; }
     }
 
     function saveClientMapHistoryDaysToStorage() {
-      try { localStorage.setItem(CLIENT_MAP_HISTORY_DAYS_STORAGE_KEY, String(state.clientMapHistoryDays || 30)); } catch (error) {}
+      try { localStorage.setItem(CLIENT_MAP_HISTORY_DAYS_STORAGE_KEY, String(state.clientMapHistoryDays || 7)); } catch (error) {}
     }
 
     function normalizeFreightStarRating(value, legacyMinutes = null) {
@@ -105719,7 +105719,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function currentClientMapHistoryDays() {
-      return Math.min(730, Math.max(1, Math.round(Number(state.clientMapHistoryDays || 30) || 30)));
+      return Math.min(730, Math.max(1, Math.round(Number(state.clientMapHistoryDays || 7) || 7)));
     }
 
     function clientMapOrderHistory() {
@@ -106188,7 +106188,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function setClientMapHistoryDays(value, immediate = false) {
       if (immediate) clearTimeout(clientMapHistoryDaysTimer);
-      const days = Math.min(730, Math.max(1, Math.round(Number(value) || 30)));
+      const days = Math.min(730, Math.max(1, Math.round(Number(value) || 7)));
       const changed = days !== currentClientMapHistoryDays();
       state.clientMapHistoryDays = days;
       saveClientMapHistoryDaysToStorage();
