@@ -18,7 +18,7 @@
     var ordered = activeRoutes()
       .filter(function (route) {
         if (!route || route.futureQueue || (!includeSampleRoutes && route.sampleRelationV167) || isFreeDayRoute(route)) return false;
-        if (!route.driverId || !route.load) return false;
+        if (!route.driverId || (!route.load && !(route.orderStops || []).some(function (stop) { return stop && stop.type === "pickup"; }))) return false;
         if (route.approvalStatus === "rejected") return false;
         var date = iso(route.date);
         return Boolean(date && date >= today && date <= horizon);
@@ -29,7 +29,7 @@
       });
     var selected = [];
     for (var item of ordered) {
-      if (!operationalPointForRoute(item.route, "load")) continue;
+      if (!routeSwapEndpoint(item.route, "pickup")) continue;
       selected.push(item.route);
       if (selected.length === MAX_ROUTES) break;
     }
@@ -45,7 +45,8 @@
   }
 
   function routeLabelV311(route) {
-    return (displayCity(route.load) || route.load || "-") + " → " + (displayCity(route.unload) || route.unload || "-");
+    var load = routeSwapEndpointLabel(route, "pickup"), unload = routeSwapEndpointLabel(route, "delivery");
+    return (displayCity(load) || load || "-") + " → " + (displayCity(unload) || unload || "-");
   }
 
   async function buildSuggestionsV311(routes, isCurrent) {
@@ -211,6 +212,26 @@
       ids.forEach(function (id) { usage.set(id, (usage.get(id) || 0) + 1); });
     });
 
+    // Pokazujemy rzeczywiste punkty dolotu dla proponowanego przydziału,
+    // żeby użytkownik mógł sprawdzić, skąd wzięły się kilometry.
+    selected.forEach(function (item) {
+      var plan = item.sampleOptimization ? samplePlan : realPlan;
+      var ignored = new Set([item.firstRouteId, item.secondRouteId].filter(Boolean));
+      var firstRoute = routes.find(function (route) { return route.id === item.firstRouteId; });
+      var secondRoute = routes.find(function (route) { return route.id === item.secondRouteId; });
+      function approach(driverId, route) {
+        var driver = driverById(driverId);
+        if (!driver || !route) return null;
+        var position = routeSwapPosition(driver, route, plan, ignored, routeTimes);
+        var km = routeSwapDistance(position, route);
+        if (!position || !position.route || !Number.isFinite(km)) return null;
+        return { driver:driver.driver, from:routeSwapEndpointLabel(position.route, "delivery"),
+          to:routeSwapEndpointLabel(route, "pickup"), km:Math.round(km) };
+      }
+      item.approaches = [approach(item.secondDriverId, firstRoute),
+        item.kind === "swap" ? approach(item.firstDriverId, secondRoute) : null].filter(Boolean);
+    });
+
     return selected;
   }
 
@@ -269,12 +290,16 @@
       if (item.secondRoute) {
         routeRows += '<div class="route-swap-route-v311"><b>' + esc(dateTextV311(item.secondDate || item.date)) + '</b><span>' + esc(item.secondRoute) + '</span></div>';
       }
+      (item.approaches || []).forEach(function (approach) {
+        var detail = approach.driver + ': ' + approach.from + ' → ' + approach.to + ' · ok. ' + approach.km + ' km';
+        routeRows += '<div class="route-swap-route-v311"><b>DOLOT</b><span title="' + attr(detail) + '">' + esc(detail) + '</span></div>';
+      });
       routeRows += "</div>";
       var sampleBadge = item.sampleOptimization ? '<span class="route-swap-sample-v317">PRZYKŁAD</span>' : "";
 
       return '<button type="button" class="route-swap-row" data-route-swap-suggestion="' + attr(item.id) + '" title="' + attr(item.firstRoute + (item.secondRoute ? " / " + item.secondRoute : "")) + '">'
         + '<div class="route-swap-row-top">'
-        + '<span class="route-swap-saving" title="Szacunkowe kilometry dojazdów ze współrzędnych, z uwzględnieniem kolejnej relacji; bez wyznaczania trasy po drogach"><strong>-' + Math.round(item.savingKm) + ' km</strong><small>szac. ' + Math.round(item.savingPercent || 0) + '% mniej dojazdu</small></span>'
+        + '<span class="route-swap-saving" title="Szacunkowa suma zmienionych dolotów: od ostatniego rozładunku do pierwszego załadunku, także w kolejnych relacjach"><strong>-' + Math.round(item.savingKm) + ' km</strong><small>szac. ' + Math.round(item.savingPercent || 0) + '% mniej dojazdu</small></span>'
         + sampleBadge
         + '<span class="route-swap-date-v311">' + esc(routeDateLabelV311(item)) + '</span>'
         + '<span class="route-swap-km"><b>' + item.currentKm + ' km</b><i>&rarr;</i><b>' + item.swappedKm + ' km</b></span>'

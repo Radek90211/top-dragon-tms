@@ -101657,12 +101657,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const includeSampleRoutes = isAdminUser();
       const ordered = activeRoutes()
         .filter(route => route && !route.futureQueue && (includeSampleRoutes || !route.sampleRelationV167) && !isFreeDayRoute(route)
-          && route.driverId && route.load)
+          && route.driverId && (route.load || route.orderStops?.some(stop => stop?.type === "pickup")))
         .map(route => ({ route, start:routeGlobalStart(route) }))
         .sort((a, b) => a.start - b.start || String(a.route.id).localeCompare(String(b.route.id)));
       const selected = [];
       for (const { route } of ordered) {
-        if (!operationalPointForRoute(route, "load")) continue;
+        if (!routeSwapEndpoint(route, "pickup")) continue;
         selected.push(route);
         if (selected.length === ROUTE_SWAP_MAX_ROUTES) break;
       }
@@ -101678,7 +101678,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         route.routeOriginCoords, route.routeDestinationCoords, route.routeSecondLoadCoords, route.routeSecondUnloadCoords,
         route.loadDate, route.unloadDate, route.secondLoadDate, route.secondUnloadDate,
         route.approvalStatus, route.futureQueue, route.freeDay, route.loadHeightM, route.requirePolishDriver, route.militaryTransport,
-        route.sampleRelationV167
+        route.sampleRelationV167, route.orderStops
       ]), operationalDrivers()]);
     }
 
@@ -101703,10 +101703,29 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           previousEnd = end;
         }
       }
-      const unload = previous ? finalUnloadPointForRoute(previous) : null;
-      if (previous) return routeSwapValidPoint(unload) ? { coords:[Number(unload.lat), Number(unload.lng)], route:previous } : null;
-      const base = driverBasePoint(driver);
-      return routeSwapValidPoint(base) ? { coords:[Number(base.lat), Number(base.lng)], route:null } : null;
+      const unload = previous ? routeSwapEndpoint(previous, "delivery") : null;
+      return routeSwapValidPoint(unload) ? { coords:[Number(unload.lat), Number(unload.lng)], route:previous } : null;
+    }
+
+    function routeSwapEndpoint(route, type) {
+      if (!route) return null;
+      const stops = (Array.isArray(route.orderStops) ? route.orderStops : []).filter(stop => stop?.type === type);
+      if (!stops.length) return type === "pickup" ? operationalPointForRoute(route, "load") : finalUnloadPointForRoute(route);
+      const stop = type === "pickup" ? stops[0] : stops[stops.length - 1];
+      const direct = stop.coords && Array.isArray(stop.coords) ? {lat:stop.coords[0], lng:stop.coords[1]} : stop;
+      if (routeSwapValidPoint(direct)) return {lat:Number(direct.lat), lng:Number(direct.lng)};
+      const location = [stop.city, stop.postalCode].filter(Boolean).join(" ") || stop.fullAddress || stop.address || "";
+      const address = stop.fullAddress || stop.address || "";
+      const point = clientRelationLocationPoint([address, location].filter(Boolean).join(", "))
+        || clientRelationLocationPoint(location) || clientRelationLocationPoint(address);
+      return Array.isArray(point?.coords) ? {lat:Number(point.coords[0]), lng:Number(point.coords[1])} : null;
+    }
+
+    function routeSwapEndpointLabel(route, type) {
+      const stops = (Array.isArray(route?.orderStops) ? route.orderStops : []).filter(stop => stop?.type === type);
+      const stop = type === "pickup" ? stops[0] : stops[stops.length - 1];
+      return stop ? ([stop.city, stop.postalCode].filter(Boolean).join(" ") || stop.fullAddress || stop.address || "")
+        : (type === "pickup" ? route?.load : (route?.secondUnload || route?.unload)) || "";
     }
 
     function routeSwapValidPoint(point) {
@@ -101735,7 +101754,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeSwapDistance(position, route) {
-      const load = operationalPointForRoute(route, "load");
+      const load = routeSwapEndpoint(route, "pickup");
       if (!position?.coords || !routeSwapValidPoint(load)) return Number.NaN;
       const km = preferredMainRoadKm(position.coords, [Number(load.lat), Number(load.lng)]);
       // Nie przycinamy wyniku: niepewną lub niepraktyczną propozycję pomijamy.

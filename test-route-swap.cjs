@@ -12,6 +12,8 @@ const drivers = [
   { id:'b', driver:'B', dispatcher:'spedytor-b' }
 ];
 const routes = [
+  { id:'previous-a', driverId:'a', date:'2026-11-19', unload:{lat:0,lng:0}, previous:true },
+  { id:'previous-b', driverId:'b', date:'2026-11-19', unload:{lat:0,lng:100}, previous:true },
   { id:'one', driverId:'a', date:'2026-11-20', load:{ lat:0, lng:100 }, unload:{ lat:0, lng:100 } },
   { id:'two', driverId:'b', date:'2026-11-20', load:{ lat:0, lng:0 }, unload:{ lat:0, lng:0 } }
 ];
@@ -22,12 +24,12 @@ const context = {
   activeRoutes:() => routes,
   isFreeDayRoute:() => false,
   operationalPointForRoute:(route, kind) => route[kind],
-  routeGlobalStart:() => 0,
-  routeGlobalEnd:() => 8,
+  routeGlobalStart:route => route.previous ? -24 : 0,
+  routeGlobalEnd:route => route.previous ? -16 : 8,
   driverById:id => drivers.find(driver => driver.id === id),
   routeDispatcherLogin:route => drivers.find(driver => driver.id === route.driverId)?.dispatcher,
   driverLoadCompatibility:() => ({ ok:true }),
-  finalUnloadPointForRoute:() => null,
+  finalUnloadPointForRoute:route => route.unload,
   driverBasePoint:driver => ({ lat:0, lng:driver.id === 'a' ? 0 : 100 }),
   preferredMainRoadKm:(a, b) => Math.abs(a[1] - b[1]),
   displayCity:() => '',

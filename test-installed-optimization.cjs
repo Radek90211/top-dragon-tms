@@ -10,6 +10,7 @@ const visibility = html.slice(html.indexOf('    function routeSwapSuggestionsFor
 
 function setup(routes, drivers, admin = true) {
   let scheduled=0, yields=0, startReads=0, endReads=0, pointReads=0, current=true;
+  const histories=drivers.flatMap(driver=>[false,true].map(sample=>({id:`history-${driver.id}-${sample}`,driverId:driver.id,date:'2026-01-01',startHour:1,endHour:2,unloadPoint:driver.basePoint,sampleRelationV167:sample})));
   const context = {
     state:{user:{role:admin?'admin':'spedytor'},routeSwapSuggestions:[]}, ROUTE_SWAP_MIN_SAVING_KM:49, ROUTE_SWAP_MAX_APPROACH_KM:1000,
     window:{}, document:{head:{appendChild(){}},createElement:()=>({}),getElementById:()=>null,querySelectorAll:()=>[]},
@@ -18,14 +19,16 @@ function setup(routes, drivers, admin = true) {
     currentAppDate:()=> '2026-11-22',
     addDaysToIso:(value,days)=>new Date(Date.parse(value+'T00:00:00Z')+days*86400000).toISOString().slice(0,10),
     isoDayDifference:(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/86400000),
-    activeRoutes:()=>routes,isAdminUser:()=>admin,isFreeDayRoute:()=>false,
+    activeRoutes:()=>routes.concat(histories),isAdminUser:()=>admin,isFreeDayRoute:()=>false,
     operationalPointForRoute:route=>{pointReads++;return {lat:0,lng:route.loadPoint/1000};},
     routeGlobalStart:route=>{startReads++;return Date.parse(route.date)/3600000+(route.startHour||0);},
     routeGlobalEnd:route=>{endReads++;return Date.parse(route.date)/3600000+(route.endHour||1);},
     driverById:id=>drivers.find(driver=>driver.id===id),routeDispatcherLogin:route=>drivers.find(d=>d.id===route.driverId)?.dispatcher,
     driverLoadCompatibility:()=>({ok:true}),finalUnloadPointForRoute:route=>({lat:0,lng:route.unloadPoint/1000}),
+    clientRelationLocationPoint:value=>{const match=String(value).match(/punkt-(\d+)/);return match?{coords:[0,Number(match[1])/1000]}:null;},
     driverBasePoint:driver=>({lat:0,lng:driver.basePoint/1000}),preferredMainRoadKm:(a,b)=>Math.abs(a[1]-b[1])*1000,
     operationalDrivers:()=>drivers,displayCity:value=>value,
+    esc:value=>String(value),attr:value=>String(value),formatDateForInput:value=>value,dispatcherBadgeClass:()=>'',
     tmsFeatureEnabledV261:()=>true,syncRouteSwapDock(){},syncBoardOnly(){},
     scheduleRouteSwapAnalysis:()=>{scheduled++;},
     routeSwapRouteSet(){},routeSwapSignature(){},buildRouteSwapSuggestions(){},renderRouteSwapDock(){},renderRouteSwapGuide(){},highlightRouteSwapSuggestion(){},
@@ -62,6 +65,33 @@ function setup(routes, drivers, admin = true) {
   assert.equal(setup(routes,drivers,false).context.routeSwapRouteSet().length,0,'Przykłady pozostają ograniczone do administratora');
 
   const ctx=test.context;
+  const multi={loadPoint:999,unloadPoint:999,orderStops:[{type:'pickup',city:'punkt-100'}, {type:'pickup',city:'punkt-200'}, {type:'delivery',city:'punkt-300'}, {type:'delivery',city:'punkt-400'}, {type:'delivery',city:'punkt-500'}]};
+  assert.equal(ctx.routeSwapEndpoint(multi,'pickup').lng,0.1,'Dolot kończy się w pierwszym punkcie załadunku');
+  assert.equal(ctx.routeSwapEndpoint(multi,'delivery').lng,0.5,'Dolot zaczyna się w ostatnim punkcie rozładunku, także trzecim');
+  assert.equal(ctx.routeSwapPosition(drivers[0],routes[0],new Map(),new Set(),new WeakMap()),null,'Brak poprzedniego rozładunku nie może zostać zastąpiony bazą');
+  const actualRoutes=[
+    {id:'pa',driverId:'a',date:'2026-11-21',startHour:1,endHour:2,load:'x',unload:'x',unloadPoint:0,orderStops:[{type:'delivery',city:'punkt-10'},{type:'delivery',city:'punkt-50'},{type:'delivery',city:'punkt-500'}]},
+    {id:'pb',driverId:'b',date:'2026-11-21',startHour:1,endHour:2,load:'x',unload:'x',unloadPoint:100},
+    {id:'a1',driverId:'a',date:'2026-11-22',startHour:1,endHour:2,load:'stara lokalizacja',unload:'x',loadPoint:500,unloadPoint:0,orderStops:[{type:'pickup',city:'punkt-100'},{type:'pickup',city:'punkt-500'}]},
+    {id:'b1',driverId:'b',date:'2026-11-22',startHour:1,endHour:2,load:'x',unload:'x',loadPoint:500,unloadPoint:0}
+  ];
+  const actualCtx=setup(actualRoutes,drivers).context;
+  const matching=await actualCtx.buildRouteSwapSuggestions([actualRoutes[2],actualRoutes[3]],()=>true);
+  const swap=matching.find(item=>item.kind==='swap');
+  assert.equal(swap?.currentKm,800,'Obecne doloty liczone od ostatnich rozładunków do pierwszych załadunków');
+  assert.equal(swap?.swappedKm,0,'Po zamianie każdy kierowca jest przy swoim pierwszym załadunku');
+  assert.equal(swap?.savingKm,800);
+  assert.deepEqual(JSON.parse(JSON.stringify(swap.approaches)),[
+    {driver:'B',from:'x',to:'punkt-100',km:0},
+    {driver:'A',from:'punkt-500',to:'x',km:0}
+  ],'Prezentowane doloty wskazują faktyczne punkty po zamianie');
+  actualCtx.state.routeSwapPanelOpen=true;
+  actualCtx.state.routeSwapSuggestions=[swap];
+  const visible=actualCtx.renderRouteSwapDock();
+  assert.ok(visible.includes('punkt-500 → x · ok. 0 km') && visible.includes('x → punkt-100 · ok. 0 km'),'Panel pokazuje użytkownikowi oba doloty po zamianie');
+  const beforeStopChange=actualCtx.routeSwapSignature([actualRoutes[2],actualRoutes[3]]);
+  actualRoutes[0].orderStops[2].city='punkt-450';
+  assert.notEqual(actualCtx.routeSwapSignature([actualRoutes[2],actualRoutes[3]]),beforeStopChange,'Edycja ostatniego punktu wymusza przeliczenie');
   for (const [before,after,expected] of [[49,0,null],[50,0,50],[100.4,50.6,null],[100.6,50.4,51],[1000,950,50],[999,0,999],[1000,0,null],[1250,0,null],[NaN,0,null],[100,Infinity,null],[100,-1,null]]) {
     assert.equal(ctx.routeSwapSaving(before,after)?.savingKm??null,expected,`Próg i zaokrąglenia: ${before} → ${after}`);
   }
@@ -104,7 +134,8 @@ function setup(routes, drivers, admin = true) {
     const plan=drivers.flatMap(d=>Array.from({length:3},(_,i)=>{const hour=[1,d.id==='a'||run%2===0?5:9,13][i];return {id:d.id+i,driverId:d.id,date:d.id==='b'&&run%3===0?'2026-11-23':'2026-11-22',startHour:hour,endHour:hour+1,load:'X',unload:'Y',loadPoint:rand(),unloadPoint:rand()};}));
     const a=plan[1],b=plan[4];
     const check=setup(plan,drivers).context;
-    const buckets=new Map(drivers.map(d=>[d.id,plan.filter(r=>r.driverId===d.id)]));
+    const predecessor=d=>({id:'previous-'+d.id,driverId:d.id,date:'2026-01-01',startHour:1,endHour:2,unloadPoint:d.basePoint});
+    const buckets=new Map(drivers.map(d=>[d.id,[predecessor(d),...plan.filter(r=>r.driverId===d.id)]]));
     const before=drivers.reduce((sum,d)=>sum+total(plan,d),0);
     const swapped=plan.map(r=>({...r,driverId:r===a?'b':r===b?'a':r.driverId}));
     const after=drivers.reduce((sum,d)=>sum+total(swapped,d),0);
@@ -112,7 +143,7 @@ function setup(routes, drivers, admin = true) {
     assert.ok(Math.abs((cost.currentKm-cost.candidateKm)-(before-after))<1e-8,'Zmiana lokalnych odcinków musi zgadzać się z przeliczeniem całego planu');
     // Przeniesienie na wolnego kierowcę; źródło ma kolejną relację.
     const transferPlan=plan.filter(r=>r.driverId==='a');
-    const transferBuckets=new Map([['a',transferPlan],['b',[]]]);
+    const transferBuckets=new Map([['a',[predecessor(drivers[0]),...transferPlan]],['b',[predecessor(drivers[1])]]]);
     const transferCost=check.routeSwapChangeCost(drivers[0],a,drivers[1],null,transferBuckets,new WeakMap());
     const transferred=transferPlan.map(r=>({...r,driverId:r===a?'b':'a'}));
     const transferDelta=drivers.reduce((sum,d)=>sum+total(transferPlan,d)-total(transferred,d),0);
@@ -126,8 +157,8 @@ function setup(routes, drivers, admin = true) {
   withNext[1].routeOriginCoords=[0,1];
   assert.notEqual(nextTest.context.routeSwapSignature([withNext[0]]),historySignature,'Zmiana następnej relacji wymaga przeliczenia');
   const mixed=setup([...routes,...withNext],drivers).context;
-  assert.equal(mixed.routeSwapDriverBuckets(false).get('a').length,2,'Przykłady nie zmieniają rzeczywistego planu');
-  assert.equal(mixed.routeSwapDriverBuckets(true).get('a').length,1,'Plan przykładowy jest liczony osobno');
+  assert.equal(mixed.routeSwapDriverBuckets(false).get('a').filter(r=>!r.id.startsWith('history-')).length,2,'Przykłady nie zmieniają rzeczywistego planu');
+  assert.equal(mixed.routeSwapDriverBuckets(true).get('a').filter(r=>!r.id.startsWith('history-')).length,1,'Plan przykładowy jest liczony osobno');
 
   // Pełny historyczny plan: geolokalizacja tylko wybranego przyszłego zestawu.
   const fullDrivers=Array.from({length:60},(_,i)=>({id:'d'+i,driver:'Kierowca '+i,dispatcher:'SP'+(i%3),basePoint:i*100}));
