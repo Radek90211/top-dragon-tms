@@ -93155,7 +93155,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!route || isFreeDayRoute(route)) return [];
       const missing = [];
       if (!(Number(route.rate || 0) > 0)) missing.push("stawka");
-      if (!(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
+      const sampleRoutingPending = route.sampleRoadDemoV339 && !route.sampleRoadRoutingStatusV339;
+      if (!sampleRoutingPending && !(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
       const client = String(route.client || "").trim();
       if (!client || /^(klient testowy|klient nieprzypisany|-)$/i.test(client)) missing.push("klient");
       return missing;
@@ -101801,7 +101802,45 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     let sampleRoadDemoTimerV339 = 0;
     let sampleRoadDemoRunningV339 = false;
+    const SAMPLE_ROAD_CACHE_KEY_V349 = "tms-sample-truck-matrix-1650-255-400-14t-40t-v1";
+    const SAMPLE_ROAD_CACHE_MAX_AGE_V349 = 24 * 60 * 60 * 1000;
     const sampleRoadDemoCacheV339 = new Map();
+    const sampleRoadDemoCacheTimesV349 = new Map();
+    function loadSampleRoadCacheV349() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SAMPLE_ROAD_CACHE_KEY_V349) || "[]");
+        if (!Array.isArray(saved) || saved.length > 3000) return;
+        const now = Date.now();
+        for (const row of saved) {
+          if (!Array.isArray(row) || row.length !== 3) continue;
+          const [key, distance, savedAt] = row;
+          if (typeof key !== "string" || typeof distance !== "number" || !Number.isFinite(distance)
+            || distance < 0 || distance > 20000 || !Number.isFinite(savedAt)
+            || savedAt > now || now - savedAt > SAMPLE_ROAD_CACHE_MAX_AGE_V349) continue;
+          let points;
+          try { points = JSON.parse(key); } catch { continue; }
+          if (!Array.isArray(points) || points.length !== 5 || !["empty", "loaded"].includes(points[4])
+            || !points.slice(0, 4).every(Number.isFinite)
+            || Math.abs(points[0]) > 90 || Math.abs(points[2]) > 90
+            || Math.abs(points[1]) > 180 || Math.abs(points[3]) > 180) continue;
+          sampleRoadDemoCacheV339.set(key, distance);
+          sampleRoadDemoCacheTimesV349.set(key, savedAt);
+        }
+      } catch (error) {}
+    }
+    function persistSampleRoadCacheV349() {
+      try {
+        const now = Date.now();
+        const rows = [];
+        for (const [key, distance] of sampleRoadDemoCacheV339) {
+          const savedAt = sampleRoadDemoCacheTimesV349.get(key);
+          if (Number.isFinite(distance) && Number.isFinite(savedAt)
+            && now - savedAt <= SAMPLE_ROAD_CACHE_MAX_AGE_V349) rows.push([key, distance, savedAt]);
+        }
+        localStorage.setItem(SAMPLE_ROAD_CACHE_KEY_V349, JSON.stringify(rows.slice(-3000)));
+      } catch (error) {}
+    }
+    loadSampleRoadCacheV349();
     function scheduleSampleRoadDemosV339() {
       if (!state.user || !EMBEDDED_MODE) return;
       clearTimeout(sampleRoadDemoTimerV339);
@@ -101811,6 +101850,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (sampleRoadDemoRunningV339 || !state.user) return;
       sampleRoadDemoRunningV339 = true;
       let changed = false;
+      let cacheDirty = false;
+      let lastCacheWrite = Date.now();
+      let refreshTimer = 0;
       try {
         const demos = activeRoutes().filter(route => route?.sampleRoadDemoV339);
         const samplePlan = routeSwapDriverBuckets(true);
@@ -101846,9 +101888,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         const applyReady = () => {
           let batchChanged = false;
+          const liveRoutes = new Set(state.routes);
           for (const item of pending) {
             const {route, prior, from, load, unload, emptyKey, loadedKey} = item;
-            if (route.sampleRoadRoutingStatusV339 || !state.routes.includes(route)) continue;
+            if (route.sampleRoadRoutingStatusV339 || !liveRoutes.has(route)) continue;
             if (!sampleRoadDemoCacheV339.has(emptyKey) || !sampleRoadDemoCacheV339.has(loadedKey)) continue;
             const approach = sampleRoadDemoCacheV339.get(emptyKey);
             const loaded = sampleRoadDemoCacheV339.get(loadedKey);
@@ -101870,7 +101913,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
           if (batchChanged) {
             changed = true;
-            if (!state.boardStartupV188?.active) scheduleUiSync({board:true});
+            if (!state.boardStartupV188?.active && !refreshTimer) {
+              refreshTimer = setTimeout(() => { refreshTimer = 0; scheduleUiSync({board:true}); }, 350);
+            }
           }
         };
         applyReady();
@@ -101887,11 +101932,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               }, 30000);
               batch.forEach(([key], index) => {
                 const entry = result?.results?.[index];
-                const distance = entry?.ok ? Number(entry.distanceKm) : NaN;
-                sampleRoadDemoCacheV339.set(key, Number.isFinite(distance) && distance >= 0 ? distance : null);
+                const distance = entry?.ok && entry.distanceKm != null ? Number(entry.distanceKm) : NaN;
+                const valid = Number.isFinite(distance) && distance >= 0 && distance <= 20000;
+                sampleRoadDemoCacheV339.set(key, valid ? distance : null);
+                if (valid) {
+                  sampleRoadDemoCacheTimesV349.set(key, Date.now());
+                  cacheDirty = true;
+                }
               });
             } catch (error) {
               batch.forEach(([key]) => sampleRoadDemoCacheV339.set(key, null));
+            }
+            if (cacheDirty && Date.now() - lastCacheWrite >= 2000) {
+              persistSampleRoadCacheV349();
+              cacheDirty = false;
+              lastCacheWrite = Date.now();
             }
             applyReady();
           }
@@ -101899,6 +101954,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }
         await Promise.all(Array.from({length:Math.min(3, groupQueue.length)}, () => runGroup()));
       } finally {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        if (cacheDirty) persistSampleRoadCacheV349();
         sampleRoadDemoRunningV339 = false;
         if (changed && state.user && !state.boardStartupV188?.active) {
           syncBoardOnly();
