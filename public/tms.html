@@ -117299,11 +117299,42 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return Number.isFinite(n) ? n.toFixed(2) : "0.00";
       }
 
+      function sampleCompanyDispatcherStats(stats) {
+        const role = String(state.user?.supabaseRole || "");
+        const allowed = new Set(statsAvailableDispatcherUsers().map(user => String(user.login || "").toUpperCase()));
+        const currentLogin = String(state.user?.login || "").toUpperCase();
+        const groups = new Map();
+        routesForStatsDates(stats.dates).forEach(route => {
+          if (!route.sampleRelationV167 || isFreeDayRoute(route)) return;
+          const login = statsRouteDispatcherLogin(route);
+          if (!login || (role === "dispatcher" && login !== currentLogin) || (role === "branch_manager" && !allowed.has(login))) return;
+          if (!groups.has(login)) groups.set(login, { dispatcherId:`sample:${login}`, dispatcherName:statsDispatcherName(route), branchName:statsRouteBranch(route), uiColor:"#94a3b8", sample:true, relationCount:0, profit:0, carrierCost:0, loadedKm:0, emptyKm:0, totalKm:0, income:0, verificationCount:0, lowRateCount:0 });
+          const row = groups.get(login);
+          const values = routeStatsValues(route);
+          row.relationCount += 1;
+          row.profit += values.profit;
+          row.carrierCost += values.cost;
+          row.loadedKm += Math.max(0, values.loaded);
+          row.emptyKm += Math.max(0, values.approach);
+          row.totalKm += values.totalKm;
+          row.income += values.income;
+          if (statsRouteHasAccountingIssue(route)) row.verificationCount += 1;
+          if (values.loaded > 0 && values.income / values.loaded < 5) row.lowRateCount += 1;
+        });
+        return Array.from(groups.values(), row => ({ ...row,
+          emptyPercent: row.loadedKm + row.emptyKm ? 100 * row.emptyKm / (row.loadedKm + row.emptyKm) : 0,
+          avgRatePerKm: row.loadedKm ? row.income / row.loadedKm : 0,
+          avgProfitPerRoute: row.relationCount ? row.profit / row.relationCount : 0,
+          profitPerLoadedKm: row.loadedKm ? row.profit / row.loadedKm : 0,
+          loadedToEmptyRatio: row.emptyKm ? row.loadedKm / row.emptyKm : row.loadedKm ? 999999 : 0
+        }));
+      }
+
       function renderCompanyDispatcherStatsTable(stats) {
         const period = companyStatsPeriod(stats);
         const store = state.companyDispatcherStats || {};
         if (store.key !== period.key || (!store.loaded && !store.loading)) queueMicrotask(() => requestCompanyDispatcherStats(stats, false));
-        const rows = store.key === period.key ? (store.rows || []) : [];
+        const rows = store.key === period.key && store.loaded ? [...(store.rows || []), ...sampleCompanyDispatcherStats(stats)] : [];
         const body = store.loading && store.key === period.key
           ? `<div class="stats-company-loading">Pobieranie wspólnej tabeli statystyk…</div>`
           : store.error && store.key === period.key
@@ -117314,7 +117345,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 const current = String(row.dispatcherId || "") === String(state.user?.supabaseId || "");
                 const profitValue = Number(row.profit || 0);
                 return `<tr class="${current ? "current-user" : ""}">
-                  <td><div class="stats-company-person" style="--dispatcher-color:${attr(row.uiColor || '#E2E8F0')}"><span class="stats-company-color"></span><span class="stats-company-person-copy"><b>${esc(row.dispatcherName || '-')}</b><small>${esc(row.branchName || '-')}${current ? ' · Ty' : ''}</small></span></div></td>
+                  <td><div class="stats-company-person" style="--dispatcher-color:${attr(row.uiColor || '#E2E8F0')}"><span class="stats-company-color"></span><span class="stats-company-person-copy"><b>${esc(row.dispatcherName || '-')}</b><small>${esc(row.branchName || '-')}${current ? ' · Ty' : ''}${row.sample ? ' · Przykład' : ''}</small></span></div></td>
                   <td>${Math.round(Number(row.relationCount || 0))}</td>
                   <td class="${profitValue > 0 ? 'stats-company-profit-positive' : profitValue < 0 ? 'stats-company-profit-negative' : ''}">${statsMoney(profitValue)}</td>
                   <td>${statsMoney(row.carrierCost)}</td>
