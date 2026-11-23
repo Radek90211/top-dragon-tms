@@ -101344,10 +101344,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routesForStatsDates(dates) {
-      const set = new Set(dates || []);
+      const dayIndexes = [...new Set((dates || []).map(getDateIndex).filter(index => index >= 0))].sort((a, b) => a - b);
+      if (!dayIndexes.length) return [];
       return activeRoutes()
         .filter(route => route.approvalStatus !== "rejected")
-        .filter(route => Array.from(set).some(date => routeOverlapsDate(route, date)));
+        .filter(route => {
+          const start = routeGlobalStart(route);
+          const end = routeGlobalEnd(route);
+          let low = 0, high = dayIndexes.length;
+          while (low < high) {
+            const middle = (low + high) >>> 1;
+            if ((dayIndexes[middle] + 1) * 24 <= start) low = middle + 1;
+            else high = middle;
+          }
+          return low < dayIndexes.length && dayIndexes[low] * 24 < end;
+        });
     }
 
     function statsDispatcherBranch(dispatcher) {
@@ -101360,14 +101371,16 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return driver?.branch || statsDispatcherBranch(route.ownerDispatcher || route.createdBy || driver?.dispatcher || "");
     }
 
+    let statsValuesCache = null;
     function routeStatsValues(route) {
+      if (statsValuesCache?.has(route)) return statsValuesCache.get(route);
       const loaded = Number(route.loadedKm || 0);
       const approach = Number(route.approachKm || 0);
       const base = Number(route.baseKm || 0);
       const cost = carrierCost(route);
-      const routeProfit = profit(route);
       const income = Number(route.rate || 0);
-      return {
+      const routeProfit = income - cost;
+      const values = {
         count: 1,
         loaded,
         approach,
@@ -101379,6 +101392,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         perKm: loaded > 0 ? income / loaded : 0,
         profitPerKm: loaded > 0 ? routeProfit / loaded : 0
       };
+      statsValuesCache?.set(route, values);
+      return values;
     }
 
     function emptyStatsTotals() {
@@ -101529,6 +101544,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function statsSnapshot() {
+      const previousStatsValuesCache = statsValuesCache;
+      statsValuesCache = new Map();
+      try {
       const range = state.statsRange || "day";
       const date = statsSelectedDate();
       const dates = statsDateRange(range, date);
@@ -101599,6 +101617,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         minRate,
         maxRate
       };
+      } finally {
+        statsValuesCache = previousStatsValuesCache;
+      }
     }
 
     function canUseOperationalAi() {
@@ -122573,9 +122594,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .app .side-tool-nearest { top:calc(var(--side-tools-top) + 52px) !important; }
     .app .side-tool-settings { top:calc(var(--side-tools-top) + 104px) !important; }
     .app .map-toggle-tab.side-tool-tab { top:calc(var(--side-tools-top) + 156px) !important; }
+    .app { --side-planned-space:52px; --side-free-space:52px; }
+    html[data-tms-disabled-features~="plannedRelations"] .app { --side-planned-space:0px; }
+    html[data-tms-disabled-features~="freeLoads"] .app { --side-free-space:0px; }
     .app .future-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px) !important; }
-    .app .proposed-tab.side-tool-tab { top:calc(var(--side-tools-top) + 260px) !important; }
-    .app .stats-tab.side-tool-tab { top:calc(var(--side-tools-top) + 312px) !important; }
+    .app .proposed-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px + var(--side-planned-space)) !important; }
+    .app .stats-tab.side-tool-tab { top:calc(var(--side-tools-top) + 208px + var(--side-planned-space) + var(--side-free-space)) !important; }
   </style>
   <style id="targeted-v120-plan-order-sms-choice">
     /* Nazwa relacji pozostaje czytelna, lecz nie dominuje nad całym kafelkiem. */
