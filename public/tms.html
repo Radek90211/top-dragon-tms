@@ -93172,7 +93172,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function boardDateListForFastRead() {
-      return boardRenderCache?.dates || null;
+      return boardRenderCache?.dates || mapRouteCalculationContext?.dates || null;
     }
 
     function getDateIndex(date) {
@@ -94891,6 +94891,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function syncUnloadPanelDom(deferHeavyMap = false) {
+      return withMapRouteCalculationContext(() => syncUnloadPanelDomWithContext(deferHeavyMap));
+    }
+
+    function syncUnloadPanelDomWithContext(deferHeavyMap = false) {
       const layout = document.querySelector(".layout");
       if (!layout) {
         renderKeepingScroll();
@@ -96112,13 +96116,33 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       );
     }
 
+    // Indeks istnieje wyłącznie podczas pojedynczego odświeżenia mapy, więc
+    // zmiany planu i statusów są widoczne już przy następnym odświeżeniu.
+    var mapRouteCalculationContext = null;
+    function withMapRouteCalculationContext(callback) {
+      if (mapRouteCalculationContext) return callback();
+      const dates = dateList();
+      const byId = new Map((state.routes || []).map(route => [route.id, route]));
+      const byDriver = new Map();
+      for (const route of activeRoutes()) {
+        const bucket = byDriver.get(route.driverId) || [];
+        bucket.push(route);
+        byDriver.set(route.driverId, bucket);
+      }
+      mapRouteCalculationContext = { dates, byId, byDriver, next:new Map(), status:new Map() };
+      try { return callback(); } finally { mapRouteCalculationContext = null; }
+    }
+
     function nextRouteAfterRoute(routeId) {
-      const current = state.routes.find(route => route.id === routeId);
+      const context = mapRouteCalculationContext;
+      if (context?.next.has(routeId)) return context.next.get(routeId);
+      const current = context ? context.byId.get(routeId) : state.routes.find(route => route.id === routeId);
       if (!current || isFreeDayRoute(current)) return null;
 
       const currentEnd = routeGlobalEnd(current);
-      return activeRoutes()
-        .filter(route =>
+      let nearest = null, nearestStart = Infinity;
+      for (const route of (context ? context.byDriver.get(current.driverId) || [] : activeRoutes())) {
+        if (
           route.id !== current.id &&
           route.driverId === current.driverId &&
           route.approvalStatus !== "rejected" &&
@@ -96129,9 +96153,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           (routeGlobalStart(route) >= currentEnd || (
             !routeHasPlannedLoad(route) &&
             String(route.date || "").slice(0, 10) === String(routeEndDate(current) || "").slice(0, 10)
-          ))
-        )
-        .sort((a, b) => routeGlobalStart(a) - routeGlobalStart(b))[0] || null;
+          ))) {
+          const start = routeGlobalStart(route);
+          if (start < nearestStart) { nearest = route; nearestStart = start; }
+        }
+      }
+      context?.next.set(routeId, nearest);
+      return nearest;
     }
 
     function nextRouteGapHours(routeId) {
@@ -96186,7 +96214,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function nextRouteStatusForRoute(routeId) {
-      const current = state.routes.find(route => route.id === routeId);
+      const context = mapRouteCalculationContext;
+      if (context?.status.has(routeId)) return context.status.get(routeId);
+      const status = calculateNextRouteStatusForRoute(routeId);
+      context?.status.set(routeId, status);
+      return status;
+    }
+
+    function calculateNextRouteStatusForRoute(routeId) {
+      const current = mapRouteCalculationContext ? mapRouteCalculationContext.byId.get(routeId) : state.routes.find(route => route.id === routeId);
       if (!current || isFreeDayRoute(current)) {
         return {
           hasNext:false, isSoon:false, statusKey:"no-next", colorClass:"no-soon-load",
@@ -104351,6 +104387,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function unloadMapViewModel(routes) {
+      return withMapRouteCalculationContext(() => unloadMapViewModelWithContext(routes));
+    }
+
+    function unloadMapViewModelWithContext(routes) {
       const safeRoutes = Array.isArray(routes) ? routes : [];
       const freeCount = safeRoutes.filter(isFreeDayRoute).length;
       const routeStatuses = new Map();
@@ -104380,8 +104420,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           const point = finalUnloadPointForRoute(route);
           const finalUnloadField = finalUnloadFieldForRoute(route);
           const unloadTextForGeocode = [route[finalUnloadField + "Address"], route[finalUnloadField]].filter(Boolean).join(", ");
-          if (!routePointFromStoredCoords(route, finalUnloadField) && searchTextNeedsPreciseGeocode(unloadTextForGeocode)) scheduleRoutePointGeocode(route, finalUnloadField, () => syncUnloadMapCard());
-          if (!point && (route[finalUnloadField] || route[finalUnloadField + "Address"])) scheduleRoutePointGeocode(route, finalUnloadField, () => syncUnloadMapCard());
+          if (!routePointFromStoredCoords(route, finalUnloadField) && (searchTextNeedsPreciseGeocode(unloadTextForGeocode)
+            || (!point && (route[finalUnloadField] || route[finalUnloadField + "Address"])))) {
+            scheduleRoutePointGeocode(route, finalUnloadField, scheduleMapGeocodeRefresh);
+          }
           const coords = point ? [Number(point.lat), Number(point.lng)] : null;
           const city = displayCity(route[finalUnloadField]) || cityFromText(route[finalUnloadField]);
           if (!coords) return { route, driver, coords: null, city };
@@ -104406,7 +104448,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         statusKey: String(statusForRoute(point.route)?.statusKey || "no-next")
       }));
 
-      const exactUnloadCount = routesForReportDate().length;
+      const exactUnloadCount = safeRoutes.filter(route => String(routeEndDate(route) || "").slice(0, 10) === String(state.reportDate || "").slice(0, 10)).length;
       const mode = exactUnloadCount ? "unloads" : (safeRoutes.length ? "in-transit" : "empty");
       return { routes: safeRoutes, freeCount, points, visiblePoints, missing, leafletPayload, exactUnloadCount, mode };
     }
@@ -104429,6 +104471,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function renderUnloadMapCard(routes, model = null) {
+      return withMapRouteCalculationContext(() => renderUnloadMapCardWithContext(routes, model));
+    }
+
+    function renderUnloadMapCardWithContext(routes, model = null) {
       model = model || unloadMapViewModel(routes);
 
       return `
@@ -104667,7 +104713,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         setTimeout(() => {
           if (renderToken !== state.leafletRenderToken) return;
           const startedAt = performance.now();
-          syncLeafletMap(points, signature);
+          syncLeafletMap(points, signature, renderToken);
           recordMapPerformance(performance.now() - startedAt);
         }, 0);
       });
@@ -104853,7 +104899,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       scheduleLeafletMapSync(model.leafletPayload);
     }
 
-    function syncLeafletMap(points, signature) {
+    function syncLeafletMap(points, signature, renderToken) {
+      if (renderToken !== state.leafletRenderToken) return;
       const element = document.getElementById("leaflet-map");
       if (!element) return;
 
@@ -104868,10 +104915,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         renderLeafletLoadingState(element);
         ensureLeafletRuntime()
           .then(() => {
-            if (document.getElementById("leaflet-map") === element) syncLeafletMap(points, signature);
+            if (renderToken === state.leafletRenderToken && document.getElementById("leaflet-map") === element) syncLeafletMap(points, signature, renderToken);
           })
           .catch(() => {
-            if (document.getElementById("leaflet-map") !== element) return;
+            if (renderToken !== state.leafletRenderToken || document.getElementById("leaflet-map") !== element) return;
             state.leafletForceNative = true;
             renderNativeMapFallback(element, points);
           });
@@ -108509,7 +108556,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       });
     }
 
+    let mapGeocodeRefreshFrame = 0;
+    function scheduleMapGeocodeRefresh() {
+      if (mapGeocodeRefreshFrame) return;
+      mapGeocodeRefreshFrame = requestAnimationFrame(() => {
+        mapGeocodeRefreshFrame = 0;
+        if (!state.unloadPanelCollapsed) syncUnloadMapCard();
+      });
+    }
+
     function syncUnloadMapCard() {
+      return withMapRouteCalculationContext(syncUnloadMapCardWithContext);
+    }
+
+    function syncUnloadMapCardWithContext() {
       if (state.unloadPanelCollapsed) return;
       const card = document.querySelector(".map-card");
       if (!card) {
