@@ -91516,6 +91516,7 @@
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = sampleRelationDatesV315();
+      const usedExamplePairs = new Map();
       return (drivers || []).flatMap((driver, driverIndex) => {
         let previousUnload = "";
         const historical = dates.map((date, dayIndex) => {
@@ -91543,9 +91544,19 @@
             if (previousUnload) {
               route.load = sampleRouteLocationV333(previousUnload);
             }
-            const destination = date === "2026-11-21"
-              ? (previousUnload === "Warszawa" ? "Kraków" : "Warszawa")
-              : date === "2026-11-22" ? "Łódź" : "Poznań";
+            const candidates = SEPTEMBER_RELATION_CITY_POOL_V167;
+            const used = usedExamplePairs.get(date) || new Set();
+            usedExamplePairs.set(date, used);
+            const first = deterministicFleetValueV165(driverIndex * 7919 + dayIndex * 104729, 347, candidates.length);
+            let destination = candidates[first];
+            for (let attempt = 0; attempt < candidates.length; attempt += 1) {
+              const city = candidates[(first + attempt) % candidates.length];
+              if (city !== previousUnload && !used.has(`${previousUnload}|${city}`)) {
+                destination = city;
+                break;
+              }
+            }
+            used.add(`${previousUnload}|${destination}`);
             route.unload = sampleRouteLocationV333(destination);
             // Współrzędne przykładów są punktami miejscowości, nie konkretnych ulic.
             route.loadAddress = "";
@@ -91553,12 +91564,17 @@
             route.approachKm = 0;
             route.loadedKm = 0;
             route.cost = 0;
+            route.projectTransport = false;
+            route.projectCode = "";
+            route.projectName = "";
+            route.projectVehicleNo = 0;
+            route.projectVehicleTotal = 0;
             route.sampleRoadDemoV339 = true;
             route.notes = "Przykład: oczekiwanie na wyznaczenie trasy ciężarowej TomTom.";
           }
           previousUnload = String(route.unload || "").replace(/\s+\d{2}-\d{3}\b/g, "").trim();
-          route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "345" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 346;
+          route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "347" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 347;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91616,7 +91632,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 346) && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 347) && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Zachowaj starsze przykłady, odtwarzając jedynie wskazane trzy dni.
@@ -101785,6 +101801,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const demos = activeRoutes().filter(route => route?.sampleRoadDemoV339);
         const samplePlan = routeSwapDriverBuckets(true);
         const times = new WeakMap();
+        const pending = [];
+        const groups = new Map();
+        const legKey = (from, to, vehicleState) => JSON.stringify([from.lat, from.lng, to.lat, to.lng, vehicleState]);
+        const queueLeg = (from, to, vehicleState) => {
+          const key = legKey(from, to, vehicleState);
+          if (from.lat === to.lat && from.lng === to.lng) {
+            sampleRoadDemoCacheV339.set(key, 0);
+          } else if (!sampleRoadDemoCacheV339.has(key)) {
+            const groupKey = JSON.stringify([from.lat, from.lng, vehicleState]);
+            if (!groups.has(groupKey)) groups.set(groupKey, {from, vehicleState, destinations:new Map()});
+            groups.get(groupKey).destinations.set(key, to);
+          }
+          return key;
+        };
         for (const route of demos) {
           if (route.sampleRoadRoutingStatusV339 === "ready" || route.sampleRoadRoutingStatusV339 === "unavailable") continue;
           const driver = driverById(route.driverId);
@@ -101797,33 +101827,57 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             continue;
           }
           const from = {lat:prior.coords[0], lng:prior.coords[1]};
-          const key = JSON.stringify([from, load, unload, "16.5-2.55-4-14t-40t"]);
-          try {
-            let result = sampleRoadDemoCacheV339.get(key);
-            if (!result) {
-              const empty = from.lat === load.lat && from.lng === load.lng
-                ? {distanceKm:0} : await requestTruckRouting("route", {points:[from, load], vehicleState:"empty"});
-              const loaded = await requestTruckRouting("route", {points:[load, unload], vehicleState:"loaded"});
-              if (!Number.isFinite(Number(empty.distanceKm)) || !Number.isFinite(Number(loaded.distanceKm))) throw new Error("Brak odległości trasy.");
-              result = {approachKm:Math.round(Number(empty.distanceKm)), loadedKm:Math.round(Number(loaded.distanceKm))};
-              sampleRoadDemoCacheV339.set(key, result);
+          pending.push({route, prior, from, load, unload,
+            emptyKey:queueLeg(from, load, "empty"), loadedKey:queueLeg(load, unload, "loaded")});
+        }
+        const applyReady = () => {
+          let batchChanged = false;
+          for (const item of pending) {
+            const {route, prior, from, load, unload, emptyKey, loadedKey} = item;
+            if (route.sampleRoadRoutingStatusV339 || !state.routes.includes(route)) continue;
+            if (!sampleRoadDemoCacheV339.has(emptyKey) || !sampleRoadDemoCacheV339.has(loadedKey)) continue;
+            const approach = sampleRoadDemoCacheV339.get(emptyKey);
+            const loaded = sampleRoadDemoCacheV339.get(loadedKey);
+            if (!Number.isFinite(approach) || !Number.isFinite(loaded)) {
+              route.sampleRoadRoutingStatusV339 = "unavailable";
+              route.notes = "Przykład: nie udało się wyznaczyć trasy ciężarowej; kilometrów nie potwierdzono.";
+            } else {
+              Object.assign(route, {
+                approachKm:Math.round(approach), loadedKm:Math.round(loaded),
+                sampleRoadRoutingStatusV339:"ready", truckRoutingSource:"tomtom-truck-matrix", truckProfile:"truck-165m-loaded-40000kg",
+                useApproach:true, routeApproachCoords:{...from, label:routeSwapEndpointLabel(prior.route, "delivery")},
+                routeOriginCoords:{...load, label:routeSwapEndpointLabel(route, "pickup")},
+                routeDestinationCoords:{...unload, label:routeSwapEndpointLabel(route, "delivery")}
+              });
+              route.notes = "Przykład: dolot 14 t i trasa z ładunkiem 40 t wyznaczone w TomTom dla zestawu 16,5 × 2,55 × 4 m.";
+              applyAutomaticCarrierCost(route);
             }
-            if (!state.routes.includes(route)) continue;
-            Object.assign(route, result, {
-              sampleRoadRoutingStatusV339:"ready", truckRoutingSource:"tomtom-truck", truckProfile:"truck-165m-loaded-40000kg",
-              useApproach:true, routeApproachCoords:{...from, label:routeSwapEndpointLabel(prior.route, "delivery")},
-              routeOriginCoords:{...load, label:routeSwapEndpointLabel(route, "pickup")},
-              routeDestinationCoords:{...unload, label:routeSwapEndpointLabel(route, "delivery")}
-            });
-            route.notes = "Przykład: dolot 14 t i trasa z ładunkiem 40 t wyznaczone w TomTom dla zestawu 16,5 × 2,55 × 4 m.";
-            applyAutomaticCarrierCost(route);
-          } catch (error) {
-            if (!state.routes.includes(route)) continue;
-            route.sampleRoadRoutingStatusV339 = "unavailable";
-            route.notes = "Przykład: nie udało się wyznaczyć trasy ciężarowej; kilometrów nie potwierdzono.";
+            batchChanged = true;
           }
-          changed = true;
-          if (!state.boardStartupV188?.active) scheduleUiSync({board:true});
+          if (batchChanged) {
+            changed = true;
+            if (!state.boardStartupV188?.active) scheduleUiSync({board:true});
+          }
+        };
+        applyReady();
+        for (const group of groups.values()) {
+          const legs = [...group.destinations.entries()];
+          for (let offset = 0; offset < legs.length; offset += 100) {
+            const batch = legs.slice(offset, offset + 100);
+            try {
+              const result = await requestTruckRouting("matrix", {
+                origin:group.from, destinations:batch.map(([, point]) => point), vehicleState:group.vehicleState
+              }, 30000);
+              batch.forEach(([key], index) => {
+                const entry = result?.results?.[index];
+                const distance = entry?.ok ? Number(entry.distanceKm) : NaN;
+                sampleRoadDemoCacheV339.set(key, Number.isFinite(distance) && distance >= 0 ? distance : null);
+              });
+            } catch (error) {
+              batch.forEach(([key]) => sampleRoadDemoCacheV339.set(key, null));
+            }
+            applyReady();
+          }
         }
       } finally {
         sampleRoadDemoRunningV339 = false;

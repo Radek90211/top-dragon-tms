@@ -37,6 +37,8 @@ async function run() {
   assert.equal(matrixBody.options.vehicleLength,16.5);
   assert.equal(matrixBody.options.vehicleWidth,2.55);
   assert.equal(matrixBody.options.vehicleHeight,4);
+  await matrixCtx.calculateTruckMatrix('test',points[0],[points[1]],'loaded');
+  assert.equal(matrixBody.options.vehicleWeight,40000);
   const c={
     coordsForNewRoutePoint:key=>({key}),approachPointForNewRoute:()=>({key:'approach'}),routePlannerStoredWaypoints:()=>[],
     normalizeRoutePlannerOrder:()=>['load','secondLoad','unload','secondUnload','base'],basePointForNewRoute:()=>({key:'base'}),

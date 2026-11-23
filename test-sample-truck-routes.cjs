@@ -14,7 +14,7 @@ function scenario(fail=false) {
     routeSwapPosition:()=>({coords:[52,19],route:{id:'prior'}}),routeSwapEndpoint:(route,type)=>type==='pickup'?{lat:52.1,lng:19.1}:{lat:53,lng:20},
     routeSwapEndpointLabel:(route,type)=>type, scheduleUiSync(){},
     routeSwapValidPoint:p=>Number.isFinite(p?.lat)&&Number.isFinite(p?.lng),
-    requestTruckRouting:async(mode,payload)=>{calls.push(payload);if(fail)throw Error('offline');return {distanceKm:payload.vehicleState==='empty'?64.3:271.6,source:'tomtom-truck'};},
+    requestTruckRouting:async(mode,payload)=>{calls.push({mode,...payload});if(fail)throw Error('offline');return {results:payload.destinations.map(()=>({ok:true,distanceKm:payload.vehicleState==='empty'?64.3:271.6}))};},
     applyAutomaticCarrierCost:route=>{route.cost=route.approachKm+route.loadedKm;},
     document:{activeElement:null},syncBoardOnly:()=>renders++,syncDetailsPanel(){},setTimeout,clearTimeout,WeakMap,Map,Set,JSON,Number,Math
   };
@@ -24,6 +24,7 @@ function scenario(fail=false) {
 (async()=>{
   const ok=scenario();await ok.ctx.runSampleRoadDemosV339();
   assert.deepEqual(ok.calls.map(c=>c.vehicleState),['empty','loaded']);
+  assert.ok(ok.calls.every(c=>c.mode==='matrix'));
   assert.equal(ok.demo.approachKm,64);assert.equal(ok.demo.loadedKm,272);
   assert.equal(ok.demo.sampleRoadRoutingStatusV339,'ready');assert.match(ok.demo.notes,/TomTom/);assert.equal(ok.renders(),1);
   assert.equal(ok.demo.routeApproachCoords.lat,52);

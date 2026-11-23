@@ -95,7 +95,7 @@ async function calculateTruckRoute(apiKey, points, vehicleState = '') {
   }
 }
 
-async function calculateTruckMatrix(apiKey, origin, destinations) {
+async function calculateTruckMatrix(apiKey, origin, destinations, vehicleState = '') {
   const url = new URL(`${TOMTOM_BASE}/routing/matrix/2`)
   url.searchParams.set('key', apiKey)
 
@@ -116,7 +116,7 @@ async function calculateTruckMatrix(apiKey, origin, destinations) {
         routeType: 'fastest',
         travelMode: 'truck',
         vehicleCommercial: true,
-        vehicleWeight: 14000,
+        vehicleWeight: vehicleState === 'loaded' ? 40000 : 14000,
         vehicleLength: 16.5,
         vehicleWidth: 2.55,
         vehicleHeight: 4,
@@ -154,7 +154,7 @@ async function calculateTruckMatrix(apiKey, origin, destinations) {
   return {
     ok: true,
     source: 'tomtom-truck-matrix',
-    profile: 'truck-165m-empty-14000kg',
+    profile: vehicleState === 'loaded' ? 'truck-165m-loaded-40000kg' : 'truck-165m-empty-14000kg',
     results: destinations.map((_, index) => byIndex.get(index) || ({
       ok: false,
       message: 'Brak wyniku dla tego celu.',
@@ -202,7 +202,7 @@ export default async function handler(request, response) {
       if (!destinations.length || destinations.length > MAX_MATRIX_DESTINATIONS) {
         return response.status(400).json({ ok: false, message: `Macierz może zawierać od 1 do ${MAX_MATRIX_DESTINATIONS} celów.` })
       }
-      const result = await calculateTruckMatrix(apiKey, origin, destinations)
+      const result = await calculateTruckMatrix(apiKey, origin, destinations, clean(body.vehicleState))
       return response.status(200).json(result)
     }
 
