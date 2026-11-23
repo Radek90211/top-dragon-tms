@@ -106578,7 +106578,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `
           <div class="route-context-menu" style="left:${x}px;top:${y}px;" onclick="event.stopPropagation()">
             <button data-tutorial="route-details" onclick="openRoute('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Pokaż szczegóły</button>
-            <button data-tutorial="route-nearby-clients" onclick="showRouteNearbyClients('${attr(route.id)}')"><span class="context-dot context-dot-empty"></span>Klienci w rejonie</button>
             <div class="route-context-title" data-tutorial="route-statuses">Status rozliczeń</div>
             <button onclick="setRouteStatus('${attr(route.id)}','accountingCheck')"><span class="context-dot context-dot-yellow"></span>Do weryfikacji / niezgodność</button>
             <button onclick="setRouteStatus('${attr(route.id)}','accountingFinal')"><span class="context-dot context-dot-green"></span>Wprowadzone / rozliczone</button>
