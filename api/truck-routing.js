@@ -39,7 +39,7 @@ function routingKey() {
   return clean(process.env.TOMTOM_API_KEY)
 }
 
-async function calculateTruckRoute(apiKey, points) {
+async function calculateTruckRoute(apiKey, points, vehicleState = '') {
   const path = points.map((point) => `${point.lat},${point.lng}`).join(':')
   const url = new URL(`${TOMTOM_BASE}/routing/1/calculateRoute/${path}/json`)
   url.searchParams.set('key', apiKey)
@@ -47,6 +47,11 @@ async function calculateTruckRoute(apiKey, points) {
   url.searchParams.set('traffic', 'false')
   url.searchParams.set('travelMode', 'truck')
   url.searchParams.set('vehicleCommercial', 'true')
+  url.searchParams.set('vehicleLength', '16.5')
+  url.searchParams.set('vehicleWidth', '2.55')
+  url.searchParams.set('vehicleHeight', '4')
+  // Masa dotyczy całego zestawu; profil standardowy z ładunkiem ma 40 t.
+  url.searchParams.set('vehicleWeight', vehicleState === 'empty' ? '14000' : '40000')
   url.searchParams.set('routeRepresentation', 'polyline')
   url.searchParams.set('computeTravelTimeFor', 'all')
 
@@ -83,7 +88,7 @@ async function calculateTruckRoute(apiKey, points) {
   return {
     ok: true,
     source: 'tomtom-truck',
-    profile: 'category-c-generic',
+    profile: vehicleState === 'empty' ? 'truck-165m-empty-14000kg' : 'truck-165m-loaded-40000kg',
     distanceKm: Number(summary.lengthInMeters) / 1000,
     durationMin: Number(summary.travelTimeInSeconds) / 60,
     latLngs,
@@ -111,6 +116,10 @@ async function calculateTruckMatrix(apiKey, origin, destinations) {
         routeType: 'fastest',
         travelMode: 'truck',
         vehicleCommercial: true,
+        vehicleWeight: 14000,
+        vehicleLength: 16.5,
+        vehicleWidth: 2.55,
+        vehicleHeight: 4,
       },
     }),
   })
@@ -145,7 +154,7 @@ async function calculateTruckMatrix(apiKey, origin, destinations) {
   return {
     ok: true,
     source: 'tomtom-truck-matrix',
-    profile: 'category-c-generic',
+    profile: 'truck-165m-empty-14000kg',
     results: destinations.map((_, index) => byIndex.get(index) || ({
       ok: false,
       message: 'Brak wyniku dla tego celu.',
@@ -180,7 +189,7 @@ export default async function handler(request, response) {
       if (points.length < 2 || points.length > MAX_ROUTE_POINTS) {
         return response.status(400).json({ ok: false, message: `Trasa musi zawierać od 2 do ${MAX_ROUTE_POINTS} punktów.` })
       }
-      const result = await calculateTruckRoute(apiKey, points)
+      const result = await calculateTruckRoute(apiKey, points, clean(body.vehicleState))
       return response.status(200).json(result)
     }
 
