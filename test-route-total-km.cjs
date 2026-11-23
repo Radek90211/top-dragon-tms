@@ -12,6 +12,7 @@ vm.createContext(ctx);
 vm.runInContext(section('    function totalKm(route)', '    function routeOversizeCost('), ctx);
 assert.equal(ctx.totalKm({ approachKm: 170, loadedKm: 94, baseKm: 80 }), 264);
 assert.equal(ctx.totalKm({ approachKm: 0, loadedKm: 94 }), 94);
+assert.equal(ctx.totalKm({ approachKm: 170, loadedKm: 94, manualTotalKm: 280 }), 280);
 
 const routes = [
   { id:'old', driverId:'chosen', start:1, end:3 },
@@ -33,6 +34,6 @@ vm.runInContext(section('    function previousRouteBeforeNewRoute()', '    funct
 vm.runInContext(section('    function previousRouteBeforeRoute(targetRoute)', '    function routeUsesApproach('), prior);
 assert.equal(prior.previousRouteBeforeNewRoute().id, 'latest');
 assert.equal(prior.previousRouteBeforeRoute({id:'target',driverId:'chosen',start:8}).id, 'latest');
-assert.match(html, /numberInput\(route, "approachKm", "Dolot km"\)/);
+assert.match(html, /numberInput\(route, "totalKm", "Kilometry relacji"\)/);
 assert.doesNotMatch(html, /distanceKm: Number\(routeRoad\.distanceKm \|\| 0\)/);
 console.log('Kilometry relacji: dolot + załadunek–rozładunek; właściwa poprzednia relacja: OK');

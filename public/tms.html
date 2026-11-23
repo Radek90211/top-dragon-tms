@@ -91380,11 +91380,11 @@
     function sampleRelationDatesV315() {
       const year = currentAppDate().slice(0, 4);
       const dates = [];
-      for (let date = `${year}-09-28`; date <= `${year}-11-22`; date = addDaysToIso(date, 1)) dates.push(date);
+      for (let date = `${year}-09-28`; date <= `${year}-11-23`; date = addDaysToIso(date, 1)) dates.push(date);
       return dates;
     }
 
-    const RELATION_CUTOFF_DATE_V315 = `${currentAppDate().slice(0, 4)}-11-22`;
+    const RELATION_CUTOFF_DATE_V315 = `${currentAppDate().slice(0, 4)}-11-23`;
     function relationStartsByCutoffV258(route) {
       const iso = String(route?.loadDate || route?.date || "").slice(0, 10);
       return !/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= RELATION_CUTOFF_DATE_V315;
@@ -91514,7 +91514,7 @@
       route.notes = `Projekt dla klienta ${project.client}: pojazd ${route.projectVehicleNo}/${route.projectVehicleTotal}.`;
     }
 
-    function buildSeptemberRelationsV167(drivers = DRIVERS, demoLimit = 3) {
+    function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = sampleRelationDatesV315();
       return (drivers || []).flatMap((driver, driverIndex) => {
         let previousUnload = "";
@@ -91539,32 +91539,31 @@
             route.load = sampleRouteLocationV333(city);
             route.loadAddress = sampleRouteStreetAddressV223(city);
           }
+          if (date >= "2026-11-21" && date <= "2026-11-23") {
+            if (previousUnload) {
+              route.load = sampleRouteLocationV333(previousUnload);
+              route.loadAddress = sampleRouteStreetAddressV223(previousUnload);
+            }
+            const destination = date === "2026-11-21"
+              ? (previousUnload === "Warszawa" ? "Kraków" : "Warszawa")
+              : date === "2026-11-22" ? "Łódź" : "Poznań";
+            route.unload = sampleRouteLocationV333(destination);
+            route.unloadAddress = sampleRouteStreetAddressV223(destination);
+            route.approachKm = 0;
+            route.loadedKm = 0;
+            route.cost = 0;
+            route.sampleRoadDemoV339 = true;
+            route.notes = "Przykład: oczekiwanie na wyznaczenie trasy ciężarowej TomTom.";
+          }
           previousUnload = String(route.unload || "").replace(/\s+\d{2}-\d{3}\b/g, "").trim();
-          route.id = `sample-relation-v223-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 336;
+          route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "345" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 345;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
           route.timelineWidthMode = "manual";
           return route;
         });
-        if (driverIndex < demoLimit) {
-          const today = currentAppDate();
-          const date = today > RELATION_CUTOFF_DATE_V315 ? today : addDaysToIso(RELATION_CUTOFF_DATE_V315, 1);
-          const route = sampleSeptemberRouteV167(driver, driverIndex, date, dates.length);
-          route.id = `sample-road-v339-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 336;
-          route.sampleRoadDemoV339 = true;
-          route.startHour = 0;
-          route.endDate = date;
-          route.endHour = 24;
-          route.timelineWidthMode = "manual";
-          route.approachKm = 0;
-          route.loadedKm = 0;
-          route.cost = 0;
-          route.notes = "Przykład: kilometry oczekują na wyznaczenie trasy ciężarowej TomTom.";
-          historical.push(route);
-        }
         return historical;
       });
     }
@@ -91600,18 +91599,15 @@
         realRoutesByDriver.get(driverId).push(route);
       });
       const rebuiltDays = new Set();
-      let sampleRoadDemoCount = 0;
-      buildSeptemberRelationsV167(drivers, drivers.length).forEach(route => {
+      buildSeptemberRelationsV167(drivers).forEach(route => {
         // Rzeczywista relacja ma pierwszeństwo. Kafelek demonstracyjny, który wszedłby
         // na ten sam czas kierowcy, nie jest ponownie dodawany.
         const driverId = String(route?.driverId || "");
         if ((realRoutesByDriver.get(driverId) || []).some(existing => routesOverlapV169(existing, route))) return;
-        if (route.sampleRoadDemoV339 && sampleRoadDemoCount >= 3) return;
         const dayKey = `${driverId}|${route.date}`;
         if (rebuiltDays.has(dayKey)) return;
         rebuiltDays.add(dayKey);
         rebuilt.push(route);
-        if (route.sampleRoadDemoV339) sampleRoadDemoCount += 1;
       });
 
       const currentSamples = target.filter(route => route?.sampleRelationV167);
@@ -91619,15 +91615,17 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => route.sampleScheduleVersion === 336 && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 345) && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
-      // Pełny reset wyłącznie relacji demonstracyjnych: usuń poprzedni zestaw,
-      // a następnie wstaw od początku jeden, sprawdzony układ bez duplikatów.
+      // Zachowaj starsze przykłady, odtwarzając jedynie wskazane trzy dni.
+      const olderSamples = new Map(currentSamples
+        .filter(route => String(route.date || "") < "2026-11-21")
+        .map(route => [sampleRelationSignatureV169(route), route]));
       for (let index = target.length - 1; index >= 0; index -= 1) {
         if (target[index]?.sampleRelationV167) target.splice(index, 1);
       }
-      target.push(...rebuilt);
+      target.push(...rebuilt.map(route => olderSamples.get(sampleRelationSignatureV169(route)) || route));
       return target;
     }
 
@@ -93033,7 +93031,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function totalKm(route) {
+      if (route?.manualTotalKm != null && Number.isFinite(Number(route.manualTotalKm))) return Math.round(Number(route.manualTotalKm));
       return Math.round(Number(route?.approachKm || 0) + Number(route?.loadedKm || 0));
+    }
+    function routeDistanceLabel(route) {
+      if (route?.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 !== "ready") {
+        return route.sampleRoadRoutingStatusV339 === "unavailable" ? "brak km" : "liczenie km…";
+      }
+      return `${totalKm(route)} km`;
     }
 
     function routeOversizeCost(route) {
@@ -93142,7 +93147,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeAutoCost(route) {
       const ratePerKm = carrierRatePerKmForRoute(route);
-      return Math.round((Number(route?.approachKm || 0) + Number(route?.loadedKm || 0) + Number(route?.baseKm || 0)) * ratePerKm + routeOversizeCost(route));
+      return Math.round((totalKm(route) + Number(route?.baseKm || 0)) * ratePerKm + routeOversizeCost(route));
     }
 
     function applyAutomaticCarrierCost(route) {
@@ -93628,7 +93633,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeStatusHint(route) {
       if (route.sampleRoadDemoV339) {
-        if (route.sampleRoadRoutingStatusV339 === "ready") return `przykład · TomTom: dolot ${route.approachKm} km, z ładunkiem ${route.loadedKm} km`;
+        if (route.sampleRoadRoutingStatusV339 === "ready") return `przykład · TomTom: ${totalKm(route)} km`;
         if (route.sampleRoadRoutingStatusV339 === "unavailable") return "przykład · nie udało się potwierdzić kilometrów";
         return "przykład · oczekiwanie na routing ciężarowy";
       }
@@ -93822,7 +93827,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const driver = driverById(route.driverId);
       const dispatcher = driver?.dispatcher || route.ownerDispatcher || route.createdBy || "";
       if (!forceVisible && !loadLineVisibleForDispatcher(dispatcher)) return "";
-      return `<span class="time-route-sub" title="Załadunek: ${attr(displayLocationWithPostal(route.load) || "-")}">zał.: ${esc(routeLoadBoardLabel(route))} <span class="time-route-meta">${totalKm(route)} km · ${money(profit(route))}</span></span>`;
+      return `<span class="time-route-sub" title="Załadunek: ${attr(displayLocationWithPostal(route.load) || "-")}">zał.: ${esc(routeLoadBoardLabel(route))} <span class="time-route-meta">${routeDistanceLabel(route)} · ${money(profit(route))}</span></span>`;
     }
 
 
@@ -96470,7 +96475,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const oversizedFlag = document.getElementById("new-oversized");
       if (oversizedFlag) oversizedFlag.value = oversizedCost > 0 ? "1" : "0";
       const costInput = document.getElementById("new-cost");
-      const total = Math.max(0, approach + loaded);
+      const totalInput = document.getElementById("new-relation-km");
+      const total = totalInput?.dataset.manualEdited
+        ? Math.max(0, financeInputNumber("new-relation-km"))
+        : Math.max(0, approach + loaded);
+      if (totalInput && !totalInput.dataset.manualEdited) totalInput.value = String(Math.round(total));
       const automaticCost = Math.round((total + base) * newRouteCarrierRatePerKm() + oversizedCost);
 
       if (costInput) costInput.value = String(automaticCost);
@@ -101319,7 +101328,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         loaded,
         approach,
         base,
-        totalKm: loaded + approach,
+        totalKm: totalKm(route),
         cost,
         profit: routeProfit,
         income,
@@ -101799,7 +101808,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               sampleRoadDemoCacheV339.set(key, result);
             }
             if (!state.routes.includes(route)) continue;
-            Object.assign(route, result, {sampleRoadRoutingStatusV339:"ready", truckRoutingSource:"tomtom-truck", truckProfile:"truck-165m-loaded-40000kg"});
+            Object.assign(route, result, {
+              sampleRoadRoutingStatusV339:"ready", truckRoutingSource:"tomtom-truck", truckProfile:"truck-165m-loaded-40000kg",
+              useApproach:true, routeApproachCoords:{...from, label:routeSwapEndpointLabel(prior.route, "delivery")},
+              routeOriginCoords:{...load, label:routeSwapEndpointLabel(route, "pickup")},
+              routeDestinationCoords:{...unload, label:routeSwapEndpointLabel(route, "delivery")}
+            });
             route.notes = "Przykład: dolot 14 t i trasa z ładunkiem 40 t wyznaczone w TomTom dla zestawu 16,5 × 2,55 × 4 m.";
             applyAutomaticCarrierCost(route);
           } catch (error) {
@@ -101808,6 +101822,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             route.notes = "Przykład: nie udało się wyznaczyć trasy ciężarowej; kilometrów nie potwierdzono.";
           }
           changed = true;
+          if (!state.boardStartupV188?.active) scheduleUiSync({board:true});
         }
       } finally {
         sampleRoadDemoRunningV339 = false;
@@ -107068,11 +107083,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="details-section-title" style="margin-bottom:0;">Koszty i kilometry</div>
               ${route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 !== "ready"
                 ? `<div class="small" style="margin-top:6px;">${route.sampleRoadRoutingStatusV339 === "unavailable" ? "Przykład: nie udało się potwierdzić kilometrów." : "Przykład: wyznaczanie kilometrów dla ciężarówki…"}</div>`
-                : `<div class="small" data-route-km-breakdown style="margin-top:6px;">Dolot: ${Math.round(Number(route.approachKm || 0))} km · Z ładunkiem: ${Math.round(Number(route.loadedKm || 0))} km${Number(route.baseKm || 0) > 0 ? ` · Powrót do bazy: ${Math.round(Number(route.baseKm))} km (osobno)` : ""}${route.sampleRoadDemoV339 ? " · TomTom, zestaw 14/40 t" : ""}</div>`}
+                : ""}
 
               <div class="grid-4 details-finance-grid" style="margin-top:10px;">
-                ${numberInput(route, "approachKm", "Dolot km")}
-                ${numberInput(route, "loadedKm", "Załadunek–rozładunek km")}
+                ${numberInput(route, "totalKm", "Kilometry relacji")}
                 <div class="route-rate-currency-field"><label class="field-label">Stawka i waluta</label><div class="route-rate-currency-row">${numberInput(route, "rate", "Stawka")}<select class="select route-currency-select" ${disabled} onchange="updateRouteField('${attr(route.id)}','orderCurrency',this.value,false)"><option value="PLN" ${String(route.orderCurrency || "PLN").toUpperCase() === "PLN" ? "selected" : ""}>PLN</option><option value="EUR" ${String(route.orderCurrency || "PLN").toUpperCase() === "EUR" ? "selected" : ""}>EUR</option></select></div></div>
                 ${numberInput(route, "oversizedCost", "Kwota za gabaryt")}
                 ${numberInput(route, "cost", "Koszt przewoźnika")}
@@ -107128,7 +107142,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function numberInput(route, field, label) {
       const disabled = financeDisabledAttr(route);
-      const value = field === "cost" ? carrierCost(route) : Number(route[field] || 0);
+      const value = field === "cost" ? carrierCost(route) : field === "totalKm" ? totalKm(route) : Number(route[field] || 0);
       const aiPending = Array.isArray(route.orderAiPendingFields) && route.orderAiPendingFields.includes(field);
       const aiAccepted = Array.isArray(route.orderAiAcceptedFields) && route.orderAiAcceptedFields.includes(field);
       return `
@@ -107307,8 +107321,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 </div>
               ` : `
                 <div class="grid-4 route-finance-grid" style="background:#f8fafc;border-radius:14px;padding:12px;margin-top:12px;">
-                  <div><label class="field-label" style="margin-top:0;">Dolot km</label><input id="new-approach" class="input" type="number" min="0" step="1" value="${attr(prefill.approachKm ?? 0)}" oninput="markKmInputManual('new-approach');updateNewRouteFinance('km')" /></div>
-                  <div><label class="field-label" style="margin-top:0;">Kilometry</label><input id="new-loaded" class="input" type="number" min="0" step="1" value="${attr(prefill.loadedKm ?? 0)}" oninput="markKmInputManual('new-loaded');updateNewRouteFinance('km')" /></div>
+                  <input id="new-approach" type="hidden" value="${attr(prefill.approachKm ?? 0)}" />
+                  <input id="new-loaded" type="hidden" value="${attr(prefill.loadedKm ?? 0)}" />
+                  <div><label class="field-label" style="margin-top:0;">Kilometry relacji</label><input id="new-relation-km" class="input" type="number" min="0" step="1" value="${attr(Number(prefill.approachKm || 0) + Number(prefill.loadedKm || 0))}" oninput="markKmInputManual('new-relation-km')" /></div>
                   <div class="route-rate-currency-field"><label class="field-label" style="margin-top:0;">Stawka i waluta</label><div class="route-rate-currency-row"><input id="new-rate" class="input" type="number" min="0" step="1" value="${attr(prefill.rate ?? 0)}" oninput="updateNewRouteFinance('rate')" /><select id="new-order-currency" class="select route-currency-select"><option value="PLN" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "PLN" ? "selected" : ""}>PLN</option><option value="EUR" ${String(prefill.currency || prefill.orderCurrency || "PLN").toUpperCase() === "EUR" ? "selected" : ""}>EUR</option></select></div></div>
                   <div><label class="field-label" style="margin-top:0;">Kwota za gabaryt</label><input id="new-oversized-cost" class="input" type="number" min="0" step="1" value="${attr(prefill.oversizedCost ?? 0)}" oninput="updateNewRouteFinance('oversize')" /><input id="new-oversized" type="hidden" value="${Number(prefill.oversizedCost || 0) > 0 ? "1" : "0"}" /></div>
                   <div><label class="field-label" style="margin-top:0;">Koszt przewoźnika</label><input id="new-cost" class="input" type="number" min="0" step="1" value="${attr(prefill.cost ?? 0)}" readonly /></div>
@@ -110165,6 +110180,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.detailsRoutePlannerRoadLatLngs = roadLatLngs;
         if (roadLatLngs.length >= 2) L.polyline(roadLatLngs, { interactive: false, weight: 5, opacity: 0.82, color: "#2563eb", lineJoin: "round", lineCap: "round", dashArray: (routeRoad.fallback || approachRoad.fallback || loadedRoad.fallback || baseRoad.fallback) ? "7 7" : null }).addTo(state.detailsRoutePlannerLayer);
 
+        delete route.manualTotalKm;
         route.approachKm = Math.round(Number(approachRoad.distanceKm || 0));
         route.loadedKm = Math.round(Number(loadedRoad.distanceKm || 0));
         route.baseKm = Math.round(Number(baseRoad.distanceKm || 0));
@@ -110189,6 +110205,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.detailsRoutePlannerRoadLatLngs = fallback.latLngs || [];
         if (fallback.latLngs?.length >= 2) L.polyline(fallback.latLngs, { interactive: false, weight: 4, opacity: 0.62, color: "#2563eb", dashArray: "7 7", lineJoin: "round", lineCap: "round" }).addTo(state.detailsRoutePlannerLayer);
         const loadedFallback = routePlannerFallbackDistance(routeComponentPointsForDetails(route, "loaded"));
+        delete route.manualTotalKm;
         route.loadedKm = Math.round(Number(loadedFallback.distanceKm || 0));
         applyAutomaticCarrierCost(route);
         updateRouteFinancialInputs(route);
@@ -110948,9 +110965,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function updateRouteFinancialInputs(route) {
       if (!route) return;
-      ["approachKm", "loadedKm", "baseKm", "oversizedCost", "cost"].forEach(field => {
+      ["approachKm", "loadedKm", "baseKm", "totalKm", "oversizedCost", "cost"].forEach(field => {
         const input = document.getElementById(`route-number-${route.id}-${field}`);
-        if (input) input.value = String(field === "cost" ? routeAutoCost(route) : Math.round(Number(route[field] || 0)));
+        if (input) input.value = String(field === "cost" ? routeAutoCost(route) : field === "totalKm" ? totalKm(route) : Math.round(Number(route[field] || 0)));
       });
     }
 
@@ -111430,8 +111447,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function syncRouteFinancePreview(route) {
       if (!route) return;
-      const breakdown = document.querySelector('[data-route-km-breakdown]');
-      if (breakdown) breakdown.textContent = `Dolot: ${Math.round(Number(route.approachKm || 0))} km · Z ładunkiem: ${Math.round(Number(route.loadedKm || 0))} km${Number(route.baseKm || 0) > 0 ? ` · Powrót do bazy: ${Math.round(Number(route.baseKm))} km (osobno)` : ""}${route.sampleRoadDemoV339 ? " · TomTom, zestaw 14/40 t" : ""}`;
       const setText = (selector, value) => { const el = document.querySelector(selector); if (el) el.textContent = value; };
       const costInput = document.getElementById(`route-number-${route.id}-cost`);
       if (costInput && document.activeElement !== costInput) costInput.value = String(carrierCost(route));
@@ -111458,7 +111473,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         else blockForeignRouteEditMessage();
         return;
       }
-      route[field] = numericValue;
+      if (field === "totalKm") route.manualTotalKm = Math.max(0, numericValue);
+      else route[field] = numericValue;
       if (field === "oversizedCost") route.oversizedTransport = numericValue > 0;
       if (field !== "cost") applyAutomaticCarrierCost(route);
       invalidateRouteSmsGeneration(route, true);
@@ -111695,6 +111711,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const clientValue = formValue("new-client").trim();
       const approachValue = Number(formValue("new-approach") || 0);
       const loadedValue = Number(formValue("new-loaded") || 0);
+      const totalManualInput = document.getElementById("new-relation-km");
+      const manualTotalKmValue = totalManualInput?.dataset.manualEdited ? Math.max(0, Number(totalManualInput.value) || 0) : null;
       const rateValue = Number(formValue("new-rate") || 0);
       const orderCurrencyValue = ["PLN", "EUR"].includes(formValue("new-order-currency").toUpperCase()) ? formValue("new-order-currency").toUpperCase() : "PLN";
       const oversizedCostValue = Number(formValue("new-oversized-cost") || 0);
@@ -111714,7 +111732,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const bulkCountValue = Math.max(1, Math.min(200, Math.floor(Number(formValue("new-bulk-count") || 1) || 1)));
       const baseValue = Number(state.newRouteBaseKm || state.prefill?.baseKm || 0);
       const carrierRatePerKmValue = freeDayValue ? 0 : carrierRatePerKmForDriver(driverId, routeDate);
-      const costValue = freeDayValue ? 0 : Math.round((approachValue + loadedValue + baseValue) * carrierRatePerKmValue + oversizedCostValue);
+      const costValue = freeDayValue ? 0 : Math.round(((manualTotalKmValue ?? (approachValue + loadedValue)) + baseValue) * carrierRatePerKmValue + oversizedCostValue);
       const requirements = readNewRouteRequirements();
       refreshNewRoutePlannerLink();
       const navigationUrlValue = formValue("new-route-google-link").trim();
@@ -111799,6 +111817,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         clientId: (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(clientValue))?.id || "",
         approachKm: verifiedApproachKm,
         loadedKm: verifiedLoadedKm,
+        manualTotalKm: manualTotalKmValue,
         baseKm: baseValue,
         rate: rateValue,
         orderCurrency: orderCurrencyValue,
@@ -111815,7 +111834,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         projectVehicleTotal: projectVehicleTotalValue,
         projectColor: projectColorValue,
         freeDay: freeDayValue,
-        manualKmCost: Boolean(document.getElementById("new-approach")?.dataset.manualEdited || document.getElementById("new-loaded")?.dataset.manualEdited),
+        manualKmCost: Boolean(totalManualInput?.dataset.manualEdited || document.getElementById("new-approach")?.dataset.manualEdited || document.getElementById("new-loaded")?.dataset.manualEdited),
         loadHeightM: requirements.loadHeightM,
         requirePolishDriver: requirements.requirePolishDriver,
         navigationUrl: navigationUrlValue,
@@ -112187,8 +112206,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       assert("Mapa obsługuje warstwę klientów", typeof toggleClientsOnMap === "function" && typeof updateLeafletClientMarkers === "function");
       assert("Baza klientów ma kontrolę kodów pocztowych", typeof validateClientAddress === "function" && typeof verifyClientDatabase === "function");
       assert("Relacje można usuwać", typeof deleteRoute === "function" && renderToStringForTest(false).includes("Usuń relację"));
-      assert("Wygenerowano relacje do 22.11.2026 dla każdego kierowcy", INITIAL_ROUTES.filter(route => !route.sampleRoadDemoV339).length === DRIVERS.length * sampleRelationDatesV315().length);
-      assert("Każdy kierowca ma relacje do 22.11.2026 włącznie", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id && !route.sampleRoadDemoV339).length === sampleRelationDatesV315().length));
+      assert("Wygenerowano relacje do 23.11.2026 dla każdego kierowcy", INITIAL_ROUTES.length === DRIVERS.length * sampleRelationDatesV315().length);
+      assert("Każdy kierowca ma przykładowe relacje do 23.11.2026 włącznie", DRIVERS.every(driver => INITIAL_ROUTES.filter(route => route.driverId === driver.id).length === sampleRelationDatesV315().length));
       assert("Ostatnia przykładowa relacja przypada na 22.11.2026", INITIAL_ROUTES.some(route => route.date === "2026-11-22"));
       assert("Przykładowe relacje nie mają kolizji", hasRouteCollisions(INITIAL_ROUTES) === false);
       assert("Rozliczenia nie mogą dodawać tras", renderToStringForTest(false).includes("+ Dodaj trasę") === false);
@@ -116395,7 +116414,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return `<span class="time-route-metric-value" title="Wynik relacji">${prefix}${esc(money(value))}</span>`;
         }
         if (state.routeTileMetricView === "km") {
-          return `<span class="time-route-metric-value" title="Łączna liczba kilometrów">${esc(String(Math.round(Number(totalKm(route) || 0))))} km</span>`;
+          return `<span class="time-route-metric-value" title="Łączna liczba kilometrów">${esc(routeDistanceLabel(route))}</span>`;
         }
         return "";
       };
@@ -121609,6 +121628,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function routeExternalPoint3L67(route, kind) {
         if (!route) return null;
         const config = routePointConfig(kind);
+        if (route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 === "ready") {
+          const exact = routePointFromRoute(route, kind);
+          if (validRoutePlannerPoint(exact)) return exact;
+        }
         const address = String(route?.[config.addressKey] || '').replace(/\s+/g,' ').trim();
         const location = String(route?.[config.locationKey] || '').replace(/\s+/g,' ').trim();
         const normalizedAddress = removePolishChars(address);
@@ -121627,14 +121650,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       }
 
       function dedupeExternalPoints3L67(points) {
-        const seen = new Set();
+        let previousKey = "";
         return (points || []).filter(point => {
           if (!point || !String(point.label || '').trim()) return false;
           const key = validRoutePlannerPoint(point)
             ? `${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`
             : removePolishChars(point.label);
-          if (seen.has(key)) return false;
-          seen.add(key);
+          if (key === previousKey) return false;
+          previousKey = key;
           return true;
         });
       }
@@ -121642,7 +121665,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       function routeNavigationPoints3L66(route) {
         if (!route) return [];
         const previous = previousRouteBeforeRoute(route);
-        const previousUnload = previous ? routeExternalPoint3L67(previous, finalUnloadFieldForRoute(previous)) : null;
+        const previousUnload = route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 === "ready"
+          ? storedSpecialRoutePoint(route.routeApproachCoords, "Punkt dolotu")
+          : previous ? routeExternalPoint3L67(previous, finalUnloadFieldForRoute(previous)) : null;
         const load = routeExternalPoint3L67(route, 'load');
         const secondLoad = routeExternalPoint3L67(route, 'secondLoad');
         const unload = routeExternalPoint3L67(route, 'unload');
