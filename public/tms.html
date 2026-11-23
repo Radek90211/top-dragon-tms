@@ -123226,7 +123226,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         clip-path:inset(-30px 150px -30px -30px);
         transition:transform .18s ease,clip-path .18s ease,background .18s ease !important;
       }
-      .app .side-tool-tab.side-tool-tab { justify-content:flex-start !important; }
+      /* Środek ikony pozostaje w środku widocznego fragmentu 46 px. */
+      .app .side-tool-tab.side-tool-tab { justify-content:flex-start !important; padding:0 12px !important; }
+      .app .side-tool-tab.side-tool-tab:has(.queue-message-indicator-v135) { padding:0 8px !important; }
+      .app .side-tool-tab.side-tool-tab:has(.queue-message-indicator-v135):hover,
+      .app .side-tool-tab.side-tool-tab:has(.queue-message-indicator-v135):focus-visible { padding:0 11px !important; }
       .app .side-tool-tab .future-tab-count,
       .app .side-tool-tab .proposed-tab-alert { left:29px !important; right:auto !important; }
       .app .side-tool-tab:has(.queue-message-indicator-v135) .future-tab-count,
