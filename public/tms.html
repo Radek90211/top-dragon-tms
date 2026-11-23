@@ -91516,7 +91516,12 @@
 
     function buildSeptemberRelationsV167(drivers = DRIVERS) {
       const dates = sampleRelationDatesV315();
-      const usedExamplePairs = new Map();
+      const usedExamplePairs = new Set();
+      const candidates = SEPTEMBER_RELATION_CITY_POOL_V167.concat([
+        "Elbląg", "Kalisz", "Konin", "Koszalin", "Legnica", "Leszno", "Łomża", "Mielec",
+        "Nowy Sącz", "Piła", "Piotrków Trybunalski", "Płock", "Przemyśl", "Siedlce",
+        "Słupsk", "Suwałki", "Tarnów", "Tychy", "Wałbrzych", "Włocławek"
+      ]);
       return (drivers || []).flatMap((driver, driverIndex) => {
         let previousUnload = "";
         const historical = dates.map((date, dayIndex) => {
@@ -91544,19 +91549,28 @@
             if (previousUnload) {
               route.load = sampleRouteLocationV333(previousUnload);
             }
-            const candidates = SEPTEMBER_RELATION_CITY_POOL_V167;
-            const used = usedExamplePairs.get(date) || new Set();
-            usedExamplePairs.set(date, used);
-            const first = deterministicFleetValueV165(driverIndex * 7919 + dayIndex * 104729, 347, candidates.length);
-            let destination = candidates[first];
-            for (let attempt = 0; attempt < candidates.length; attempt += 1) {
-              const city = candidates[(first + attempt) % candidates.length];
-              if (city !== previousUnload && !used.has(`${previousUnload}|${city}`)) {
-                destination = city;
-                break;
+            const first = deterministicFleetValueV165(driverIndex * 7919 + dayIndex * 104729, 348, candidates.length);
+            let chosenLoad = previousUnload;
+            let destination = "";
+            // Najpierw zachowujemy ciągłość po poprzednim rozładunku. Gdy dla
+            // miasta zabraknie par, wybieramy inny załadunek i liczymy dolot.
+            for (let originAttempt = -1; originAttempt < candidates.length && !destination; originAttempt += 1) {
+              const origin = originAttempt < 0 ? previousUnload : candidates[(first + originAttempt) % candidates.length];
+              if (!origin) continue;
+              for (let attempt = 0; attempt < candidates.length; attempt += 1) {
+                const city = candidates[(first + attempt) % candidates.length];
+                const pair = [origin, city].sort().join("|");
+                if (city !== origin && !usedExamplePairs.has(pair)) {
+                  chosenLoad = origin;
+                  destination = city;
+                  usedExamplePairs.add(pair);
+                  break;
+                }
               }
             }
-            used.add(`${previousUnload}|${destination}`);
+            // Gdy wyczerpiemy pulę, nie tworzymy zdublowanego przykładu.
+            if (!destination) return null;
+            route.load = sampleRouteLocationV333(chosenLoad);
             route.unload = sampleRouteLocationV333(destination);
             // Współrzędne przykładów są punktami miejscowości, nie konkretnych ulic.
             route.loadAddress = "";
@@ -91573,15 +91587,15 @@
             route.notes = "Przykład: oczekiwanie na wyznaczenie trasy ciężarowej TomTom.";
           }
           previousUnload = String(route.unload || "").replace(/\s+\d{2}-\d{3}\b/g, "").trim();
-          route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "347" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 347;
+          route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "348" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
+          route.sampleScheduleVersion = 348;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
           route.timelineWidthMode = "manual";
           return route;
         });
-        return historical;
+        return historical.filter(Boolean);
       });
     }
 
@@ -91632,7 +91646,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 347) && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 348) && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Zachowaj starsze przykłady, odtwarzając jedynie wskazane trzy dni.
@@ -101860,7 +101874,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
         };
         applyReady();
-        for (const group of groups.values()) {
+        const groupQueue = [...groups.values()];
+        async function runGroup() {
+        while (groupQueue.length) {
+          const group = groupQueue.shift();
           const legs = [...group.destinations.entries()];
           for (let offset = 0; offset < legs.length; offset += 100) {
             const batch = legs.slice(offset, offset + 100);
@@ -101879,6 +101896,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             applyReady();
           }
         }
+        }
+        await Promise.all(Array.from({length:Math.min(3, groupQueue.length)}, () => runGroup()));
       } finally {
         sampleRoadDemoRunningV339 = false;
         if (changed && state.user && !state.boardStartupV188?.active) {
