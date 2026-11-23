@@ -127,11 +127,13 @@ const USER_FEATURES = Object.freeze([
   ['relationChat', 'Czat dotyczący relacji'],
   ['clientDatabase', 'Baza klientów'],
   ['excelBoardMode', 'Tryb Excelowy'],
+  ['orderNotes', 'Uwagi, komentarz i informacje dla kierowcy'],
+  ['orderAnalyzer', 'Analizator zleceń PDF / Word'],
 ])
 
 function normalizedFeaturePermissions(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  return Object.fromEntries(USER_FEATURES.map(([key]) => [key, source[key] !== false]))
+  return Object.fromEntries(USER_FEATURES.map(([key]) => [key, key === 'orderAnalyzer' ? source[key] === true : source[key] !== false]))
 }
 
 function renderUserFeatureControls(user) {

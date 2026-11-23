@@ -123,7 +123,7 @@ async function authenticatedProfile(req, env) {
   const user = await userResponse.json().catch(() => null)
   if (!user?.id) throw new ApiError(401, 'Sesja użytkownika wygasła. Zaloguj się ponownie.')
   const profileResponse = await fetch(
-    `${env.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(String(user.id || ''))}&select=role,active&limit=1`,
+    `${env.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(String(user.id || ''))}&select=role,active,feature_permissions&limit=1`,
     { headers },
   )
   if (!profileResponse.ok) throw new ApiError(403, 'Nie udało się potwierdzić uprawnień do analizatora AI.')
@@ -132,6 +132,7 @@ async function authenticatedProfile(req, env) {
   if (!profile?.active || !ALLOWED_ROLES.has(String(profile.role || ''))) {
     throw new ApiError(403, 'Analizator AI jest dostępny dla spedytora, kierownika oddziału i administratora.')
   }
+  return profile
 }
 
 function safeFileName(req) {
@@ -210,7 +211,7 @@ export default async function handler(req, res) {
     const env = requiredEnvironment()
     if (!env) throw new ApiError(503, 'Analizator AI nie jest jeszcze skonfigurowany na serwerze.')
     stage = 'authentication'
-    await authenticatedProfile(req, env)
+    const profile = await authenticatedProfile(req, env)
     stage = 'request'
     const contentType = readHeader(req, 'content-type').toLowerCase()
     const isText = readHeader(req, 'x-analysis-mode').toLowerCase() === 'text' || contentType.includes('application/json')
@@ -223,6 +224,9 @@ export default async function handler(req, res) {
       stage = 'openai-text'
       const result = await analyzeWithOpenAi({ env, kind: 'text', text })
       return send(res, 200, { ok: true, routes: textRoutesFromAnalysis(result), elapsedMs: Date.now() - startedAt })
+    }
+    if (profile.role !== 'admin' && profile.feature_permissions?.orderAnalyzer !== true) {
+      throw new ApiError(403, 'Administrator nie włączył analizatora zleceń dla tego konta.')
     }
     const mimeType = contentType.split(';')[0].trim() || 'application/pdf'
     if (!SUPPORTED_DOCUMENT_TYPES.has(mimeType)) throw new ApiError(400, 'Obsługiwane są pliki PDF, Word, RTF, ODT i TXT.')

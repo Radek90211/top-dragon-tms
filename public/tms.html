@@ -94134,7 +94134,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     const TMS_USER_FEATURES_V261 = Object.freeze([
       "routeOptimization", "routeHistory", "multiVehicleProjects", "militaryTransport",
       "statistics", "loadRequests", "nearbyClients", "plannedRelations", "freeLoads",
-      "relationChat", "clientDatabase", "excelBoardMode"
+      "relationChat", "clientDatabase", "excelBoardMode", "orderNotes", "orderAnalyzer"
     ]);
     const TMS_COMMERCIAL_FEATURES_V261 = Object.freeze({
       rates:"routeHistory", region:"nearbyClients", requests:"loadRequests", database:"clientDatabase", fleet:null
@@ -94142,6 +94142,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function tmsFeatureEnabledV261(key) {
       if (!key || !state.user) return true;
       if (String(state.user.actualSupabaseRole || state.user.supabaseRole || "") === "admin" && !state.user.permissionPreview) return true;
+      if (key === "orderAnalyzer") return state.user.featurePermissions?.[key] === true;
       return state.user.featurePermissions?.[key] !== false;
     }
     function tmsCommercialViewEnabledV261(view) {
@@ -101551,6 +101552,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return Boolean(state.user && (["spedytor", "kierownik", "admin"].includes(state.user.role) || ["dispatcher", "branch_manager", "admin"].includes(String(state.user.supabaseRole || ""))));
     }
 
+    function canUseOrderAnalyzer() {
+      return canUseOperationalAi() && tmsFeatureEnabledV261("orderAnalyzer");
+    }
+
     function renderPdfImportUi() {
       if (!canUseOperationalAi()) return "";
       return state.pdfImportOpen ? renderPdfImportModal() : "";
@@ -101620,13 +101625,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             </div>
             <div class="pdf-import-body">
               <div class="ai-import-source-grid">
-                <section class="ai-import-source-card">
+                ${canUseOrderAnalyzer() ? `<section class="ai-import-source-card">
                   <h3>Import zlecenia</h3>
                   <input id="pdf-import-file" type="file" accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx" hidden onchange="handlePdfImportFileChange(event)" />
                   <button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="document.getElementById('pdf-import-file')?.click()">Import zlecenia</button>
                   <div class="pdf-import-status ${state.pdfImportWarning ? "warning" : ""}">${esc(state.pdfImportStatus || "Wybierz plik PDF, DOC lub DOCX ze zleceniem.")}</div>
                   ${state.pdfImportFileName ? `<button class="btn btn-ai-action" type="button" ${aiBusy ? "disabled" : ""} onclick="analyzePdfOrder()">${documentBusy ? "Analizuję…" : "Analizuj zlecenie"}</button>` : ""}
-                </section>
+                </section>` : ""}
                 <section class="ai-import-source-card">
                   <h3>Wiadomość od klienta</h3>
                   <textarea id="text-import-orders" class="textarea ai-import-textarea" ${aiBusy ? "disabled" : ""} oninput="state.textImportText=this.value">${esc(state.textImportText || "")}</textarea>
@@ -102386,6 +102391,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     async function analyzePdfOrder() {
+      if (!canUseOrderAnalyzer()) { showFeatureDisabledMessageV261(); return; }
       savePdfImportFormToState();
       if (!state.pdfImportFile) {
         state.pdfImportStatus = "Najpierw wybierz plik PDF, DOC lub DOCX ze zleceniem.";
@@ -106622,7 +106628,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderRouteOrderDropzone(route, canEdit) {
       const entry = ROUTE_ORDER_IMPORTS.get(route.id) || null;
       const storedDocument = Boolean(route?.orderDocumentDataUrl);
-      if (!canEdit || !canUseOperationalAi()) {
+      if (!canEdit || !canUseOrderAnalyzer()) {
         if (!storedDocument) return "";
         if (entry?.previewUrl) return "";
         return `<section class="section route-order-dropzone route-order-saved-document">
@@ -106667,7 +106673,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <div class="route-order-verification-head">
           <div><h3>Oryginalne zlecenie</h3><div class="small">${esc(entry.fileName || "zlecenie.pdf")}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-            ${canEdit && entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
+            ${canEdit && canUseOrderAnalyzer() && entry.file && !entry.busy ? `<button class="btn btn-ai-action" type="button" onclick="reanalyzeRouteOrder('${attr(routeId)}')">Analizuj ponownie</button>` : ""}
             <a class="btn" href="${attr(entry.previewUrl)}" target="_blank" rel="noopener">Otwórz dokument</a>
             <button class="btn" type="button" onclick="clearRouteOrderImport('${attr(routeId)}')">Usuń podgląd</button>
           </div>
@@ -106751,7 +106757,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     async function analyzeRouteOrderFile(routeId, file) {
       const route = state.routes.find(item => item.id === routeId);
-      if (!route || !canUseOperationalAi() || !canEditBoardRoute(route)) {
+      if (!route || !canUseOrderAnalyzer() || !canEditBoardRoute(route)) {
         showAppMessage("Brak uprawnień", "Zlecenie może importować spedytor, który może edytować tę relację.", "error");
         return;
       }
@@ -106940,7 +106946,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         ${state.detailsOpen ? `<div class="details-backdrop" onclick="closeDetails()"></div>` : ""}
         <aside class="side-panel ${state.detailsOpen ? "open" : ""} ${hasOrderPreview ? "has-order-preview" : ""}"
-          ${canUseOperationalAi() && canEdit ? `ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')" ondragover="routeOrderDragOver(event,'${attr(route.id)}')" ondragleave="routeOrderDragLeave(event)" ondrop="routeOrderDrop(event,'${attr(route.id)}')"` : ""}
+          ${canUseOrderAnalyzer() && canEdit ? `ondragenter="routeOrderDragEnter(event,'${attr(route.id)}')" ondragover="routeOrderDragOver(event,'${attr(route.id)}')" ondragleave="routeOrderDragLeave(event)" ondrop="routeOrderDrop(event,'${attr(route.id)}')"` : ""}
           onclick="event.stopPropagation()">
           <div class="panel-head">
             <h2>Szczegóły zlecenia</h2>
@@ -107044,7 +107050,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <div class="details-client-helper">${clientOwnerBadge(resolveClientForRoute(route))}</div>
               ${canEdit ? `<div id="details-client-add-${attr(route.id)}" class="client-quick-add" hidden><div><label class="field-label" style="margin-top:0;">Nowa firma</label><input id="details-client-name-${attr(route.id)}" class="input" value="${attr(route.client || "")}" placeholder="nazwa firmy" /></div><div><label class="field-label" style="margin-top:0;">NIP</label><input id="details-client-nip-${attr(route.id)}" class="input" inputmode="numeric" maxlength="10" placeholder="10 cyfr" /></div><button type="button" class="btn btn-dark" onclick="quickAddClientFromRoute('${attr(route.id)}')">Dodaj firmę</button></div>` : ""}
 
-              <details class="optional-text-details" ${String(route.notes || "").trim() ? "open" : ""}>
+              ${tmsFeatureEnabledV261("orderNotes") ? `<details class="optional-text-details" ${String(route.notes || "").trim() ? "open" : ""}>
                 <summary>Uwagi do zlecenia</summary>
                 <textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','notes',this.value,false)">${esc(route.notes)}</textarea>
               </details>
@@ -107052,7 +107058,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <summary>Komentarz do relacji</summary>
                 <textarea id="details-route-comment-${attr(route.id)}" class="textarea" ${disabled} placeholder="Komentarz widoczny w historii klienta" oninput="updateRouteField('${attr(route.id)}','routeComment',this.value,false)">${esc(route.routeComment || "")}</textarea>
               </details>
-              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}
+              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}` : ""}
             </section>
 
 
@@ -107273,11 +107279,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <input id="new-route-second-load-coords" type="hidden" value="" />
               <input id="new-route-second-unload-coords" type="hidden" value="" />
 
-              <details class="optional-text-details" ${String(prefill.notes || "").trim() ? "open" : ""}>
+              <details class="optional-text-details" ${tmsFeatureEnabledV261("orderNotes") ? "" : "hidden"} ${String(prefill.notes || "").trim() ? "open" : ""}>
                 <summary>Uwagi do zlecenia</summary>
                 <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
               </details>
-              <details class="optional-text-details" ${String(prefill.driverNotes || "").trim() ? "open" : ""}>
+              <details class="optional-text-details" ${tmsFeatureEnabledV261("orderNotes") ? "" : "hidden"} ${String(prefill.driverNotes || "").trim() ? "open" : ""}>
                 <summary>Informacje dla kierowcy</summary>
                 <textarea id="new-driver-notes" class="textarea" placeholder="tylko informacje potrzebne kierowcy">${esc(prefill.driverNotes || "")}</textarea>
               </details>
@@ -121692,12 +121698,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return Array.from(event?.dataTransfer?.types || []).includes('Files');
       }
       document.addEventListener('dragenter', event => {
-        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        if (!canUseOrderAnalyzer() || !isFileDrag3L67(event)) return;
         aiFileDragDepth3L67 += 1;
         document.body.classList.add('ai-file-dragover');
       });
       document.addEventListener('dragover', event => {
-        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        if (!canUseOrderAnalyzer() || !isFileDrag3L67(event)) return;
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
       });
@@ -121707,7 +121713,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!aiFileDragDepth3L67) document.body.classList.remove('ai-file-dragover');
       });
       document.addEventListener('drop', event => {
-        if (!canUseOperationalAi() || !isFileDrag3L67(event)) return;
+        if (!canUseOrderAnalyzer() || !isFileDrag3L67(event)) return;
         aiFileDragDepth3L67 = 0;
         document.body.classList.remove('ai-file-dragover');
         if (event.target?.closest?.('.route-order-dropzone')) return;
@@ -123220,6 +123226,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         clip-path:inset(-30px 150px -30px -30px);
         transition:transform .18s ease,clip-path .18s ease,background .18s ease !important;
       }
+      .app .side-tool-tab.side-tool-tab { justify-content:flex-start !important; }
+      .app .side-tool-tab .future-tab-count,
+      .app .side-tool-tab .proposed-tab-alert { left:29px !important; right:auto !important; }
+      .app .side-tool-tab:has(.queue-message-indicator-v135) .future-tab-count,
+      .app .side-tool-tab:has(.queue-message-indicator-v135) .proposed-tab-alert { left:60px !important; }
+      .app .side-tool-tab:hover .future-tab-count,
+      .app .side-tool-tab:hover .proposed-tab-alert,
+      .app .side-tool-tab:focus-visible .future-tab-count,
+      .app .side-tool-tab:focus-visible .proposed-tab-alert { left:auto !important; right:2px !important; }
       .app .side-tool-tab:has(.queue-message-indicator-v135) {
         width:228px !important;
       }
@@ -123481,7 +123496,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
   </style>
   <link rel="stylesheet" href="/order-entry.css?build=v295-route-swap-header-panel" />
-  <script src="/order-entry.js?build=v295-route-swap-header-panel"></script>
+  <script src="/order-entry.js?build=v343-feature-controls"></script>
   <style id="targeted-v267-sms-image">
     .build-info-v313 { display:flex; flex-wrap:wrap; gap:2px 14px; padding:3px 8px; color:var(--muted,#64748b); font-size:11px; line-height:1.4; font-weight:600; }
     .mobile-nav-v200 { display:none; }

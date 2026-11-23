@@ -167,7 +167,7 @@
     body.before(workspace); workspace.append(body);
     const upload = document.createElement('details'); upload.className = 'order-entry-upload';
     upload.innerHTML = `<summary><b>Zlecenie transportowe</b></summary><div style="margin-top:10px"><p class="small">Wybierz lub upuść PDF albo Word. Sprawdź dane rozpoznane przez AI przed zapisem.</p><input id="order-entry-file" type="file" accept=".pdf,.doc,.docx" onchange="selectPlanOrderFile(this.files[0])"><p><button class="btn btn-ai-action" type="button" onclick="analyzePlanOrder()" ${busy ? 'disabled' : ''}>${busy ? 'Analizowanie…' : 'Analizuj zlecenie AI'}</button></p><div id="order-entry-status" role="status"></div></div>`;
-    body.prepend(upload);
+    if (canUseOrderAnalyzer()) body.prepend(upload);
     const dateInput = body.querySelector('#new-date');
     const relationDateStepper=dateInput?.previousElementSibling;
     const relationDateLabel=relationDateStepper?.previousElementSibling;
@@ -242,7 +242,7 @@
     refreshPreview();
   };
   window.analyzePlanOrder = async () => {
-    if (!isPlan() || busy || !canUseOperationalAi()) return;
+    if (!isPlan() || busy || !canUseOrderAnalyzer()) return;
     syncDraftLifecycle();
     const draft = state.prefill, file = draft.orderSourceFile;
     const status = document.getElementById('order-entry-status');
