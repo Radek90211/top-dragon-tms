@@ -100706,12 +100706,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       // Gdy panel jest zamknięty pokazujemy wyłącznie licznik. Pełne dopasowanie
       // każdej karty do wszystkich pojazdów jest kosztowne i nie jest wtedy widoczne.
       if (!state.proposedPanelOpen) {
-        return `<button class="proposed-tab side-tool-tab side-tool-proposed" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki" aria-label="Wolne ładunki">${sideToolIcon("proposed")}<span class="side-tool-label">Wolne ładunki</span>${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
+        return `<button class="proposed-tab side-tool-tab side-tool-proposed" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" aria-label="Wolne ładunki">${sideToolIcon("proposed")}<span class="side-tool-label">Wolne ładunki</span>${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}</button>`;
       }
       // Karty są domyślnie zwinięte. Nie liczymy przy otwarciu każdej kombinacji
       // relacja × pojazd; szczegóły i dopasowania powstają dopiero po rozwinięciu danej karty.
       return `
-        <button class="proposed-tab side-tool-tab side-tool-proposed" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" title="Zgłoszone / wolne ładunki" aria-label="Wolne ładunki">
+        <button class="proposed-tab side-tool-tab side-tool-proposed" type="button" data-tutorial="queue-proposed-tab" onclick="toggleProposedPanel()" ondragover="allowQueueDrop(event,'proposed')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'proposed')" aria-label="Wolne ładunki">
           ${sideToolIcon("proposed")}<span class="side-tool-label">Wolne ładunki</span>
           ${availableCount ? `<span class="proposed-tab-alert">${availableCount}</span>` : ""}
         </button>
@@ -103271,7 +103271,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderMapToggleTab() {
       if (!state.user || mobileViewportActive()) return "";
       return `
-        <button class="map-toggle-tab side-tool-tab side-tool-map ${state.unloadPanelCollapsed ? "" : "btn-dark"}" data-action="unload-panel" type="button" onclick="toggleUnloadPanel();event.stopPropagation();" title="Pokaż lub ukryj mapę i listę rozładunków" aria-label="Mapa">
+        <button class="map-toggle-tab side-tool-tab side-tool-map ${state.unloadPanelCollapsed ? "" : "btn-dark"}" data-action="unload-panel" type="button" onclick="toggleUnloadPanel();event.stopPropagation();" aria-label="Mapa">
           ${sideToolIcon("map")}<span class="side-tool-label">Mapa</span>
         </button>
       `;
@@ -103297,9 +103297,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderWorkspaceToolTabs() {
       if (!state.user || mobileViewportActive()) return "";
       return `<div class="workspace-tool-tabs" aria-label="Narzędzia planu">
-        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-assistant ${state.commercialPanelOpen ? "btn-dark" : ""}" data-tutorial="assistant-toggle" onclick="toggleCommercialIntelligence();event.stopPropagation();" title="Asystent spedytora" aria-label="Asystent spedytora">${sideToolIcon("assistant")}<span class="side-tool-label">Asystent spedytora</span></button>
-        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-nearest ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel();event.stopPropagation();" title="Najbliższy pojazd" aria-label="Najbliższy pojazd">${sideToolIcon("nearest")}<span class="side-tool-label">Najbliższy pojazd</span></button>
-        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-settings ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools();event.stopPropagation();" title="Ustawienia Planu kierowców" aria-label="Ustawienia Planu kierowców">${sideToolIcon("settings")}<span class="side-tool-label">Ustawienia planu</span></button>
+        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-assistant ${state.commercialPanelOpen ? "btn-dark" : ""}" data-tutorial="assistant-toggle" onclick="toggleCommercialIntelligence();event.stopPropagation();" aria-label="Asystent spedytora">${sideToolIcon("assistant")}<span class="side-tool-label">Asystent spedytora</span></button>
+        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-nearest ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel();event.stopPropagation();" aria-label="Najbliższy pojazd">${sideToolIcon("nearest")}<span class="side-tool-label">Najbliższy pojazd</span></button>
+        <button type="button" class="workspace-tool-tab side-tool-tab side-tool-settings ${state.boardToolsOpen ? "btn-dark" : ""}" onclick="toggleBoardTools();event.stopPropagation();" aria-label="Ustawienia Planu kierowców">${sideToolIcon("settings")}<span class="side-tool-label">Ustawienia planu</span></button>
       </div>`;
     }
 
@@ -103400,7 +103400,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderStatsTab(stats = null) {
       const alerts = stats ? stats.accountingIssues.length : activeRoutes().filter(statsRouteHasAccountingIssue).length;
       return `
-        <button class="stats-tab side-tool-tab side-tool-stats ${state.statsPanelOpen ? "btn-dark" : ""}" type="button" onclick="toggleStatsPanel();event.stopPropagation();" title="Statystyki i alerty" aria-label="Statystyki">
+        <button class="stats-tab side-tool-tab side-tool-stats ${state.statsPanelOpen ? "btn-dark" : ""}" type="button" onclick="toggleStatsPanel();event.stopPropagation();" aria-label="Statystyki">
           ${sideToolIcon("stats")}<span class="side-tool-label">Statystyki</span>
           ${alerts ? `<span class="proposed-tab-alert">${alerts}</span>` : ""}
         </button>
@@ -103584,7 +103584,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function renderFutureTab() {
       const count = visibleFutureRoutes().length;
       return `
-        <button class="future-tab side-tool-tab side-tool-future" type="button" data-action="future-panel" data-tutorial="queue-future-tab" onclick="toggleFuturePanel()" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" title="Planowane relacje do rozdania" aria-label="Planowane relacje">
+        <button class="future-tab side-tool-tab side-tool-future" type="button" data-action="future-panel" data-tutorial="queue-future-tab" onclick="toggleFuturePanel()" ondragover="allowQueueDrop(event,'future')" ondragleave="leaveQueueDrop(event)" ondrop="dropQueueCard(event,'future')" aria-label="Planowane relacje">
           ${sideToolIcon("future")}<span class="side-tool-label">Planowane relacje</span>
           <span class="future-tab-count">${count}</span>
         </button>
@@ -107203,8 +107203,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               <details class="optional-text-details" ${String(route.routeComment || "").trim() ? "open" : ""}>
                 <summary>Komentarz do relacji</summary>
                 <textarea id="details-route-comment-${attr(route.id)}" class="textarea" ${disabled} placeholder="Komentarz widoczny w historii klienta" oninput="updateRouteField('${attr(route.id)}','routeComment',this.value,false)">${esc(route.routeComment || "")}</textarea>
-              </details>
-              ${(() => { const value = String(route.driverNotes ?? (route.orderImportedAt || route.aiSourceType ? "" : route.notes || "")); return `<details class="optional-text-details" ${value.trim() ? "open" : ""}><summary>Informacje dla kierowcy</summary><textarea class="textarea" ${disabled} oninput="updateRouteField('${attr(route.id)}','driverNotes',this.value,false)">${esc(value)}</textarea></details>`; })()}` : ""}
+              </details>` : ""}
             </section>
 
 
@@ -107232,7 +107231,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               </section>
             ` : ""}
 
-            <section class="section">
+            <!--relation-transfer-anchor-->
+            ${tmsFeatureEnabledV261("orderNotes") ? `<section class="section">
               <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
                 <div>
                   <b>Wiadomość do kierowcy</b>
@@ -107247,7 +107247,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <button class="btn" type="button" data-sms-open-route="${attr(route.id)}" data-sms-href="${attr(smsHref)}" onclick="openRouteSms('${attr(route.id)}')">Otwórz SMS</button>
                 <button class="btn" type="button" onclick="chooseRouteSmsImage('${attr(route.id)}')">Wyślij obraz / MMS</button>
               </div>
-            </section>
+            </section>` : ""}
 
             ${canDelete ? `<div class="details-delete-row"><button type="button" class="details-delete-icon" onclick="deleteRoute('${attr(route.id)}')" title="Usuń relację" aria-label="Usuń relację"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg></button></div>` : ""}
           </div>
@@ -107428,10 +107428,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                 <summary>Uwagi do zlecenia</summary>
                 <textarea id="new-notes" class="textarea" placeholder="awizacja, kontakt, numery referencyjne i instrukcje">${esc(prefill.notes || "")}</textarea>
               </details>
-              <details class="optional-text-details" ${tmsFeatureEnabledV261("orderNotes") ? "" : "hidden"} ${String(prefill.driverNotes || "").trim() ? "open" : ""}>
-                <summary>Informacje dla kierowcy</summary>
-                <textarea id="new-driver-notes" class="textarea" placeholder="tylko informacje potrzebne kierowcy">${esc(prefill.driverNotes || "")}</textarea>
-              </details>
+              <textarea id="new-driver-notes" hidden>${esc(prefill.driverNotes || "")}</textarea>
 
               <label class="field-label">Klient</label>
               <div class="single-suggestion-wrap">
@@ -117679,11 +117676,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!route) return html;
         const extras = `${renderOriginalTextToggle(route.aiSourceText, "section original-text-section")}${renderRelationTransferSection(route)}`;
         if (!extras) return html;
-        const smsIndex = html.indexOf('<b>Wiadomość do kierowcy</b>');
-        if (smsIndex > 0) {
-          const sectionIndex = html.lastIndexOf('<section', smsIndex);
-          if (sectionIndex > 0) html = html.slice(0, sectionIndex) + extras + html.slice(sectionIndex);
-        }
+        html = html.replace('<!--relation-transfer-anchor-->', extras);
         return html;
       };
 

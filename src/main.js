@@ -127,7 +127,7 @@ const USER_FEATURES = Object.freeze([
   ['relationChat', 'Czat dotyczący relacji'],
   ['clientDatabase', 'Baza klientów'],
   ['excelBoardMode', 'Tryb Excelowy'],
-  ['orderNotes', 'Uwagi, komentarz i informacje dla kierowcy'],
+  ['orderNotes', 'Uwagi, komentarz i wiadomość do kierowcy'],
   ['orderAnalyzer', 'Analizator zleceń PDF / Word'],
 ])
 

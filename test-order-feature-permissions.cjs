@@ -29,6 +29,28 @@ vm.runInContext(section(host, 'const USER_FEATURES = ', 'function renderUserFeat
 assert.equal(adminCtx.normalize({}).orderAnalyzer, false);
 assert.equal(adminCtx.normalize({orderAnalyzer:true}).orderAnalyzer, true);
 assert.equal(adminCtx.normalize({}).orderNotes, true);
+const route={id:'r1',driverId:'d1',load:'A',unload:'B',date:'2026-11-23',endDate:'2026-11-24',client:'Firma',notes:'uwaga',routeComment:'komentarz',driverNotes:'zachowane dane'};
+const renderCtx={
+  state:{routes:[route],selectedRouteId:'r1',detailsOpen:true,user:{role:'spedytor',login:'test'}},
+  driverById:()=>({driver:'Kierowca',dispatcher:'test',carrier:'Firma',phone:'123'}),
+  routeSms:()=> 'Treść SMS',canEditBoardRoute:()=>true,canDeleteBoardRoute:()=>true,
+  formDisabledAttr:()=>'',hydrateRouteOrderImport(){},ROUTE_ORDER_IMPORTS:new Map(),
+  canUseOrderAnalyzer:()=>false,attr:v=>String(v||''),esc:v=>String(v||''),
+  renderRouteOrderDropzone:()=>'',dispatcherBadgeClass:()=>'',addDaysToIso:()=> '2026-11-24',
+  clientOwnerBadge:()=>'',resolveClientForRoute:()=>null,numberInput:()=>'',renderFreightProfitabilityCalculator:()=>'',
+  tmsFeatureEnabledV261:()=>renderCtx.enabled,START_DATE:'2026-11-23',encodeURIComponent,String,Number,Boolean,Map
+};
+vm.createContext(renderCtx);
+vm.runInContext(section(html,'    function renderSidePanel()', '    function renderFreightProfitabilityCalculator('),renderCtx);
+renderCtx.enabled=true;
+const enabled=renderCtx.renderSidePanel();
+for (const label of ['Uwagi do zlecenia','Komentarz do relacji','Wiadomość do kierowcy']) assert.ok(enabled.includes(label),label);
+assert.ok(!enabled.includes('<summary>Informacje dla kierowcy</summary>'));
+renderCtx.enabled=false;
+const disabled=renderCtx.renderSidePanel();
+for (const label of ['Uwagi do zlecenia','Komentarz do relacji','Wiadomość do kierowcy']) assert.ok(!disabled.includes(label),label);
+assert.ok(disabled.includes('<!--relation-transfer-anchor-->'),'Oryginalny tekst i transfer muszą zachować punkt wstawienia');
+assert.ok(!html.includes('title="Pokaż lub ukryj mapę i listę rozładunków"'));
 
 async function apiScenario(role, permissions, textMode) {
   process.env.SUPABASE_URL = 'https://example.supabase.co';
