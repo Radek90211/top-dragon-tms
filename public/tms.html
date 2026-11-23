@@ -94480,8 +94480,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return fallback;
     }
 
+    function clearUnloadRoutePreviewForDateChange(previousDate) {
+      if (previousDate === state.reportDate) return;
+      if (!state.unloadRoutePreviewRouteId && !state.unloadRoutePreviewRouteIds?.length) return;
+      try { state.leafletMap?.closePopup?.(); } catch (error) {}
+      try { state.unloadRoutePreviewLayer?.clearLayers?.(); } catch (error) {}
+      state.unloadRoutePreviewRouteId = "";
+      state.unloadRoutePreviewRouteIds = [];
+      state.unloadRoutePreviewDismissStage = 0;
+    }
+
     function setReportDateFromInput(value) {
+      const previousDate = state.reportDate;
       state.reportDate = parseDateInput(value, state.reportDate || currentAppDate());
+      clearUnloadRoutePreviewForDateChange(previousDate);
       state.proposedSignalSilentOnce = true;
       syncUnloadPanelDom();
       syncProposedPanel();
@@ -98644,7 +98656,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             : rows.length ? rows.map(group => {
                 const owner = String(group.client?.dispatcher || "").toUpperCase();
                 const canRequest = canSendQuickClientLoadRequest() && owner && owner !== login;
-                return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">${Math.round(group.distanceKm)} km po drogach · kat. C · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Szybkie zapytanie o ładunek</button>` : ""}</div></div>`;
+                return `<div class="commercial-row commercial-region-row"><div>${clientNameLink(group.client, group.client?.name || group.name)}<div class="commercial-meta">~${Math.round(group.distanceKm)} km · ${esc(group.client?.address || "")}</div></div><div class="commercial-region-actions"><div class="commercial-meta">Średnia marża <b>${money(group.avgMargin)}</b> · średnia stawka <b>${group.avgRatePerKm > 0 ? `${group.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b> · ${group.items.length} realizacji</div>${canRequest ? `<button type="button" class="btn btn-dark" onclick="sendRegionClientLoadRequest('${attr(group.client.id)}')">Szybkie zapytanie o ładunek</button>` : ""}</div></div>`;
               }).join("")
             : state.regionOpportunityQuery
               ? `<div class="commercial-empty">Brak klientów w promieniu 150 km.</div>`
@@ -106528,7 +106540,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
                   <div class="route-context-client-name">${clientNameLink(item.client, item.client?.name || "Klient", owners[0] || "")}</div>
                   <div class="route-context-client-actions">${action}</div>
                 </div>
-                <span class="route-context-client-distance">${Math.round(item.distanceKm)} km po drogach · kat. C</span><br>
+                <span class="route-context-client-distance">~${Math.round(item.distanceKm)} km</span><br>
                 ${esc(item.client.address)}<br>
                 <span class="small">Śr. marża: <b>${money(item.avgMargin)}</b> · śr. stawka: <b>${item.avgRatePerKm > 0 ? `${item.avgRatePerKm.toFixed(2)} PLN/km` : "brak danych"}</b></span>
               </div>`;
@@ -107694,14 +107706,18 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function setReportDate(value) {
+      const previousDate = state.reportDate;
       state.reportDate = clampDateToWorkingWindow(value || currentAppDate());
+      clearUnloadRoutePreviewForDateChange(previousDate);
       state.proposedSignalSilentOnce = true;
       syncUnloadMapCard();
       scheduleReportDateDependentPanelsSync();
     }
 
     function shiftReportDate(direction) {
+      const previousDate = state.reportDate;
       state.reportDate = clampDateToWorkingWindow(addDaysToIso(state.reportDate || currentAppDate(), Number(direction || 0)));
+      clearUnloadRoutePreviewForDateChange(previousDate);
       state.proposedSignalSilentOnce = true;
       syncUnloadMapCard();
       scheduleReportDateDependentPanelsSync();

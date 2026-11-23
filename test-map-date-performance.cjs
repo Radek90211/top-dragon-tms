@@ -8,6 +8,33 @@ function section(start, end) {
   assert.ok(a >= 0 && b > a, `Brak fragmentu ${start}`);
   return html.slice(a, b);
 }
+let cleared = 0, closed = 0;
+const dateCtx = {
+  state: { reportDate:'2026-11-21', unloadRoutePreviewRouteId:'r1', unloadRoutePreviewRouteIds:['r1'], unloadRoutePreviewDismissStage:1,
+    unloadRoutePreviewLayer:{clearLayers(){cleared++;}}, leafletMap:{closePopup(){closed++;}} },
+  parseDateInput:value=>value, clampDateToWorkingWindow:value=>value,
+  addDaysToIso:(date, amount)=>`shifted:${date}:${amount}`, currentAppDate:()=>'',
+  syncUnloadPanelDom(){}, syncProposedPanel(){}, syncFuturePanel(){}, scheduleStatsPanelSync(){},
+  notifyProposedLoadsIfNeeded(){}, syncUnloadMapCard(){}, scheduleReportDateDependentPanelsSync(){}
+};
+vm.createContext(dateCtx);
+vm.runInContext(section('    function clearUnloadRoutePreviewForDateChange(', '    function updateNewRouteDateFromInput('),dateCtx);
+vm.runInContext(section('    function setReportDate(value)', '    function toggleUnloadPanel()'),dateCtx);
+dateCtx.setReportDate('2026-11-21');
+assert.equal(cleared,0,'Ta sama data nie usuwa podglądu');
+for (const change of [()=>dateCtx.setReportDate('2026-11-22'),()=>dateCtx.shiftReportDate(1),()=>dateCtx.setReportDateFromInput('2026-11-24')]) {
+  dateCtx.state.unloadRoutePreviewRouteId='r1'; dateCtx.state.unloadRoutePreviewRouteIds=['r1'];
+  const before=cleared; change();
+  assert.equal(cleared,before+1,'Zmiana daty usuwa warstwę podglądu');
+  assert.equal(closed,cleared,'Zmiana daty zamyka dymek podglądu');
+  assert.equal(dateCtx.state.unloadRoutePreviewRouteId,'');
+  assert.equal(dateCtx.state.unloadRoutePreviewRouteIds.length,0);
+  assert.equal(dateCtx.state.unloadRoutePreviewDismissStage,0);
+}
+dateCtx.setReportDate('2026-11-25');
+assert.equal(closed,3,'Bez podglądu nie zamykamy innych dymków');
+assert.ok(html.includes('~${Math.round(item.distanceKm)} km</span>'), 'Odległość klienta ma skrócony opis');
+assert.ok(!html.includes('km po drogach · kat. C'), 'Stary opis odległości został usunięty');
 const routes = Array.from({ length:3360 }, (_, i) => ({
   id:`r${i}`, driverId:`d${i % 60}`, date:`day${Math.floor(i / 60)}`,
   start:Math.floor(i / 60) * 24, end:Math.floor(i / 60) * 24 + 20, load:'Ładunek'
