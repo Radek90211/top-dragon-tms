@@ -1799,7 +1799,7 @@
       padding: 3px 12px 2px 12px;
       text-align: left;
       overflow: hidden;
-      cursor: url("/cursor-hand-outline.svg") 11 2, grab;
+      cursor: pointer;
       transition: background 0.15s ease, box-shadow 0.15s ease;
       top: 18px;
       touch-action: none;
@@ -123204,6 +123204,31 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       opacity:0 !important;
       pointer-events:none !important;
       transform:translateX(16px) !important;
+    }
+  </style>
+  <style id="side-tabs-compositor-v341">
+    /* Stała szerokość i transformacja nie wymuszają układu w każdej klatce. */
+    @media (min-width:721px) and (hover:hover) {
+      .app .side-tool-tab {
+        width:196px !important;
+        transform:translateX(150px) !important;
+        clip-path:inset(-30px 150px -30px -30px);
+        transition:transform .18s ease,clip-path .18s ease,background .18s ease !important;
+      }
+      .app .side-tool-tab:has(.queue-message-indicator-v135) {
+        width:228px !important;
+      }
+      .app .side-tool-tab:hover,
+      .app .side-tool-tab:focus-visible {
+        transform:translateX(0) !important;
+        clip-path:inset(-30px -30px -30px -30px);
+      }
+      .app:has(.future-drawer.open, .proposed-drawer.open, .stats-drawer.open, .side-panel.open) .side-tool-tab {
+        transform:translateX(150px) !important;
+      }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .app .side-tool-tab { transition:none !important; }
     }
   </style>
   <style id="targeted-v161-board-scroll-performance">
