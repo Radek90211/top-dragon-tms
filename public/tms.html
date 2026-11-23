@@ -91542,13 +91542,14 @@
           if (date >= "2026-11-21" && date <= "2026-11-23") {
             if (previousUnload) {
               route.load = sampleRouteLocationV333(previousUnload);
-              route.loadAddress = sampleRouteStreetAddressV223(previousUnload);
             }
             const destination = date === "2026-11-21"
               ? (previousUnload === "Warszawa" ? "Kraków" : "Warszawa")
               : date === "2026-11-22" ? "Łódź" : "Poznań";
             route.unload = sampleRouteLocationV333(destination);
-            route.unloadAddress = sampleRouteStreetAddressV223(destination);
+            // Współrzędne przykładów są punktami miejscowości, nie konkretnych ulic.
+            route.loadAddress = "";
+            route.unloadAddress = "";
             route.approachKm = 0;
             route.loadedKm = 0;
             route.cost = 0;
@@ -91557,7 +91558,7 @@
           }
           previousUnload = String(route.unload || "").replace(/\s+\d{2}-\d{3}\b/g, "").trim();
           route.id = `sample-relation-v${route.sampleRoadDemoV339 ? "345" : "223"}-${encodeURIComponent(String(driver.id))}-${date}`;
-          route.sampleScheduleVersion = 345;
+          route.sampleScheduleVersion = 346;
           route.startHour = 0;
           route.endDate = date;
           route.endHour = 24;
@@ -91615,7 +91616,7 @@
       const currentSignatures = new Set(currentSamples.map(sampleRelationSignatureV169));
       const currentIsFresh = currentSamples.length === rebuilt.length
         && currentSignatures.size === currentSamples.length
-        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 345) && expectedSignatures.has(sampleRelationSignatureV169(route)));
+        && currentSamples.every(route => (!route.sampleRoadDemoV339 || route.sampleScheduleVersion === 346) && expectedSignatures.has(sampleRelationSignatureV169(route)));
       if (currentIsFresh) return target;
 
       // Zachowaj starsze przykłady, odtwarzając jedynie wskazane trzy dni.
@@ -93633,7 +93634,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     function routeStatusHint(route) {
       if (route.sampleRoadDemoV339) {
-        if (route.sampleRoadRoutingStatusV339 === "ready") return `przykład · TomTom: ${totalKm(route)} km`;
+        if (route.sampleRoadRoutingStatusV339 === "ready") return `przykład · ${route.manualTotalKm != null ? "ręczna korekta" : "TomTom"}: ${totalKm(route)} km`;
         if (route.sampleRoadRoutingStatusV339 === "unavailable") return "przykład · nie udało się potwierdzić kilometrów";
         return "przykład · oczekiwanie na routing ciężarowy";
       }
