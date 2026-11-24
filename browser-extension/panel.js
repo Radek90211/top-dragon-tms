@@ -6,7 +6,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const store={async get(){return ext?(await chrome.storage.local.get('tdAssistant')).tdAssistant:JSON.parse(localStorage.getItem('tdAssistantDemo')||'null');},async set(value){if(ext)await chrome.storage.local.set({tdAssistant:value});else localStorage.setItem('tdAssistantDemo',JSON.stringify(value));}};
 let local=(await store.get())||{offers:[],clients:[],draft:{},costs:{}};
 let templates=ext?(await chrome.storage.sync.get('tdSnippets')).tdSnippets||{'=1':'TEST'}:JSON.parse(localStorage.getItem('tdSnippetsDemo')||'{"=1":"TEST"}');
-let snapshot={drivers:[],routes:[],clients:[],history:[]},shared=[],sharedAvailable=false,actor=null,branchId='',tmsTabId=0;
+let snapshot={drivers:[],routes:[],clients:[],history:[]},shared=[],sharedAvailable=false,actor=null,branchId='',tmsTabId=0,lastMatches=null;
 function feedback(text,type=''){ $('#feedback').textContent=text;$('#feedback').className=type; }
 function fill(selector,data){const target=$(selector);for(const [key,value]of Object.entries(data||{})){const field=target.elements.namedItem(key);if(field){if(field.type==='checkbox')field.checked=Boolean(value);else field.value=value??'';}}}
 function coords(text){return point(String(text||'').split(/[,;]\s*/));}
@@ -16,7 +16,21 @@ function currentRecord(){return shared.find(row=>row.kind==='offer'&&row.record_
 function money(value,currency){return Number.isFinite(value)?value.toLocaleString('pl-PL',{maximumFractionDigits:2,minimumFractionDigits:2})+' '+currency:'—';}
 function date(value){return value?new Date(value).toLocaleString('pl-PL'):'—';}
 function km(value){return Number.isFinite(value)?Math.round(value)+' km':'—';}
-function renderOwner(){const row=currentRecord(),canWrite=sharedAvailable&&['admin','dispatcher','branch_manager'].includes(actor?.role);$('#owner').textContent=row?.owner_name?`Zajmuje się tym ${row.owner_name} · aktualizacja ${date(row.updated_at)}`:sharedAvailable?'Oferta nie jest zajęta w zespole.':'Brak potwierdzenia stanu zespołu — połącz i odśwież dane.';$('#release').disabled=!canWrite||!row?.owner_id||(row.owner_id!==actor?.id&&actor?.role!=='admin');$('#claim').disabled=!canWrite||Boolean(row?.owner_id&&row.owner_id!==actor?.id);$('#save-shared').disabled=!canWrite;$('#client-shared').disabled=!canWrite;}
+function matchingHistory(v=offer()){
+  const key=clientKey(v);
+  const found=(snapshot.clients||[]).filter(c=>clientKey(c)===key||(!v.nip&&!v.transId&&String(c.client||'').trim().toLowerCase()===String(v.client||'').trim().toLowerCase()));
+  const ids=new Set(found.map(c=>c.id));
+  const history=(snapshot.history||[]).filter(r=>ids.has(r.clientId)||(!v.nip&&!v.transId&&String(r.client||'').trim().toLowerCase()===String(v.client||'').trim().toLowerCase()&&v.client));
+  return {found,history};
+}
+function renderDecision(){
+  const result=lastMatches||matchDrivers(offer(),snapshot),best=result.rows?.[0],profit=profitability(costs()),history=matchingHistory().history,row=currentRecord();
+  const driver=result.error?'Uzupełnij dane':best?best.name:'Brak dopasowania';
+  const moneyResult=profit.error?'Uzupełnij koszty':money(profit.result,costs().currency);
+  const owner=row?.owner_name||'Wolna';
+  $('#decision').innerHTML=`<div class="decision-item"><small>Najlepsze auto</small><b>${esc(driver)}</b></div><div class="decision-item"><small>Wynik</small><b class="${profit.error?'':profit.result>=0?'good':'bad'}">${esc(moneyResult)}</b></div><div class="decision-item"><small>Zespół</small><b>${esc(owner)}</b></div><div class="decision-item"><small>Historia klienta</small><b>${history.length?history.length+' relacji':'Brak danych'}</b></div><div class="decision-item"><small>Status</small><b>${esc(STATUSES[row?.payload?.work?.status]||'Nowa')}</b></div><div class="decision-item"><small>Puste km</small><b>${best?(best.deltaEmptyKm>=0?'+':'')+km(best.deltaEmptyKm):'—'}</b></div>`;
+}
+function renderOwner(){const row=currentRecord(),canWrite=sharedAvailable&&['admin','dispatcher','branch_manager'].includes(actor?.role);$('#owner').textContent=row?.owner_name?`Zajmuje się tym ${row.owner_name} · aktualizacja ${date(row.updated_at)}`:sharedAvailable?'Oferta nie jest zajęta w zespole.':'Brak potwierdzenia stanu zespołu — połącz i odśwież dane.';$('#release').disabled=!canWrite||!row?.owner_id||(row.owner_id!==actor?.id&&actor?.role!=='admin');$('#claim').disabled=!canWrite||Boolean(row?.owner_id&&row.owner_id!==actor?.id);$('#save-shared').disabled=!canWrite;$('#client-shared').disabled=!canWrite;renderDecision();}
 function renderLists(){
   const filter=$('#team-filter').value;
   const merged=[...shared.filter(r=>r.kind==='offer'),...local.offers.filter(r=>!shared.some(s=>s.kind==='offer'&&s.record_key===r.record_key))];
@@ -50,17 +64,22 @@ async function connect(){
   renderHistory();if(branchId){try{await refresh();}catch(error){shared=[];renderLists();feedback(error.message,'error');}}else feedback('Wybierz oddział, aby wczytać oznaczenia zespołu.');
 }
 function renderHistory(v=offer()){
-  const key=clientKey(v);
-  const found=(snapshot.clients||[]).filter(c=>clientKey(c)===key||(!v.nip&&!v.transId&&String(c.client||'').trim().toLowerCase()===String(v.client||'').trim().toLowerCase()));
-  const ids=new Set(found.map(c=>c.id));
-  const history=(snapshot.history||[]).filter(r=>ids.has(r.clientId)||(!v.nip&&!v.transId&&String(r.client||'').trim().toLowerCase()===String(v.client||'').trim().toLowerCase()&&v.client));
+  const {found,history}=matchingHistory(v);
   $('#client-history').innerHTML='<h3>Historia wybranego klienta</h3>'+(found.map(c=>`<article class="card"><b>${esc(c.client)}</b><p>Opiekunowie: ${esc(c.dispatcher||'—')}</p><small>${esc(c.nip||c.transId||'Dopasowanie po nazwie — sprawdź tożsamość')}</small></article>`).join(''))+(history.slice(0,20).map(r=>`<article class="card"><b>${esc(r.date)}</b><p>${esc(r.load)} → ${esc(r.unload)}</p><small>${esc(r.price||'Brak zapisanej stawki')} ${esc(r.currency||'')}</small></article>`).join('')||'<p class="empty">Brak pasującej historii w pobranym zakresie TOP DRAGON.</p>');
+  renderDecision();
+}
+function matchCard(row){
+  return `<article class="card"><b>${esc(row.name)}</b> <span class="badge">${esc(row.dispatcher||'—')}</span><div class="numbers"><b>Dojazd ${km(row.approachKm)}</b><b>Po rozładunku ${km(row.afterKm)}</b><b>Puste km: ${row.deltaEmptyKm>=0?'+':''}${km(row.deltaEmptyKm)}</b></div><small>Przed: ${esc(row.previous)}<br>Po: ${esc(row.next)}</small>${row.warnings.map(w=>`<p class="warning">${esc(w)}</p>`).join('')}<button class="secondary" data-match="${esc(row.driverId)}">Użyj kilometrów</button></article>`;
 }
 function renderMatches(){
-  const result=matchDrivers(offer(),snapshot);
-  $('#matches').innerHTML=result.error?`<p class="warning">${esc(result.error)}</p>`:'<small>Szacunki ze współrzędnych. Dopasowanie wymaga sprawdzenia czasu pracy kierowcy, dostępności i warunków transportu.</small>'+result.rows.map(row=>`<article class="card"><b>${esc(row.name)}</b> <span class="badge">${esc(row.dispatcher||'—')}</span><div class="numbers"><b>Dojazd ${km(row.approachKm)}</b><b>Po rozładunku ${km(row.afterKm)}</b><b>Zmiana pustych km: ${row.deltaEmptyKm>=0?'+':''}${km(row.deltaEmptyKm)}</b></div><small>Przed: ${esc(row.previous)}<br>Po: ${esc(row.next)}</small>${row.warnings.map(w=>`<p class="warning">${esc(w)}</p>`).join('')}<button class="secondary" data-match="${esc(row.driverId)}">Użyj kilometrów w kalkulatorze</button></article>`).join('')+(result.rows.length?'':'<p class="empty">Brak dopasowań z kompletnymi danymi w pobranym planie.</p>');
+  const result=lastMatches=matchDrivers(offer(),snapshot);
+  if(result.error)$('#matches').innerHTML=`<p class="warning">${esc(result.error)}</p>`;
+  else if(!result.rows.length)$('#matches').innerHTML='<p class="empty">Brak dopasowań z kompletnymi danymi w pobranym planie.</p>';
+  else $('#matches').innerHTML='<small>Najlepsze dopasowanie. Kilometry są szacunkowe.</small>'+matchCard(result.rows[0])+(result.rows.length>1?`<details><summary>Pozostałe auta (${result.rows.length-1})</summary>${result.rows.slice(1).map(matchCard).join('')}</details>`:'');
+  renderDecision();
+  return result;
 }
-function calculate(){const v=costs();document.querySelectorAll('[data-fleet]').forEach(el=>el.hidden=v.mode==='broker');document.querySelectorAll('[data-broker]').forEach(el=>el.hidden=v.mode!=='broker');const r=profitability(v);$('#profit').innerHTML=r.error?`<p class="warning">${esc(r.error)}</p>`:`<div class="numbers"><b>${km(r.totalKm)}</b><b>${money(r.perKm,v.currency)}/km</b><b class="${r.result>=0?'good':'bad'}">Wynik: ${money(r.result,v.currency)}</b></div><small>Koszt: ${money(r.costs,v.currency)} · Marża: ${r.margin===null?'—':r.margin.toFixed(1)+'%'}</small>`;}
+function calculate(){const v=costs();document.querySelectorAll('[data-fleet]').forEach(el=>el.hidden=v.mode==='broker');document.querySelectorAll('[data-broker]').forEach(el=>el.hidden=v.mode!=='broker');const r=profitability(v);$('#profit').innerHTML=r.error?`<p class="warning">${esc(r.error)}</p>`:`<div class="numbers"><b>${km(r.totalKm)}</b><b>${money(r.perKm,v.currency)}/km</b><b class="${r.result>=0?'good':'bad'}">Wynik: ${money(r.result,v.currency)}</b></div><small>Koszt: ${money(r.costs,v.currency)} · Marża: ${r.margin===null?'—':r.margin.toFixed(1)+'%'}</small>`;renderDecision();}
 async function persistDraft(){local.draft=offer();local.costs=costs();await store.set(local);}
 async function save(kind,central,action='write'){
   const v=kind==='client'?form('#client-form'):offer();const key=kind==='client'?clientKey(v):offerKey(v);
@@ -86,13 +105,26 @@ fill('#offer-form',local.draft);fill('#cost-form',local.costs);
 document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>show(button.dataset.view)));
 $('#connect').addEventListener('click',handle(connect));$('#tms-tab').addEventListener('change',handle(async()=>{tmsTabId=Number($('#tms-tab').value);shared=[];sharedAvailable=false;await connect();}));
 $('#branch').addEventListener('change',handle(async()=>{branchId=$('#branch').value;shared=[];sharedAvailable=false;['#claim','#release','#save-shared','#client-shared'].forEach(id=>$(id).disabled=true);renderLists();if(branchId)await refresh();}));
-$('#parse').addEventListener('click',handle(async()=>{const parsed=parseText($('#source').value);$('#offer-form').reset();$('#work-form').reset();fill('#cost-form',{revenue:'',loadedKm:'',approachKm:'',afterKm:''});fill('#offer-form',parsed);fill('#cost-form',parsed);$('#matches').replaceChildren();$('#profit').replaceChildren();await persistDraft();renderOwner();feedback('Przeniesiono rozpoznane pola. Nieznane daty i godziny pozostawiono puste.');}));
+$('#parse').addEventListener('click',handle(async()=>{
+  if(!$('#source').value.trim())throw new Error('Wklej najpierw treść oferty.');
+  const parsed=parseText($('#source').value),before=offer();
+  if(parsed.load)fill('#offer-form',{load:parsed.load,loadCoords:parsed.load===before.load?before.loadCoords:''});
+  if(parsed.unload)fill('#offer-form',{unload:parsed.unload,unloadCoords:parsed.unload===before.unload?before.unloadCoords:''});
+  fill('#offer-form',parsed);fill('#cost-form',parsed);
+  lastMatches=null;$('#matches').replaceChildren();$('#profit').replaceChildren();
+  if(ext)await connect();
+  const result=renderMatches(),best=result.rows?.[0],v=offer();
+  if(best)fill('#cost-form',{approachKm:best.approachKm.toFixed(1),afterKm:best.afterKm.toFixed(1)});
+  const loaded=estimateKm(v.loadPoint,v.unloadPoint);if(loaded!==null)fill('#cost-form',{loadedKm:loaded.toFixed(1)});
+  calculate();renderHistory();await persistDraft();
+  feedback(result.error?'Uzupełnij wskazane dane, aby dokończyć ocenę.':'Ocena gotowa. Najważniejsze wyniki są widoczne powyżej.',result.error?'':'success');
+}));
 for(const field of ['load','unload'])$('#offer-form [name='+field+']').addEventListener('input',()=>{$('#offer-form [name='+field+'Coords]').value='';});
-$('#offer-form').addEventListener('input',()=>$('#matches').replaceChildren());
+$('#offer-form').addEventListener('input',()=>{lastMatches=null;$('#matches').replaceChildren();renderDecision();});
 $('#client-form').addEventListener('input',()=>renderHistory(form('#client-form')));
-$('#offer-form').addEventListener('submit',handle(async()=>{if(ext)await connect();renderMatches();renderHistory();await persistDraft();}));
+$('#offer-form').addEventListener('submit',handle(async()=>{if(ext)await connect();renderMatches();renderHistory();calculate();await persistDraft();}));
 $('#offer-form [name=offerId]').addEventListener('change',()=>{const record=currentRecord();$('#work-form').reset();if(record)fill('#work-form',record.payload.work);renderOwner();});
-$('#clear').addEventListener('click',handle(async()=>{$('#offer-form').reset();$('#work-form').reset();$('#cost-form').reset();$('#matches').replaceChildren();$('#profit').replaceChildren();await persistDraft();renderOwner();}));
+$('#clear').addEventListener('click',handle(async()=>{$('#source').value='';$('#offer-form').reset();$('#work-form').reset();$('#cost-form').reset();lastMatches=null;$('#matches').replaceChildren();$('#profit').replaceChildren();await persistDraft();renderOwner();feedback('Wklej kolejną ofertę i wybierz „Oceń ofertę”.');}));
 $('#cost-form').addEventListener('submit',handle(async()=>{calculate();await persistDraft();}));$('#cost-form [name=mode]').addEventListener('change',calculate);
 $('#save-local').addEventListener('click',handle(()=>save('offer',false)));$('#save-shared').addEventListener('click',handle(()=>save('offer',true)));$('#claim').addEventListener('click',handle(()=>save('offer',true,'claim')));$('#release').addEventListener('click',handle(()=>save('offer',true,'release')));
 $('#client-form').addEventListener('submit',handle(()=>save('client',false)));$('#client-shared').addEventListener('click',handle(()=>save('client',true)));$('#refresh').addEventListener('click',handle(refresh));$('#team-filter').addEventListener('change',renderLists);

@@ -64,6 +64,10 @@ await new Promise(resolve=>setImmediate(resolve));assert.equal(workerResponse.ok
 
 const manifest=JSON.parse(fs.readFileSync('browser-extension/manifest.json','utf8'));
 assert.equal(manifest.manifest_version,3);assert.ok(!manifest.permissions.includes('cookies'));assert.ok(!manifest.permissions.includes('webRequest'));
+assert.equal(manifest.version,'0.2.0');
+const panel=fs.readFileSync('browser-extension/sidepanel.html','utf8');
+assert.match(panel,/>Oceń ofertę</);assert.equal((panel.match(/data-view=/g)||[]).length,2,'Panel główny ma tylko dwa widoki');
+assert.ok(panel.indexOf('id="decision"')<panel.indexOf('Dane oferty i wymagania'),'Krótka ocena jest przed szczegółami');
 let planListener;const planReplies=[];
 const planWindow={parent:{postMessage:message=>planReplies.push(message)},addEventListener:(_,fn)=>{planListener=fn;}};
 const context={window:planWindow,location:{origin:'https://topdragon.dyspiqon.pl'},state:{user:{},boardStartupV188:{active:false}},Date,Map,Set,Number,Boolean,String,Promise,

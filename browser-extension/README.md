@@ -1,4 +1,4 @@
-# TOP DRAGON — Asystent spedytora 0.1.0
+# TOP DRAGON — Asystent spedytora 0.2.0
 
 Rozszerzenie Manifest V3 dla Chrome/Edge na komputerze. Bez API Trans.eu,
 bez pobierania listy ofert, bez przechwytywania ruchu/logowania i bez automatycznego wysyłania wiadomości.
@@ -17,9 +17,14 @@ Nie gwarantuje niewykrywalności. Edycja tekstu i wyróżnianie nazw mogą być 
 Login, hasło i token Supabase nie są przekazywane do rozszerzenia. Polecenia wykonuje otwarta karta TOP DRAGON
 w ramach uprawnień aktualnie zalogowanej osoby. Dane pobierane są dopiero na żądanie.
 
-## Pierwsze użycie
+## Codzienna praca
 
-- Wklej dane wybranej oferty lub wypełnij pola. Numer oferty powinien być taki sam u wszystkich spedytorów.
+- Podstawowy przepływ to: wklej treść oferty i kliknij **Oceń ofertę**.
+- Panel od razu pokazuje najlepsze auto, wynik finansowy, historię klienta, status zespołu i zmianę pustych kilometrów.
+- Tylko zakładki **Oferta** i **Zespół** są stale widoczne. Dane techniczne, koszty, klient i skróty znajdują się
+  w zwijanych sekcjach, aby nie przeszkadzały w codziennej pracy.
+- Stałe koszty można uzupełnić raz; panel zapamiętuje je lokalnie. Pozostałe auta są schowane pod wynikiem najlepszego dopasowania.
+- Numer oferty powinien być taki sam u wszystkich spedytorów, aby wspólnie obsługiwać tę samą sprawę.
 - Rozpoznanie tekstu obsługuje `Warszawa → Łódź`, cenę EUR/PLN oraz daty `24.11.2026 10:00`.
   Nie ustala brakujących godzin, dat ani ceny.
 - Dopasowanie uwzględnia poprzednią i kolejną relację kierowcy, kolizje terminów, wysokość i wskazane wymagania.
@@ -40,7 +45,7 @@ w ramach uprawnień aktualnie zalogowanej osoby. Dane pobierane są dopiero na �
 
 W polu tekstowym, textarea lub prostym edytorze contenteditable wpisz kolejno `=` i `1` w ciągu 3 s.
 Sekwencja zostanie zastąpiona przez `TEST`. Tekst nie zostanie wysłany.
-W zakładce **Skróty** możesz zmieniać tekst i dodawać własne jednoznaczne sekwencje.
+W zwijanej sekcji **Skróty tekstowe** możesz zmieniać tekst i dodawać własne jednoznaczne sekwencje.
 Hasła, pola e-mail/liczbowe, pasek adresu, złożone edytory i ramki z innych domen nie są objęte obsługą.
 Skróty działają domyślnie na Trans.eu i TOP DRAGON. Na innej stronie kliknij ikonę dodatku i użyj
 **Włącz skróty na obecnej stronie** — przeglądarka zapyta o dostęp wyłącznie do tej domeny.
