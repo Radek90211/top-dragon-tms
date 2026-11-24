@@ -95253,7 +95253,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (state.addOpen) return;
       const target = event?.target;
       if (!target || typeof target.closest !== "function") return;
-      if (target.closest(".future-drawer, .proposed-drawer, .stats-drawer, .pdf-import-backdrop, .text-import-backdrop, .future-tab, .proposed-tab, .stats-tab, .map-toggle-tab, .pdf-import-tab, .modal-backdrop, .modal")) return;
+      if (target.closest(".future-drawer, .proposed-drawer, .stats-drawer, [data-action='open-stats'], .pdf-import-backdrop, .text-import-backdrop, .future-tab, .proposed-tab, .stats-tab, .map-toggle-tab, .pdf-import-tab, .modal-backdrop, .modal")) return;
 
       let changed = false;
       if (state.futurePanelOpen) {
@@ -116122,7 +116122,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const tabs = [["rates","Historia"],["region","Klienci w rejonie"],["requests","Zapytania o ładunek"],["database","Baza klientów"]].filter(([key]) => tmsCommercialViewEnabledV261(key));
         if (["spedytor","kierownik","admin"].includes(state.user?.role)) tabs.push(["fleet","+ Kierowca / pojazd"]);
         if (!tabs.some(tab => tab[0] === state.commercialView)) state.commercialView = "rates";
-        return `<div class="commercial-intelligence workspace-inline-panel ${state.commercialPanelOpen ? "is-open" : ""}" id="commercial-intelligence"><div class="commercial-head"><h3>Asystent spedytora</h3><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}<button type="button" class="commercial-tab ${state.boardToolsOpen ? "active" : ""}" onclick="toggleBoardTools();syncCommercialIntelligenceSection()">Ustawienia planu</button>${tmsFeatureEnabledV261("statistics") ? `<button type="button" class="commercial-tab" onclick="window.toggleStatsPanel(true)">Statystyki</button>` : ""}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
+        return `<div class="commercial-intelligence workspace-inline-panel ${state.commercialPanelOpen ? "is-open" : ""}" id="commercial-intelligence"><div class="commercial-head"><h3>Asystent spedytora</h3><div class="commercial-head-actions"><button type="button" class="btn ${state.commercialPanelOpen ? "btn-dark" : ""}" onclick="toggleCommercialIntelligence()">${state.commercialPanelOpen ? "Ukryj" : "Pokaż"}</button></div></div>${state.commercialPanelOpen ? `<div class="commercial-tabs">${tabs.map(tab => `<button type="button" class="commercial-tab ${state.commercialView === tab[0] ? "active" : ""}" onclick="setCommercialView('${tab[0]}')">${tab[1]}${tab[0] === "requests" && clientLoadRequestUnreadCount() ? `<span class="commercial-tab-alert">${clientLoadRequestUnreadCount()}</span>` : ""}</button>`).join("")}<button type="button" class="commercial-tab ${state.boardToolsOpen ? "active" : ""}" onclick="toggleBoardTools();syncCommercialIntelligenceSection()">Ustawienia planu</button>${tmsFeatureEnabledV261("statistics") ? `<button type="button" class="commercial-tab" data-action="open-stats" onclick="window.toggleStatsPanel(true);event.stopPropagation()">Statystyki</button>` : ""}</div><div class="commercial-body" data-role="commercial-body">${renderCommercialBody()}</div>` : ""}</div>`;
       };
 
       const originalSetCommercialView = setCommercialView;
@@ -121634,7 +121634,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (!drawer) { try { syncStatsPanel(); } catch (error) {} return; }
           drawer.classList.remove("stats-fullscreen", "stats-updating");
           drawer.style.pointerEvents = "none";
-          requestAnimationFrame(() => drawer.classList.remove("open"));
+          requestAnimationFrame(() => { if (!state.statsPanelOpen) drawer.classList.remove("open"); });
           statsCloseTimer3L54 = setTimeout(() => {
             if (!state.statsPanelOpen) { try { syncStatsPanel(); } catch (error) {} }
             try { syncQueueTabOffsets(); } catch (error) {}
@@ -121642,6 +121642,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return;
         }
 
+        const existingDrawer = document.querySelector(".stats-drawer");
+        if (existingDrawer) existingDrawer.style.removeProperty("pointer-events");
         if (setDrawerOpenFast(".stats-drawer", ".stats-tab", true)) return;
         try { syncStatsPanel(); } catch (error) {}
       };
