@@ -122380,10 +122380,12 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .ui-window-minimize > span[aria-hidden="true"] { transform:translateY(-3px); }
     .ai-analyzer-dock.status-only .ai-analyzer-dock-state small { max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-    @media (max-width:720px), (hover:none) {
+    @media (max-width:720px) {
       .app > .header { height:auto !important; min-height:0 !important; background:var(--card) !important; }
       .app > .header::after { display:none; }
       .app > .header .header-inner { position:relative; transform:none; box-shadow:none; }
+    }
+    @media (max-width:720px), (hover:none) {
       .side-tool-tab:hover,
       .side-tool-tab:focus-visible { width:46px !important; }
       .side-tool-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
