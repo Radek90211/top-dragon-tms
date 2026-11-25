@@ -204,6 +204,11 @@
     }
 
     const prepared = parsed
+      .map(item => {
+        const local = localTextOrderParser(textValue);
+        if (parsed.length === 1 && local.length === 1 && Number(local[0].rate) > 0) return { ...item, rate: local[0].rate };
+        return item;
+      })
       .map(item => markUnknownDates(item, textValue))
       .filter(item => item.load && item.unload)
       .map((item, index) => queueRouteFromText(item, index, target, textValue));

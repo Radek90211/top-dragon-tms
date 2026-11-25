@@ -95956,6 +95956,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="app ${state.user.role === "rozliczenia" ? "role-accounting" : state.user.role === "admin" ? "role-admin" : state.user.role === "kierownik" ? "role-manager" : "role-dispatcher"} ${state.darkMode ? "dark-mode" : ""} ${state.appView === "clients" ? "app-view-clients" : "app-view-plan"} ${state.mobileNavigationCollapsedV205 ? "mobile-navigation-collapsed-v205" : ""}" onclick="handleAppSurfaceClick(event)">
           <header class="header ${state.mobileHeaderCollapsedV205 ? "mobile-header-collapsed-v209" : ""}">
+            <button type="button" class="desktop-header-logo-v359" aria-label="Otwórz menu" aria-expanded="false" onclick="toggleDesktopHeaderMenuV359(event)"><img src="/top-dragon-logo.svg" alt="" /></button>
             <div class="header-inner">
               <div class="brand-head">
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
@@ -100800,8 +100801,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${detailsHidden ? "" : `
                 ${orderStopsSummary(route)}
                 <div class="proposed-load-dates future-card-meta">
-                  <span>Załadunek: <b>${esc(loadDateLabel)}</b> · ${esc(hourLabel(Number(route.startHour ?? 8)))}</span>
-                  <span>Rozładunek: <b>${esc(unloadDateLabel)}</b> · ${esc(hourLabel(Number(route.endHour ?? route.startHour ?? 8)))}</span>
+                  <span>Załadunek: <b>${esc(loadDateLabel)}</b>${route.startHour == null ? "" : ` · ${esc(hourLabel(Number(route.startHour)))}`}</span>
+                  <span>Rozładunek: <b>${esc(unloadDateLabel)}</b>${route.endHour == null ? "" : ` · ${esc(hourLabel(Number(route.endHour)))}`}</span>
                 </div>
                 ${queueBoardStatusV189(route, "proposed")}
                 <div class="proposed-load-meta future-card-meta">${esc(routeKmLabel)}</div>
@@ -102825,8 +102826,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function textImportCleanLocation(value) {
       let text = String(value || "")
         .replace(/\b(za[łl]adunek|roz[łl]adunek|miejsce|adres|data|godz\.?|godzina|od|do)\b\s*:?/gi, " ")
-        .replace(/\b\d{1,2}[:.]\d{2}\b/g, " ")
         .replace(/\b\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\b/g, " ")
+        .replace(/\b\d{1,2}:\d{2}\b/g, " ")
+        .replace(/(?<![\d-])\b\d{3,6}(?:[.,]\d{1,2})?\s*(?:pln|zł|zl|eur|euro)?\b/gi, " ")
         .replace(/[;,]+/g, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
@@ -102865,6 +102867,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       const dates = textImportExtractDates(raw);
       const times = textImportExtractTimes(raw);
+      const simpleRate = raw.match(/(?:->|→|=>|\s-\s)\s*[^\d\n]+?\s+(\d{3,6}(?:[.,]\d{1,2})?)\s+(?=\d{1,2}[.\-/]\d{1,2}(?:\D|$))/i);
       const loadDate = normalizeTextImportDate(dates[0], state.reportDate || currentAppDate());
       const unloadDate = normalizeTextImportDate(dates[1], loadDate);
       const load = textImportCleanLocation(loadPart);
@@ -102876,9 +102879,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         unload,
         date: loadDate,
         loadDate,
-        startHour: textImportHour(times[0], 12),
+        startHour: times[0] ? textImportHour(times[0], null) : null,
         endDate: unloadDate || loadDate,
-        endHour: textImportHour(times[1], 10),
+        endHour: times[1] ? textImportHour(times[1], null) : null,
+        rate: simpleRate ? Number(simpleRate[1].replace(',', '.')) : 0,
         notes: raw,
         client: `Wiadomość tekstowa ${String(index + 1).padStart(2, "0")}`
       };
@@ -102900,7 +102904,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const list = Array.isArray(payload) ? payload : (payload.routes || payload.relations || payload.loads || payload.items || (directRoute ? [payload] : []));
       if (!Array.isArray(list)) return [];
       return list.map((item, index) => {
-        const stops = textAnalysisStops(item);
+        const sourceTimes = Array.from(String(sourceText || "").matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)).map(match => `${match[1].padStart(2, "0")}:${match[2]}`);
+        const stops = textAnalysisStops(item).map(point => ({ ...point, time: sourceTimes.includes(String(point.time || "")) ? point.time : "" }));
         const pickups = stops.filter(point => point.type === "pickup");
         const deliveries = stops.filter(point => point.type === "delivery");
         const pickup = pickups[0] || item.pickup || item.load || item.loading || item.zaladunek || item.załadunek || {};
@@ -102912,10 +102917,10 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const unload = normalizeLocation(unloadLabel) || String(unloadLabel || "").trim();
         if (!load || !unload) return null;
         const fallbackDate = state.reportDate || currentAppDate();
-        const explicitLoadDate = textImportPolishDate(sourceText, fallbackDate);
+        const sourceDates = textImportExtractDates(sourceText);
+        const explicitLoadDate = textImportPolishDate(sourceText, fallbackDate) || (list.length === 1 && sourceDates[0] ? normalizeTextImportDate(sourceDates[0], fallbackDate) : "");
         const loadDate = explicitLoadDate || normalizeTextImportDate(pickup.date || item.date || item.loadDate, fallbackDate);
         const explicitUnloadDate = textImportWeekdayAfter(sourceText, loadDate);
-        const sourceTimes = Array.from(String(sourceText || "").matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)).map(match => `${match[1].padStart(2, "0")}:${match[2]}`);
         return {
           ...(stops.length ? { orderStops: stops } : orderStopFields(item)),
           load,
@@ -102928,9 +102933,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           secondUnloadAddress: deliveries[1] ? textAnalysisPointAddress(deliveries[1]) : "",
           date: loadDate,
           loadDate,
-          startHour: textImportHour(pickup.time || pickup.hour || item.startTime || item.startHour || sourceTimes[0], 12),
+          startHour: list.length === 1 && sourceTimes[0] ? textImportHour(sourceTimes[0], null) : null,
           endDate: explicitUnloadDate || normalizeTextImportDate(lastDelivery?.date || delivery.date || item.unloadDate || item.endDate, loadDate),
-          endHour: textImportHour(lastDelivery?.time || delivery.time || delivery.hour || item.endTime || item.endHour || sourceTimes.at(-1), 10),
+          endHour: list.length === 1 && sourceTimes.length > 1 ? textImportHour(sourceTimes.at(-1), null) : null,
           notes: [
             item.reference ? `Ref.: ${item.reference}` : "",
             item.currency && String(item.currency).toUpperCase() !== "PLN" && Number(item.rate || 0) > 0 ? `Stawka z wiadomości: ${item.rate} ${String(item.currency).toUpperCase()}` : "",
@@ -102986,9 +102991,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         cost: Number(item.cost || Math.round((approachKm + loadedKm) * CARRIER_RATE_PER_KM + oversizedCost)),
         oversizedTransport: Boolean(item.oversizedTransport || oversizedCost > 0),
         oversizedCost,
-        startHour: Number(item.startHour ?? 12),
+        startHour: item.startHour == null ? null : Number(item.startHour),
         endDate: item.endDate || routeDate,
-        endHour: Number(item.endHour ?? 10),
+        endHour: item.endHour == null ? null : Number(item.endHour),
         createdBy: state.user?.login || "SYSTEM",
         ownerDispatcher: "",
         futureQueue: false,
@@ -103708,7 +103713,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               ${detailsHidden ? "" : `
                 ${orderStopsSummary(route)}
                 ${queueBoardStatusV189(route, "future")}
-                <div class="future-card-meta">Data relacji: <b>${esc(formatDateForInput(route.date))}</b> · ${hourLabel(Number(route.startHour ?? 8))} · ${totalKm(route)} km · ${money(profit(route))}</div>
+                <div class="future-card-meta">Data relacji: <b>${esc(formatDateForInput(route.date))}</b>${route.startHour == null ? "" : ` · ${hourLabel(Number(route.startHour))}`} · ${totalKm(route)} km · ${money(profit(route))}</div>
                 <div class="future-card-meta">Wprowadził: <span class="dispatcher-map-badge ${dispatcherBadgeClass(dispatcher)}">${esc(dispatcher)}</span>${route.client ? ` · ${clientNameLink(resolveClientForRoute(route), route.client)}` : ""}</div><div class="queue-visibility-line">Widoczność: ${queueVisibilityBadge(route,'branch')}</div>
               `}
             </div>
@@ -123731,6 +123736,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       .app > .header:focus-within .header-inner,
       .app > .header.desktop-header-open-v295 .header-inner { transform:translate(-50%,0); }
     }
+    .desktop-header-logo-v359 { display:none; }
+    @media (min-width:721px) {
+      .app > .header { position:sticky !important; width:100% !important; height:11px !important; min-height:11px !important; }
+      .app > .header::after { display:none; }
+      .app > .header .header-inner, .app > .header:hover .header-inner, .app > .header:focus-within .header-inner { transform:translate(-50%,calc(-100% - 12px)); }
+      .app > .header.desktop-header-open-v295 .header-inner { transform:translate(-50%,0); }
+      .desktop-header-logo-v359 { display:grid; place-items:center; position:absolute; top:0; right:16px; z-index:3; width:76px; height:32px; padding:3px 8px; border:1px solid var(--border); border-top:0; border-radius:0 0 10px 10px; background:var(--card); cursor:pointer; box-shadow:0 3px 10px rgba(15,23,42,.1); }
+      .desktop-header-logo-v359 img { max-width:100%; max-height:25px; object-fit:contain; }
+    }
     .main { max-width:none !important; width:100%; }
     .queue-add-menu { display:grid; gap:7px; }
     .queue-add-menu > .btn { width:100%; min-height:38px; justify-content:center; }
@@ -124016,21 +124030,25 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         }, 180);
       }
 
-      document.addEventListener('pointerover', event => {
-        const header = event.target.closest?.('.app > .header');
-        if (header) setDesktopHeaderOpenV295(header, true);
-      }, true);
-      document.addEventListener('pointerout', event => {
-        const header = event.target.closest?.('.app > .header');
-        if (header && !header.contains(event.relatedTarget)) setDesktopHeaderOpenV295(header, false);
-      }, true);
-      document.addEventListener('focusin', event => {
-        const header = event.target.closest?.('.app > .header');
-        if (header) setDesktopHeaderOpenV295(header, true);
+      window.toggleDesktopHeaderMenuV359 = function(event) {
+        event.stopPropagation();
+        const header = event.currentTarget.closest('.header');
+        const open = header.classList.toggle('desktop-header-open-v295');
+        event.currentTarget.setAttribute('aria-expanded', String(open));
+        event.currentTarget.setAttribute('aria-label', open ? 'Zamknij menu' : 'Otwórz menu');
+      };
+      document.addEventListener('click', event => {
+        const header = document.querySelector('.app > .header.desktop-header-open-v295');
+        if (!header || header.contains(event.target)) return;
+        header.classList.remove('desktop-header-open-v295');
+        const button = header.querySelector('.desktop-header-logo-v359');
+        button?.setAttribute('aria-expanded','false');
+        button?.setAttribute('aria-label','Otwórz menu');
       });
-      document.addEventListener('focusout', event => {
-        const header = event.target.closest?.('.app > .header');
-        if (header && !header.contains(event.relatedTarget)) setDesktopHeaderOpenV295(header, false);
+      document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        const button = document.querySelector('.app > .header.desktop-header-open-v295 .desktop-header-logo-v359');
+        if (button) { button.click(); button.focus(); }
       });
 
       // Modal jest renderowany dynamicznie; przechwytujemy Enter na dokumencie,

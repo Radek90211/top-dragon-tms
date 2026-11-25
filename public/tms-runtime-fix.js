@@ -101,7 +101,7 @@
     if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
     if (doc.querySelector('script[data-topdragon-queue-dates-v309]')) return;
     const script = doc.createElement("script");
-    script.src = "/tms-queue-dates.js?build=v318-compact-pencil-dates";
+    script.src = "/tms-queue-dates.js?build=v359-unknown-hours";
     script.async = false;
     script.setAttribute("data-topdragon-queue-dates-v309", "true");
     script.onerror = () => {
@@ -117,7 +117,7 @@
     if (!doc || doc.URL === "about:blank" || doc.readyState === "loading" || !doc.head) return;
     if (doc.querySelector('script[data-topdragon-ai-quick-add-v312]')) return;
     const script = doc.createElement("script");
-    script.src = "/tms-ai-quick-add-v312.js?build=v318-clean-text-import";
+    script.src = "/tms-ai-quick-add-v312.js?build=v359-text-rate";
     script.async = false;
     script.setAttribute("data-topdragon-ai-quick-add-v312", "true");
     script.onerror = () => {

@@ -16,8 +16,11 @@
   }
 
   function formatHour(value) {
+    if (value == null || value === "") return "";
     const hour = Number(value);
-    return Number.isFinite(hour) ? String(Math.max(0, Math.min(24, Math.floor(hour)))).padStart(2, "0") + ":00" : "";
+    if (!Number.isFinite(hour)) return "";
+    const minutes = Math.round(Math.max(0, Math.min(24, hour)) * 60);
+    return String(Math.floor(minutes / 60)).padStart(2, "0") + ":" + String(minutes % 60).padStart(2, "0");
   }
 
   function injectStyle() {
