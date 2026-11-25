@@ -95986,7 +95986,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         : [];
 
       const visibleDrivers = visibleDriversForCurrentUser();
-      const routesForDay = mapRoutesForReportDate();
+      const routesForDay = state.appView === "plan" && !state.unloadPanelCollapsed ? mapRoutesForReportDate() : [];
 
       return `
         <div class="app ${state.user.role === "rozliczenia" ? "role-accounting" : state.user.role === "admin" ? "role-admin" : state.user.role === "kierownik" ? "role-manager" : "role-dispatcher"} ${state.darkMode ? "dark-mode" : ""} ${state.appView === "clients" ? "app-view-clients" : "app-view-plan"} ${state.mobileNavigationCollapsedV205 ? "mobile-navigation-collapsed-v205" : ""}" onclick="handleAppSurfaceClick(event)">
@@ -104611,6 +104611,20 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       const match = queueMatchMarkerMap().get(route.id);
       if (!match?.proposed && !match?.future) return "";
       return `<span class="time-route-match-markers" aria-hidden="true">${match.proposed ? `<span class="time-route-match-dot proposed"></span>` : ""}${match.future ? `<span class="time-route-match-dot future"></span>` : ""}</span>`;
+    }
+
+    function syncBoardQueueMatchMarkers() {
+      const tiles = document.querySelectorAll(".board .time-route[data-route-id]");
+      if (!tiles.length) return;
+      beginOperationalRenderCycle();
+      const routesById = new Map(activeRoutes().map(route => [String(route.id), route]));
+      tiles.forEach(tile => {
+        const current = tile.querySelector(".time-route-match-markers");
+        const next = renderRouteQueueMatchMarkers(routesById.get(tile.dataset.routeId));
+        if ((current?.outerHTML || "") === next) return;
+        if (current) current.remove();
+        if (next) tile.insertAdjacentHTML("beforeend", next);
+      });
     }
 
     function renderTimelineOverlay(driver, row, currentTimeLineHtml = renderTimelineCurrentTimeLine()) {
@@ -113329,8 +113343,13 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       CENTRAL_LOAD_QUEUE_READY = true;
       const afterFingerprint = centralLoadQueueSetFingerprint();
       const expiredStatsChanged = expiredStatsBefore !== JSON.stringify(state.expiredProposedLoadStats || []);
-      if (beforeFingerprint !== afterFingerprint && !state.boardStartupV188?.active) renderKeepingScroll();
-      else if (expiredStatsChanged) syncProposedPanel();
+      if (beforeFingerprint !== afterFingerprint && !state.boardStartupV188?.active && state.appView === "plan") {
+        syncFuturePanel();
+        syncProposedPanel();
+        syncBoardQueueMatchMarkers();
+      } else if (expiredStatsChanged && state.appView === "plan") {
+        syncProposedPanel();
+      }
       persistQueueOutbox();
       scheduleCentralLoadQueueDiff(120);
     }
@@ -115603,6 +115622,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           }
         }
 
+        const mapVisibleDriverIds = { ...state.mapVisibleDriverIds };
         sourceRows.forEach(row => {
           if (!row?.id || !row?.driver?.fullName || !row?.carrier?.name) return;
           const dispatcherUser = userBySupabaseId(row.assignedDispatcherId);
@@ -115647,8 +115667,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
           DRIVERS.push(normalized);
           DRIVER_HOME_DISPATCHERS.set(normalized.id, normalized.homeDispatcher);
-          state.mapVisibleDriverIds = { ...(state.mapVisibleDriverIds || {}), [normalized.id]: true };
+          mapVisibleDriverIds[normalized.id] = true;
         });
+        state.mapVisibleDriverIds = mapVisibleDriverIds;
 
         state.routes = ensureSeptemberRelationsV167(state.routes || [], DRIVERS);
         applyStoredDriverAssignments();
@@ -118122,96 +118143,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       };
       canDeleteBoardRoute = function(route) { return canEditBoardRoute(route); };
 
-      function userByDispatcherLogin3L36(login) {
-        const target = String(login || '').trim().toUpperCase();
-        return USERS.find(u => String(u.login || '').trim().toUpperCase() === target) || null;
-      }
-      function userLabelById3L36(id) {
-        const u = USERS.find(item => String(item.supabaseId || '') === String(id || ''));
-        return String(u?.name || u?.login || 'spedytor');
-      }
-      function firstVisibleDriverForDispatcher3L36(login) {
-        return visibleDriversForCurrentUser().find(d => String(d.dispatcher || '') === String(login || '')) || null;
-      }
-      function firstVisibleDriverForCarrier3L36(carrierId) {
-        return visibleDriversForCurrentUser().find(d => String(d.carrierEntityId || '') === String(carrierId || '')) || null;
-      }
-      function transferPendingSuffix3L36(item) {
-        if (item?.deleteRequestedAt) return ' · usunięcie do potwierdzenia';
-        if (item.status !== 'pending') return '';
-        return item.recipientApprovedAt ? '' : ' · odb.';
-      }
       function transferDeletedTime3L36(item) {
         if (!item?.deletedAt) return '';
         const d=new Date(item.deletedAt); if (Number.isNaN(d.getTime())) return '';
         return d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
       }
-      function weekSummaryForDriver3L36(driver, weekStart) {
-        const data = weekData3L36(weekStart);
-        if (!data) return { hasWeek:false, left:[], right:[] };
-        const adjustments = Array.isArray(data.carrierAdjustments) ? data.carrierAdjustments : [];
-        const transfers = Array.isArray(data.transfers) ? data.transfers : [];
-        const hasWeek = adjustments.length > 0 || transfers.length > 0;
-        if (!hasWeek) return { hasWeek:false, left:[], right:[] };
-
-        const specific = adjustments.filter(item => item.driverId && String(item.driverId) === String(driver.driverEntityId || ''));
-        const generic = adjustments.filter(item => !item.driverId && String(item.carrierId || '') === String(driver.carrierEntityId || ''));
-        const carrierItems = [...specific, ...(firstVisibleDriverForCarrier3L36(driver.carrierEntityId)?.id === driver.id ? generic : [])];
-        const left = [];
-        if (carrierItems.length) {
-          const sum = carrierItems.reduce((acc,item)=>acc+Number(item.amount||0),0);
-          const effect = -sum;
-          const comments = carrierItems.map(i=>i.comment).filter(Boolean).join(' · ');
-          left.push({ text:`${effect>0?'+':''}${Math.round(effect)} zł`, cls:effect < 0 ? 'minus' : effect > 0 ? 'plus' : 'pending', title:`Wyrównanie przewoźnika${comments?` · ${comments}`:''}` });
-        }
-
-        const dispatcherUser = userByDispatcherLogin3L36(driver.dispatcher);
-        const firstDispatcherDriver = firstVisibleDriverForDispatcher3L36(driver.dispatcher);
-        const right=[];
-        if (dispatcherUser?.supabaseId && firstDispatcherDriver?.id === driver.id) {
-          transfers.filter(item => String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId) || String(item.toDispatcherId||'')===String(dispatcherUser.supabaseId)).forEach(item => {
-            const amount=Math.round(Number(item.amount||0));
-            const outgoing=String(item.fromDispatcherId||'')===String(dispatcherUser.supabaseId);
-            const other=userLabelById3L36(outgoing ? item.toDispatcherId : item.fromDispatcherId);
-            const deleted=item.status==='deleted';
-            const sign=outgoing?'-':'+';
-            const base=`${sign}${amount} PLN ${outgoing?'dla':'od'} ${other}`;
-            const deletion=deleted ? ` · usunięto ${transferDeletedTime3L36(item) || '-'}` : '';
-            const pending=transferPendingSuffix3L36(item);
-            right.push({ text:`${base}${deleted?deletion:pending}`, cls:deleted?'deleted':item.status==='pending'?'pending':outgoing?'minus':'plus', title:`${base}${item.comment?` · ${item.comment}`:''}${deleted?deletion:pending}` });
-          });
-        }
-        return { hasWeek:true, left, right };
-      }
-      function weeklyBoundaryItems3L36(dates = dateList()) {
-        const out=[];
-        dates.forEach((date,index) => {
-          const d=new Date(`${date}T12:00:00`);
-          if (d.getDay() !== 0 || index >= dates.length-1) return;
-          out.push({ weekStart:addDaysToIso(date,-6), leftPct:((index+1)/dates.length)*100 });
-        });
-        return out;
-      }
-      function renderBoardWeekSummary3L36(driver) {
-        const boundaries=weeklyBoundaryItems3L36(dateList());
-        return boundaries.map(boundary => {
-          const summary=weekSummaryForDriver3L36(driver,boundary.weekStart);
-          if (!summary.hasWeek) return '';
-          const left=summary.left.slice(0,2).map(item=>`<span class="board-week-money ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('');
-          const right=summary.right.slice(0,2).map(item=>`<span class="board-week-money ${attr(item.cls)}" title="${attr(item.title)}">${esc(item.text)}</span>`).join('');
-          const more=summary.right.length>2 ? `<span class="board-week-money pending">+${summary.right.length-2} więcej</span>` : '';
-          return `<span class="board-week-summary-column" style="left:${boundary.leftPct}%" data-week-start="${attr(boundary.weekStart)}"><span class="board-week-summary-half"><span class="board-week-summary-label">Przewoźnik</span>${left}</span><span class="board-week-summary-half"><span class="board-week-summary-label">Spedytor</span>${right}${more}</span></span>`;
-        }).join('');
-      }
-
-      const originalRenderTimelineOverlay3L36 = renderTimelineOverlay;
-      renderTimelineOverlay = function(driver,row) {
-        let html=originalRenderTimelineOverlay3L36.call(this,driver,row);
-        const summary=renderBoardWeekSummary3L36(driver);
-        if (summary) html=html.replace(/\s*<\/div>\s*$/, `${summary}</div>`);
-        return html;
-      };
-
       const originalRenderBoard3L36 = renderBoard;
       renderBoard = function(...args) {
         const defaultStart=addDaysToIso(currentAppDate(),-BOARD_PAST_DAYS);
@@ -118290,7 +118226,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           (message.weeks||[]).forEach(week=>{ if(week?.weekStart) state.boardWeeklySettlements[week.weekStart]=week; });
           const pending=BOARD_WEEK_REQUESTS.get(String(message.requestId||''));
           if(pending){ clearTimeout(pending.timer); BOARD_WEEK_REQUESTS.delete(String(message.requestId||'')); pending.resolve(); }
-          if(state.appView==='plan' && !state.boardStartupV188?.active) syncBoardOnly();
+          if(state.appView==='plan' && !state.boardStartupV188?.active) window.syncBoardWeekSettlementCells?.(message.weeks || []);
         } else if(message.type==='top-dragon-weekly-settlement-invalidated') {
           state.boardWeeklySettlements={};
           requestBoardWeeklySettlements3L36(dateList(),true);
@@ -120918,8 +120854,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         return `<span class="transfer-delete-wait-3l108">Oczekuje na potwierdzenie nadawcy</span>`;
       }
 
-      window.renderWeekSettlementGridCells3L50=function(driver,row,dates=dateList()){
-        return boardWeekSettlementBoundaries(dates).map(boundary=>{
+      function renderWeekSettlementCell(driver, row, boundary) {
           const finance=financeForDriver3L50(driver,boundary.weekStart);
           const active=finance.carrier.length||activeTransfers3L50(finance).length;
           const status=statusForDriver3L50(driver,boundary.weekStart);
@@ -120933,7 +120868,32 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             ? `role="button" tabindex="0" title="Rozliczenia tygodnia · status: ${attr(status.status||'Nowe')}" onclick="if(event.target===this){openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')}" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();openWeekFinanceBoundary3L48('${attr(driver.id)}','${attr(boundary.weekStart)}')}"`
             : '';
           return `<div class="week-settlement-cell-3l50 ${active?'has-finance-value-3l142':'empty-finance-value-3l142'} ${canOpenStatus?'status-editable':''} ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" data-week-start="${attr(boundary.weekStart)}" ${clickAttrs} style="grid-column:${boundary.gridColumn};grid-row:${row};">${marker}${dot}</div>`;
-        }).join('');
+      }
+
+      window.renderWeekSettlementGridCells3L50=function(driver,row,dates=dateList()){
+        return boardWeekSettlementBoundaries(dates).map(boundary => renderWeekSettlementCell(driver, row, boundary)).join('');
+      };
+
+      window.syncBoardWeekSettlementCells = function(weeks) {
+        const updatedWeeks = new Set(weeks.map(week => week?.weekStart).filter(Boolean));
+        if (!updatedWeeks.size) return;
+        const boundaries = new Map(boardWeekSettlementBoundaries().map(boundary => [boundary.weekStart, boundary]));
+        const template = document.createElement("template");
+        document.querySelectorAll(".board .week-settlement-cell-3l50").forEach(cell => {
+          const weekStart = cell.dataset.weekStart;
+          if (!updatedWeeks.has(weekStart) || !boundaries.has(weekStart)) return;
+          const driver = driverById(cell.dataset.driverId);
+          if (!driver) return;
+          template.innerHTML = renderWeekSettlementCell(driver, cell.style.gridRow, boundaries.get(weekStart));
+          const next = template.content.firstElementChild;
+          if (!next || cell.isEqualNode(next)) return;
+          const focused = document.activeElement;
+          const focusClass = focused === cell ? null : focused?.classList.contains("week-settlement-status-dot-3l50")
+            ? ".week-settlement-status-dot-3l50" : ".week-settlement-dollar-3l48";
+          const restoreFocus = cell.contains(focused);
+          cell.replaceWith(next);
+          if (restoreFocus) (focusClass ? next.querySelector(focusClass) || next : next).focus({ preventScroll:true });
+        });
       };
 
       function statusBox3L50(driver,ws){

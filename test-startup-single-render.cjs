@@ -31,7 +31,7 @@ for (const order of [['users','fleet','relations'], ['relations','fleet','users'
     centralRouteBranchId:route=>route._centralBranchId, centralRelationKey:(branch,id)=>branch+'|'+id,
     centralRouteFingerprint:route=>JSON.stringify(route), pendingCentralAccountingPatchForKey:()=>null,
     CENTRAL_RELATION_PENDING_DELETE:new Set(),CENTRAL_RELATION_PENDING_UPSERT:new Set(),CENTRAL_RELATION_BASELINE:new Map(),
-    invalidateCombinedClientHistoryCache() {},scheduleCentralRelationsDiff() {}, CENTRAL_RELATIONS_READY:false,
+    invalidateCombinedClientHistoryCache() {},scheduleCentralRelationsDiff() {},scheduleSampleRoadDemosV339() {}, CENTRAL_RELATIONS_READY:false,
   };
   vm.createContext(context);
   vm.runInContext(section('    const BOARD_STARTUP_RECEIVED_V188', '    function applyAuthenticatedUser('), context);
