@@ -28,7 +28,7 @@ function scenario(fail=false, storage=new Map()) {
     routeDistanceLabel:route=>route.sampleRoadRoutingStatusV339==='unavailable'?'brak km':`${route.loadedKm+route.approachKm} km`,
     money:String,profit:route=>500-(route.cost||0),
     routeStatusClasses:route=>route.cost>200?'route-metric-km-mid':'route-metric-km-low',
-    syncRouteCommercialWarning:()=>statusUpdates++,
+    syncRouteCommercialWarning:()=>statusUpdates++,commercialWarningCutoffDate:()=> '2026-11-24',
     syncDetailsPanel(){},scheduleRouteSwapAnalysis(){},setTimeout,clearTimeout,WeakMap,Map,Set,JSON,Number,Math
   };
   ctx.localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)};
@@ -62,13 +62,29 @@ function scenario(fail=false, storage=new Map()) {
   assert.equal(bad.demo.loadedKm,0);assert.equal(bad.demo.sampleRoadRoutingStatusV339,'unavailable');assert.match(bad.demo.notes,/nie potwierdzono/);
   assert.equal(bad.storage.size,0,'Błędy routingu nie są utrwalane');
   assert.equal(bad.meta.textContent,'brak km · 500');
-  const warnings={isFreeDayRoute:()=>false,carrierCost:()=>0,currentAppDate:()=> '2026-11-25',attr:String};
+  let today='2026-11-25';
+  const warnings={isFreeDayRoute:()=>false,carrierCost:()=>0,currentAppDate:()=>today,attr:String,boardRenderCache:null};
   vm.createContext(warnings);
-  vm.runInContext(html.slice(html.indexOf('    function routeMissingCommercialFields('),html.indexOf('    function routeSmsKm(')),warnings);
+  const section=(from,to)=>html.slice(html.indexOf(from),html.indexOf(to,html.indexOf(from)));
+  vm.runInContext(section('    const COMMERCIAL_WARNING_GRACE_DAYS', '    const BOARD_FUTURE_DAYS'),warnings);
+  assert.ok(vm.runInContext('BOARD_PAST_DAYS > COMMERCIAL_WARNING_GRACE_DAYS',warnings));
+  vm.runInContext(section('    function addDaysToIso(', '    function isWeekendIso('),warnings);
+  vm.runInContext(section('    function routeEndDate(', '    function buildDateIndexMap('),warnings);
+  vm.runInContext(section('    function routeMissingCommercialFields(', '    function routeSmsKm('),warnings);
   const route={endDate:'2026-11-23',rate:500,client:'Przykładowy klient'};
+  assert.equal(warnings.routeCommercialWarningBadge(route),'','Po dwóch dniach ostrzeżenie jest ukryte');
+  today='2026-11-26';
+  assert.equal(warnings.routeCommercialWarningBadge(route),'','Dokładnie trzy dni nie przekraczają progu');
+  today='2026-11-27';
   assert.match(warnings.routeCommercialWarningBadge(route),/koszt/);
+  assert.equal(warnings.routeCommercialWarningBadge({...route,date:'2026-11-23',endDate:'2026-11-24'}),'','Liczy się data rozładunku');
+  assert.match(warnings.routeCommercialWarningBadge({...route,date:'2026-11-23',endDate:''}),/koszt/);
+  assert.equal(warnings.routeCommercialWarningBadge({...route,endDate:''}),'');
   assert.equal(warnings.routeCommercialWarningBadge({...route,sampleRoadDemoV339:true}),'');
-  assert.equal(warnings.routeCommercialWarningBadge({...bad.demo,...route}),'');
-  assert.match(warnings.routeCommercialWarningBadge({...bad.demo,...route,rate:0}),/stawka/);
-  console.log('Przykłady: wynik routingu, identyczne punkty mapy i jawny brak danych przy błędzie: OK');
+  assert.match(warnings.routeCommercialWarningBadge({...bad.demo,...route}),/koszt/);
+  assert.match(warnings.routeCommercialWarningBadge({...bad.demo,...route,rate:0}),/stawka, koszt/);
+  today='2026-12-02';
+  assert.equal(warnings.routeCommercialWarningBadge({...route,endDate:'2026-11-29'}),'');
+  assert.match(warnings.routeCommercialWarningBadge({...route,endDate:'2026-11-28'}),/koszt/);
+  console.log('Przykłady, routing i ostrzeżenia po przekroczeniu trzech dni: OK');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -90927,7 +90927,8 @@
 
     applyStoredDriverAssignments();
 
-    const BOARD_PAST_DAYS = 2;
+    const COMMERCIAL_WARNING_GRACE_DAYS = 3;
+    const BOARD_PAST_DAYS = COMMERCIAL_WARNING_GRACE_DAYS + 1;
     const BOARD_FUTURE_DAYS = 10;
     const START_DATE = addDaysToIso(currentAppDate(), -BOARD_PAST_DAYS);
 
@@ -93155,16 +93156,21 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!route || isFreeDayRoute(route)) return [];
       const missing = [];
       if (!(Number(route.rate || 0) > 0)) missing.push("stawka");
-      const sampleRoutingUnconfirmed = route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 !== "ready";
-      if (!sampleRoutingUnconfirmed && !(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
+      const sampleRoutingPending = route.sampleRoadDemoV339 && !route.sampleRoadRoutingStatusV339;
+      if (!sampleRoutingPending && !(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
       const client = String(route.client || "").trim();
       if (!client || /^(klient testowy|klient nieprzypisany|-)$/i.test(client)) missing.push("klient");
       return missing;
     }
 
-    function routeCommercialWarningBadge(route) {
-      const unloadDate = String(route?.endDate || "").slice(0, 10);
-      if (!unloadDate || currentAppDate() <= unloadDate) return "";
+    function commercialWarningCutoffDate() {
+      return addDaysToIso(currentAppDate(), -COMMERCIAL_WARNING_GRACE_DAYS);
+    }
+
+    function routeCommercialWarningBadge(route, cutoffDate = boardRenderCache?.commercialWarningCutoff || commercialWarningCutoffDate()) {
+      if (!route) return "";
+      const unloadDate = String(routeEndDate(route) || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(unloadDate) || unloadDate >= cutoffDate) return "";
       const missing = routeMissingCommercialFields(route);
       if (!missing.length) return "";
       const label = `Uzupełnij: ${missing.join(", ")}`;
@@ -93627,23 +93633,24 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // Automatyczne komunikaty „Auto szuka ładunku przy Twoim kliencie” zostały usunięte.
     // Zamiast nich spedytor sam wysyła czytelne zapytanie w zakładce „Zapytania o ładunek”.
-    function syncRouteCommercialWarning(tile, route) {
+    function syncRouteCommercialWarning(tile, route, cutoffDate) {
       const indicators = tile.querySelector(".route-title-indicators");
       if (!indicators) return;
       const current = indicators.querySelector(".route-commercial-warning");
-      const next = routeCommercialWarningBadge(route);
+      const next = routeCommercialWarningBadge(route, cutoffDate);
       if ((current?.outerHTML || "") === next) return;
       current?.remove();
       if (next) indicators.insertAdjacentHTML("beforeend", next);
     }
 
     function syncRecentRouteBadges() {
+      const cutoffDate = commercialWarningCutoffDate();
       const routesById = new Map((state.routes || []).map(route => [String(route?.id || ""), route]));
       document.querySelectorAll('.time-route[data-route-id]').forEach(element => {
         const route = routesById.get(String(element.dataset.routeId || ""));
         if (!route) return;
         element.classList.toggle('route-recent', routeFreshMinutes(route) < 20);
-        syncRouteCommercialWarning(element, route);
+        syncRouteCommercialWarning(element, route, cutoffDate);
       });
     }
 
@@ -101879,6 +101886,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncSampleRoadTiles(routesById) {
       if (state.appView !== "plan" || !routesById.size) return;
       const metricMode = state.routeTileMetricView;
+      const cutoffDate = commercialWarningCutoffDate();
       for (const tile of document.querySelectorAll(".board .time-route[data-route-id]")) {
         const route = routesById.get(tile.dataset.routeId);
         if (!route) continue;
@@ -101892,7 +101900,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           if (currentClass && currentClass !== nextClass) tile.classList.remove(currentClass);
           if (nextClass && currentClass !== nextClass) tile.classList.add(nextClass);
         }
-        syncRouteCommercialWarning(tile, route);
+        syncRouteCommercialWarning(tile, route, cutoffDate);
       }
     }
 
@@ -104323,6 +104331,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
       return {
         dates: safeDates,
+        commercialWarningCutoff: commercialWarningCutoffDate(),
         dateIndexMap,
         activeRoutes: active,
         routesByDriver,

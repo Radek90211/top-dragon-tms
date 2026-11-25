@@ -22,6 +22,7 @@ const context = {
   Date, Map, Set, Math, Number,
   state:{ routes },
   dateList:() => dates,
+  commercialWarningCutoffDate:() => dates[0],
   buildDateIndexMap:list => new Map(list.map((date, index) => [date, index])),
   routeStartHour:route => route.startHour,
   cellKey:(driverId, date) => `${driverId}__${date}`,
