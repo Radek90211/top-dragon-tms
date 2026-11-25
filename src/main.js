@@ -933,7 +933,6 @@ function adminAuditActorBadge(row, users) {
 function renderAdminTools(auditRows, users) {
   const rows = Array.isArray(auditRows) ? auditRows.slice(0, 500) : []
   return `
-    <div class="admin-section-title"><div><h2>Narzędzia administratora</h2></div></div>
     <div class="admin-tools-grid">
       <section class="admin-card admin-tool-card">
         <div class="section-heading"><div><h2>Import / eksport</h2></div></div>
@@ -1102,9 +1101,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         <div class="section-heading">
           <div>
             <h2>Użytkownicy</h2>
-            <p class="muted">Zmiana statusu na nieaktywny zachowuje użytkownika i jego historię.</p>
           </div>
-          <span class="count-pill">${users.length}</span>
         </div>
 
         <div class="user-list">
