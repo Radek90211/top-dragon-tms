@@ -193,7 +193,12 @@ async function updateUser(body, actor) {
   })
   const updated = Array.isArray(rows) ? rows[0] : rows
   if (!updated) throw Object.assign(new Error('Profil użytkownika nie został zaktualizowany.'), { statusCode: 404 })
-  return { ...updated, email: String(targetAuth?.email || '') }
+  const verifiedRows = await serviceRequest(`/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,display_name,role,branch_id,ui_color,active,branch:branches(name)&limit=1`)
+  const verified = Array.isArray(verifiedRows) ? verifiedRows[0] : null
+  if (!verified || String(verified.ui_color || '').toUpperCase() !== String(body?.uiColor || target.ui_color || '#E2E8F0').toUpperCase()) {
+    throw Object.assign(new Error('Nie udało się potwierdzić zapisu koloru. Spróbuj ponownie.'), { statusCode: 409 })
+  }
+  return { ...verified, email: String(targetAuth?.email || '') }
 }
 
 async function deleteUser(body, actor) {

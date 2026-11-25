@@ -1326,6 +1326,11 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
   })
 
   document.querySelectorAll('.user-row').forEach((row) => {
+    const colorInput = row.querySelector('.user-ui-color')
+    const colorLabel = row.querySelector('.user-color-field > span')
+    colorInput?.addEventListener('input', () => {
+      if (colorLabel) colorLabel.textContent = String(colorInput.value || '').toUpperCase()
+    })
     row.querySelector('.user-save')?.addEventListener('click', async () => {
       if (adminPanelBusy) return
 
