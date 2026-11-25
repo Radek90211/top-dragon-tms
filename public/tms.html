@@ -94599,8 +94599,42 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       restoreScrollState(scrollState);
     }
 
+    function captureFleetFormV369() {
+      const form = document.querySelector('.fleet-form-grid');
+      if (!form) return null;
+      const fields = Array.from(form.querySelectorAll('input[id],select[id],textarea[id]')).map(element => ({ id:element.id, value:element.value, checked:element.checked }));
+      const active = form.contains(document.activeElement) ? document.activeElement : null;
+      return { fields, activeId:active?.id || '', start:active?.selectionStart, end:active?.selectionEnd };
+    }
+
+    function restoreFleetFormV369(snapshot) {
+      if (!snapshot) return;
+      const form = document.querySelector('.fleet-form-grid');
+      if (!form) return;
+      snapshot.fields.forEach(field => {
+        const element = form.querySelector(`[id="${CSS.escape(field.id)}"]`);
+        if (!element) return;
+        element.value = field.value;
+        if (element.type === 'checkbox' || element.type === 'radio') element.checked = field.checked;
+      });
+      const active = snapshot.activeId && form.querySelector(`[id="${CSS.escape(snapshot.activeId)}"]`);
+      if (active) {
+        active.focus({ preventScroll:true });
+        if (snapshot.start != null && typeof active.setSelectionRange === 'function') {
+          try { active.setSelectionRange(snapshot.start, snapshot.end); } catch (error) {}
+        }
+      }
+    }
+
+    function refreshFleetManagementV369(host) {
+      const snapshot = captureFleetFormV369();
+      host.innerHTML = renderFleetManagement();
+      restoreFleetFormV369(snapshot);
+    }
+
     function render() {
       const app = document.getElementById("app");
+      const fleetForm = captureFleetFormV369();
       const preservedMap = detachLeafletMapForRender();
       removePortaledTutorialModal();
 
@@ -94622,6 +94656,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       document.body.classList.remove("embedded-auth-pending");
 
       app.innerHTML = renderApp();
+      restoreFleetFormV369(fleetForm);
       restoreLeafletMapAfterRender(preservedMap);
       setTimeout(() => syncTutorialSpotlight(), 0);
       setTimeout(() => {
@@ -97609,7 +97644,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncCommercialIntelligenceSection() {
       const host = document.getElementById("commercial-intelligence");
       if (!host) return;
+      const fleetForm = state.commercialView === "fleet" ? captureFleetFormV369() : null;
       replaceElementHtml("#commercial-intelligence", renderCommercialIntelligence());
+      restoreFleetFormV369(fleetForm);
       try { syncWorkspaceToolTabs(); } catch (error) {}
     }
 
@@ -115487,7 +115524,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
           const host = document.querySelector('[data-role="commercial-body"]');
           if (host && state.commercialView === "fleet") {
-            host.innerHTML = renderFleetManagement();
+            refreshFleetManagementV369(host);
           }
           return;
         }
@@ -115619,7 +115656,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         markBoardStartupReadyV188("fleet");
 
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
         if (state.user && !duringStartup) {
           syncBoardOnly();
           syncUnloadMapCard();
@@ -115632,6 +115669,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         state.fleetOperationBusy = false;
         const ok = Boolean(message?.ok);
         const action = String(message?.action || "");
+        if (ok && action === "create") document.querySelector('.fleet-form-grid')?.reset();
         if (action === "visibility") {
           const pending = state.fleetVisibilityPending || null;
           if (!ok && pending) {
@@ -115675,7 +115713,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const successTitle = action === "delete" ? "Zarchiwizowano zestaw" : action === "carrier-rate" ? "Stawka przewoźnika zapisana" : action === "visibility" ? "Widoczność floty zmieniona" : action === "color" ? "Oznaczenie kierowcy zapisane" : action === "reassign" ? "Przypisanie kierowcy zmienione" : action === "import" ? "Import floty zakończony" : action === "update" ? "Dane floty uzupełnione" : "Zapisano zestaw";
         showAppMessage(ok ? successTitle : "Błąd floty", text, ok ? "success" : "error");
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
         if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
       };
 
@@ -115774,7 +115812,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!isAdminUser() && !isBranchManagerUser()) return;
         state.fleetDispatcherFilter = String(value || "");
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
       };
 
       function adminFleetSelectedDrivers(rows = DRIVERS) {
@@ -115786,7 +115824,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!isAdminUser()) return;
         state.fleetAdminSelectedAssignments = { ...(state.fleetAdminSelectedAssignments || {}), [String(assignmentId || "")]: Boolean(checked) };
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
       };
 
       window.toggleAllAdminFleetAssignments = function(checked) {
@@ -115795,7 +115833,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         DRIVERS.filter(driver => driver?.supabaseFleet && driver?.dbAssignmentId).forEach(driver => { next[String(driver.dbAssignmentId)] = Boolean(checked); });
         state.fleetAdminSelectedAssignments = next;
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
       };
 
       window.confirmAdminFleetReassignment = function() {
@@ -115819,7 +115857,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (!window.confirm(`Przepisać na stałe ${changed.length} ${changed.length === 1 ? "kierowcę" : "kierowców"} do spedytora ${target.login}?`)) return;
         state.fleetAdminReassignBusy = true;
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+        if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
         window.parent?.postMessage({
           type:"top-dragon-fleet-bulk-reassign",
           requestId:`fleet-bulk-reassign-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
@@ -115948,7 +115986,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         requestAnimationFrame(() => {
           syncBoardOnly();
           const host = document.querySelector('[data-role="commercial-body"]');
-          if (host && state.commercialView === "fleet") host.innerHTML = renderFleetManagement();
+          if (host && state.commercialView === "fleet") refreshFleetManagementV369(host);
           if (state.hiddenDriversRestoreOpen) syncHiddenDriversRestoreModal();
           setTimeout(() => syncUnloadMapCard(), 35);
         });
@@ -116023,7 +116061,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         LAST_FLEET_REQUEST_ID = requestId;
 
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host) host.innerHTML = renderFleetManagement();
+        if (host) refreshFleetManagementV369(host);
 
         window.parent?.postMessage({
           type: "top-dragon-fleet-create",
@@ -116062,7 +116100,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         const requestId = `fleet-delete-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
         LAST_FLEET_REQUEST_ID = requestId;
         const host = document.querySelector('[data-role="commercial-body"]');
-        if (host) host.innerHTML = renderFleetManagement();
+        if (host) refreshFleetManagementV369(host);
 
         window.parent?.postMessage({
           type: "top-dragon-fleet-delete",
