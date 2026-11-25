@@ -93155,8 +93155,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       if (!route || isFreeDayRoute(route)) return [];
       const missing = [];
       if (!(Number(route.rate || 0) > 0)) missing.push("stawka");
-      const sampleRoutingPending = route.sampleRoadDemoV339 && !route.sampleRoadRoutingStatusV339;
-      if (!sampleRoutingPending && !(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
+      const sampleRoutingUnconfirmed = route.sampleRoadDemoV339 && route.sampleRoadRoutingStatusV339 !== "ready";
+      if (!sampleRoutingUnconfirmed && !(Number(carrierCost(route) || route.cost || 0) > 0)) missing.push("koszt");
       const client = String(route.client || "").trim();
       if (!client || /^(klient testowy|klient nieprzypisany|-)$/i.test(client)) missing.push("klient");
       return missing;
@@ -93627,18 +93627,23 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
 
     // Automatyczne komunikaty „Auto szuka ładunku przy Twoim kliencie” zostały usunięte.
     // Zamiast nich spedytor sam wysyła czytelne zapytanie w zakładce „Zapytania o ładunek”.
+    function syncRouteCommercialWarning(tile, route) {
+      const indicators = tile.querySelector(".route-title-indicators");
+      if (!indicators) return;
+      const current = indicators.querySelector(".route-commercial-warning");
+      const next = routeCommercialWarningBadge(route);
+      if ((current?.outerHTML || "") === next) return;
+      current?.remove();
+      if (next) indicators.insertAdjacentHTML("beforeend", next);
+    }
+
     function syncRecentRouteBadges() {
       const routesById = new Map((state.routes || []).map(route => [String(route?.id || ""), route]));
       document.querySelectorAll('.time-route[data-route-id]').forEach(element => {
         const route = routesById.get(String(element.dataset.routeId || ""));
         if (!route) return;
         element.classList.toggle('route-recent', routeFreshMinutes(route) < 20);
-        const title = element.querySelector('.time-route-title');
-        if (!title) return;
-        title.querySelectorAll('.route-fresh-badge,.route-rating-icon,.route-commercial-warning').forEach(item => item.remove());
-        const warningBadge = routeCommercialWarningBadge(route);
-        const indicators = title.querySelector('.route-title-indicators') || title;
-        if (warningBadge) indicators.insertAdjacentHTML('beforeend', warningBadge);
+        syncRouteCommercialWarning(element, route);
       });
     }
 
@@ -101871,6 +101876,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         : (type === "pickup" ? route?.load : (route?.secondUnload || route?.unload)) || "";
     }
 
+    function syncSampleRoadTiles(routesById) {
+      if (state.appView !== "plan" || !routesById.size) return;
+      const metricMode = state.routeTileMetricView;
+      for (const tile of document.querySelectorAll(".board .time-route[data-route-id]")) {
+        const route = routesById.get(tile.dataset.routeId);
+        if (!route) continue;
+        const meta = tile.querySelector(".time-route-meta");
+        if (meta) meta.textContent = `${routeDistanceLabel(route)} · ${money(profit(route))}`;
+        if (metricMode === "profit" || metricMode === "km") {
+          const metric = tile.querySelector(".time-route-metric-value");
+          if (metric) metric.outerHTML = window.renderRouteMetricValue(route);
+          const currentClass = [...tile.classList].find(name => name.startsWith("route-metric-"));
+          const nextClass = routeStatusClasses(route).split(" ").find(name => name.startsWith("route-metric-"));
+          if (currentClass && currentClass !== nextClass) tile.classList.remove(currentClass);
+          if (nextClass && currentClass !== nextClass) tile.classList.add(nextClass);
+        }
+        syncRouteCommercialWarning(tile, route);
+      }
+    }
+
     let sampleRoadDemoTimerV339 = 0;
     let sampleRoadDemoRunningV339 = false;
     const SAMPLE_ROAD_CACHE_KEY_V349 = "tms-sample-truck-matrix-1650-255-400-14t-40t-v1";
@@ -101915,7 +101940,14 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function scheduleSampleRoadDemosV339() {
       if (!state.user || !EMBEDDED_MODE) return;
       clearTimeout(sampleRoadDemoTimerV339);
-      sampleRoadDemoTimerV339 = setTimeout(runSampleRoadDemosV339, 1800);
+      sampleRoadDemoTimerV339 = setTimeout(() => {
+        const user = state.user;
+        const run = () => {
+          if (user === state.user && !state.boardStartupV188?.active) runSampleRoadDemosV339();
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 1200 });
+        else run();
+      }, 1800);
     }
     async function runSampleRoadDemosV339() {
       if (sampleRoadDemoRunningV339 || !state.user) return;
@@ -101924,8 +101956,15 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       let cacheDirty = false;
       let lastCacheWrite = Date.now();
       let refreshTimer = 0;
+      const changedRoutes = new Map();
+      const flushChangedTiles = () => {
+        refreshTimer = 0;
+        if (!state.boardStartupV188?.active) syncSampleRoadTiles(changedRoutes);
+        changedRoutes.clear();
+      };
       try {
-        const demos = activeRoutes().filter(route => route?.sampleRoadDemoV339);
+        const demos = activeRoutes().filter(route => route?.sampleRoadDemoV339 && !route.sampleRoadRoutingStatusV339);
+        if (!demos.length) return;
         const samplePlan = routeSwapDriverBuckets(true);
         const times = new WeakMap();
         const pending = [];
@@ -101943,7 +101982,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           return key;
         };
         for (const route of demos) {
-          if (route.sampleRoadRoutingStatusV339 === "ready" || route.sampleRoadRoutingStatusV339 === "unavailable") continue;
           const driver = driverById(route.driverId);
           const prior = driver && routeSwapPosition(driver, route, samplePlan, new Set([route.id]), times);
           const load = routeSwapEndpoint(route, "pickup"), unload = routeSwapEndpoint(route, "delivery");
@@ -101951,6 +101989,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             route.sampleRoadRoutingStatusV339 = "unavailable";
             route.notes = "Przykład: brak współrzędnych wcześniejszego rozładunku lub punktów zlecenia; kilometrów nie wyznaczono.";
             changed = true;
+            changedRoutes.set(String(route.id), route);
             continue;
           }
           const from = {lat:prior.coords[0], lng:prior.coords[1]};
@@ -101958,7 +101997,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
             emptyKey:queueLeg(from, load, "empty"), loadedKey:queueLeg(load, unload, "loaded")});
         }
         const applyReady = () => {
-          let batchChanged = false;
           const liveRoutes = new Set(state.routes);
           for (const item of pending) {
             const {route, prior, from, load, unload, emptyKey, loadedKey} = item;
@@ -101980,13 +102018,11 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
               route.notes = "Przykład: dolot 14 t i trasa z ładunkiem 40 t wyznaczone w TomTom dla zestawu 16,5 × 2,55 × 4 m.";
               applyAutomaticCarrierCost(route);
             }
-            batchChanged = true;
-          }
-          if (batchChanged) {
             changed = true;
-            if (!state.boardStartupV188?.active && !refreshTimer) {
-              refreshTimer = setTimeout(() => { refreshTimer = 0; scheduleUiSync({board:true}); }, 350);
-            }
+            changedRoutes.set(String(route.id), route);
+          }
+          if (changedRoutes.size && !state.boardStartupV188?.active && !refreshTimer) {
+            refreshTimer = setTimeout(flushChangedTiles, 350);
           }
         };
         applyReady();
@@ -102029,7 +102065,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         if (cacheDirty) persistSampleRoadCacheV349();
         sampleRoadDemoRunningV339 = false;
         if (changed && state.user && !state.boardStartupV188?.active) {
-          syncBoardOnly();
+          flushChangedTiles();
+          scheduleRouteSwapAnalysis();
+          if (state.statsPanelOpen) scheduleStatsPanelSync();
           const selectedDemo = state.routes.find(route => route.id === state.selectedRouteId && route.sampleRoadDemoV339);
           const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(String(document.activeElement?.tagName || ""));
           if (state.detailsOpen && selectedDemo && !editing) syncDetailsPanel();
