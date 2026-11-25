@@ -104446,7 +104446,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           <div class="left-cell driver-cell sticky-c driver-row-cell driver-col ${boardDriverVisibilityClass(driver)}" data-driver-id="${attr(driver.id)}" style="grid-column:3;grid-row:${row};">
             <div class="driver-main-info">
               <div class="driver-name-row"><span class="driver-name">${esc(driver.driver)}</span></div>
-              <span class="driver-week">Tydz.: ${week.km} km · ${money(week.profit)}</span>
+              <span class="driver-week" title="Tydzień: ${attr(week.km)} km · ${attr(money(week.profit))}"><span>Tydz.: ${week.km} km</span><span>${money(week.profit)}</span></span>
             </div>
             ${renderDriverSensitiveBlock(driver)}
           </div>
@@ -123800,6 +123800,8 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     .queue-add-menu > .btn { width:100%; min-height:38px; justify-content:center; }
     .board .left-cell,
     .board .day-cell { box-shadow:inset 0 -1px 0 #94a3b8; }
+    .driver-week { display:grid; grid-template-rows:repeat(2, 1.15em); justify-items:center; width:100%; font-variant-numeric:tabular-nums; }
+    .driver-week > span { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .driver-column-heading { display:grid; gap:1px; line-height:1.05; }
     .driver-column-heading small { font-size:8px; font-weight:700; opacity:.78; }
 

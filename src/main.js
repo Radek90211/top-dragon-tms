@@ -137,7 +137,7 @@ function normalizedFeaturePermissions(value) {
 }
 
 function renderUserFeatureControls(user) {
-  if (String(user?.role || '') === 'admin') return '<div class="user-feature-admin-note">Administrator ma zawsze pełny dostęp.</div>'
+  if (String(user?.role || '') === 'admin') return ''
   const permissions = normalizedFeaturePermissions(user?.feature_permissions)
   return `<details class="user-features"><summary>Funkcje użytkownika</summary><div class="user-feature-grid">${USER_FEATURES.map(([key, label]) => `<label class="user-feature-switch"><span>${escapeHtml(label)}</span><input class="user-feature-toggle" type="checkbox" data-feature-key="${key}" ${permissions[key] ? 'checked' : ''} /><span class="user-feature-switch-track" aria-hidden="true"></span></label>`).join('')}</div></details>`
 }
@@ -810,7 +810,11 @@ function adminPanelLayoutStyles() {
       .admin-audit-row > * { min-width:0; overflow-wrap:anywhere; }
       .admin-user-badge { display:inline-flex; align-items:center; width:max-content; max-width:100%; padding:3px 8px; border:1px solid rgba(15,23,42,.14); border-radius:999px; color:#0f172a; font-weight:850; }
       .admin-audit-details { min-width:0; overflow:hidden; color:#52627a; text-overflow:ellipsis; white-space:nowrap; }
-      #admin-message-box { position:sticky; top:12px; z-index:20; margin-bottom:16px; box-shadow:0 6px 18px rgba(15,23,42,.12); }
+      #admin-message-box { position:fixed; top:20px; right:20px; z-index:100; display:flex; align-items:center; gap:12px; width:min(390px,calc(100vw - 40px)); padding:15px 18px; border:1px solid #a7f3d0; border-radius:14px; background:#f0fdf4; color:#14532d; font-size:13px; font-weight:750; box-shadow:0 12px 32px rgba(15,23,42,.16); }
+      #admin-message-box[hidden] { display:none; }
+      #admin-message-box::before { content:'✓'; display:grid; place-items:center; flex:0 0 30px; height:30px; border-radius:50%; background:#dcfce7; color:#166534; font-size:17px; font-weight:900; }
+      #admin-message-box.error { border-color:#fecaca; background:#fff1f2; color:#991b1b; }
+      #admin-message-box.error::before { content:'!'; background:#fee2e2; color:#b91c1c; }
       @media(max-width:1120px) {
         .admin-role-grid { grid-template-columns:1fr 1fr; }
         .user-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -996,17 +1000,16 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
 
       ${renderAdminTools(auditRows, users)}
 
-      <div id="admin-message-box" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
+      <div id="admin-message-box" role="status" aria-live="polite" ${message ? '' : 'hidden'} class="${messageType === 'error' ? 'error' : 'success'} admin-message">${escapeHtml(message)}</div>
 
       <div class="admin-section-title">
-        <div><h2>Organizacja firmy</h2><p class="muted">Oddziały i dostęp pracowników</p></div>
+        <div><h2>Organizacja firmy</h2></div>
       </div>
       <div class="admin-grid admin-grid--organization">
         <section class="admin-card admin-card--branches">
           <div class="section-heading">
             <div>
               <h2>Oddziały</h2>
-              <p class="muted">Nieaktywny oddział zachowuje całą historię. Trwałe usunięcie jest możliwe tylko dla oddziału, który nigdy nie był używany.</p>
             </div>
           </div>
 
@@ -1031,7 +1034,6 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
           <div class="section-heading">
             <div>
               <h2>Dodaj użytkownika</h2>
-              <p class="muted">Pracownik otrzyma e-mail z linkiem do ustawienia własnego hasła.</p>
             </div>
           </div>
 
@@ -1069,7 +1071,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       </div>
 
       <div class="admin-section-title">
-        <div><h2>Rozliczenia przewoźników</h2><p class="muted">Wspólna stawka używana w kalkulacjach</p></div>
+        <div><h2>Rozliczenia przewoźników</h2></div>
       </div>
       <section class="admin-card users-card admin-card--rate">
         <div class="section-heading">
@@ -1080,8 +1082,8 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
         </div>
         ${carrierRates.schemaAvailable ? `
           <form id="common-carrier-rate-form" class="compact-form two-columns">
-            <label>Nowa wspólna stawka PLN/km
-              <input id="common-carrier-rate-value" type="number" min="0.01" step="0.01" value="${escapeHtml(commonCarrierRateValue.toFixed(2))}" required />
+            <label>
+              <input id="common-carrier-rate-value" aria-label="Wspólna stawka PLN za kilometr" type="number" min="0.01" step="0.01" value="${escapeHtml(commonCarrierRateValue.toFixed(2))}" required />
             </label>
             <label>Obowiązuje od
               <input id="common-carrier-rate-date" type="date" min="${escapeHtml(carrierRateToday)}" value="${escapeHtml(carrierRateToday)}" required />
@@ -1094,7 +1096,7 @@ function renderAdminPanelFromCache(message = '', messageType = 'success') {
       </section>
 
       <div class="admin-section-title">
-        <div><h2>Zespół</h2><p class="muted">Role, oddziały, oznaczenia i status kont</p></div>
+        <div><h2>Zespół</h2></div>
       </div>
       <section class="admin-card users-card admin-card--users">
         <div class="section-heading">
