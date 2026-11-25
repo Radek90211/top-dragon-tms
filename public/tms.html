@@ -95956,7 +95956,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return `
         <div class="app ${state.user.role === "rozliczenia" ? "role-accounting" : state.user.role === "admin" ? "role-admin" : state.user.role === "kierownik" ? "role-manager" : "role-dispatcher"} ${state.darkMode ? "dark-mode" : ""} ${state.appView === "clients" ? "app-view-clients" : "app-view-plan"} ${state.mobileNavigationCollapsedV205 ? "mobile-navigation-collapsed-v205" : ""}" onclick="handleAppSurfaceClick(event)">
           <header class="header ${state.mobileHeaderCollapsedV205 ? "mobile-header-collapsed-v209" : ""}">
-            <button type="button" class="desktop-header-logo-v359" aria-label="Otwórz menu" aria-expanded="false" onclick="toggleDesktopHeaderMenuV359(event)"><img src="/top-dragon-logo.svg" alt="" /></button>
             <div class="header-inner">
               <div class="brand-head">
                 <button type="button" class="brand-home-button" onclick="goHome(event)" title="Przejdź do strony głównej" aria-label="Przejdź do strony głównej">
@@ -96002,6 +96001,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
           ${state.appView === "plan" ? renderRouteSwapDock() : ""}
           ${state.appView === "plan" ? renderMapToggleTab() : ""}
           ${state.appView === "plan" ? renderWorkspaceToolTabs() : ""}
+          ${renderProfileDockV360()}
           ${renderRouteContextMenu()}
           ${state.addOpen ? renderAddModal() : ""}
           ${renderDriverInfoPopup()}
@@ -103339,6 +103339,37 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         <button type="button" class="workspace-tool-tab side-tool-tab side-tool-nearest ${state.nearestPanelOpen ? "btn-dark" : ""}" data-tutorial="nearest-toggle" onclick="toggleNearestVehiclePanel();event.stopPropagation();" aria-label="Najbliższy pojazd">${sideToolIcon("nearest")}<span class="side-tool-label">Najbliższy pojazd</span></button>
       </div>`;
     }
+
+    function renderProfileDockV360() {
+      if (!state.user || mobileViewportActive()) return "";
+      const isAdmin = (state.user.actualSupabaseRole || state.user.supabaseRole) === "admin";
+      return `<div class="profile-dock-v360"><button class="profile-dock-button-v360" type="button" aria-label="Profil i ustawienia" aria-expanded="false" onclick="toggleProfileDockV360(event)">${sideToolIcon("admin")}</button><div class="profile-menu-v360" hidden onclick="event.stopPropagation()"><div class="profile-menu-user-v360"><b>${esc(state.user.login || "Użytkownik")}</b><span>${esc(state.user.role === "admin" ? "Administrator" : state.user.role === "rozliczenia" ? "Rozliczenia" : state.user.role === "kierownik" ? "Kierownik oddziału" : "Spedytor")}</span></div><button type="button" onclick="goHome(event)">Plan kierowców</button>${isAdmin ? `<button type="button" onclick="openAdministrationPanel()">Administracja</button>` : ""}<button type="button" onclick="openTutorialMenu(event)">Pomoc i samouczki</button><button type="button" onclick="toggleDarkMode(event)">${state.darkMode ? "Tryb jasny" : "Tryb ciemny"}</button><button type="button" onclick="logout()">Wyloguj</button></div></div>`;
+    }
+
+    function toggleProfileDockV360(event) {
+      event.stopPropagation();
+      const button = event.currentTarget;
+      const menu = button.parentElement.querySelector('.profile-menu-v360');
+      menu.hidden = !menu.hidden;
+      button.setAttribute('aria-expanded', String(!menu.hidden));
+    }
+
+    document.addEventListener('click', event => {
+      const dock = document.querySelector('.profile-dock-v360');
+      if (!dock || dock.contains(event.target)) return;
+      const menu = dock.querySelector('.profile-menu-v360');
+      if (menu) menu.hidden = true;
+      dock.querySelector('.profile-dock-button-v360')?.setAttribute('aria-expanded','false');
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      const menu = document.querySelector('.profile-menu-v360:not([hidden])');
+      if (!menu) return;
+      menu.hidden = true;
+      const button = menu.parentElement.querySelector('.profile-dock-button-v360');
+      button?.setAttribute('aria-expanded','false');
+      button?.focus();
+    });
 
     function syncWorkspaceToolTabs() {
       document.querySelectorAll(".workspace-tool-tabs").forEach(element => element.remove());
@@ -123738,12 +123769,17 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
     .desktop-header-logo-v359 { display:none; }
     @media (min-width:721px) {
-      .app > .header { position:sticky !important; width:100% !important; height:11px !important; min-height:11px !important; }
-      .app > .header::after { display:none; }
-      .app > .header .header-inner, .app > .header:hover .header-inner, .app > .header:focus-within .header-inner { transform:translate(-50%,calc(-100% - 12px)); }
-      .app > .header.desktop-header-open-v295 .header-inner { transform:translate(-50%,0); }
-      .desktop-header-logo-v359 { display:grid; place-items:center; position:absolute; top:0; right:16px; z-index:3; width:76px; height:32px; padding:3px 8px; border:1px solid var(--border); border-top:0; border-radius:0 0 10px 10px; background:var(--card); cursor:pointer; box-shadow:0 3px 10px rgba(15,23,42,.1); }
-      .desktop-header-logo-v359 img { max-width:100%; max-height:25px; object-fit:contain; }
+      .app > .header { display:none !important; }
+      .profile-dock-v360 { position:fixed; right:10px; top:min(calc(var(--side-tools-top) + 169px + var(--side-planned-space) + var(--side-free-space)), calc(100dvh - 54px)); z-index:7500; }
+      .profile-dock-v360::before { content:""; position:absolute; top:-9px; left:7px; right:7px; border-top:1px solid var(--border); }
+      .profile-dock-button-v360 { display:grid; place-items:center; width:46px; height:46px; padding:0; border:1px solid var(--border); border-radius:13px 0 0 13px; background:var(--card); color:var(--text); cursor:pointer; }
+      .profile-dock-button-v360:hover, .profile-dock-button-v360:focus-visible, .profile-dock-button-v360[aria-expanded="true"] { border-color:#2563eb; outline-color:#2563eb; }
+      .profile-menu-v360 { position:fixed; right:66px; top:clamp(8px, calc(var(--side-tools-top) + 169px + var(--side-planned-space) + var(--side-free-space)), calc(100dvh - 290px)); width:230px; max-height:calc(100dvh - 16px); overflow:auto; padding:7px; border:1px solid var(--border); border-radius:14px; background:var(--card); box-shadow:0 12px 30px rgba(15,23,42,.18); }
+      .profile-menu-v360[hidden] { display:none; }
+      .profile-menu-user-v360 { display:grid; gap:3px; padding:9px 10px 11px; border-bottom:1px solid var(--border); }
+      .profile-menu-user-v360 span { font-size:11px; color:var(--muted); }
+      .profile-menu-v360 > button { display:block; width:100%; padding:10px; border:0; border-radius:8px; background:transparent; color:var(--text); text-align:left; font:inherit; cursor:pointer; }
+      .profile-menu-v360 > button:hover, .profile-menu-v360 > button:focus-visible { background:var(--soft,#f1f5f9); }
     }
     .main { max-width:none !important; width:100%; }
     .queue-add-menu { display:grid; gap:7px; }
@@ -124011,46 +124047,6 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       let mobileViewportFrameV200 = 0;
       let mobileFocusRequestedV200 = true;
       let lastMobileTabV202 = 'plan';
-      let desktopHeaderCloseTimerV295 = 0;
-
-      // Górny uchwyt ma tylko 11 px wysokości. Stan klasy utrzymuje panel
-      // otwarty podczas przejścia kursorem z uchwytu na jego przyciski,
-      // zamiast polegać wyłącznie na krótkotrwałym :hover.
-      function setDesktopHeaderOpenV295(header, open) {
-        if (!header || window.matchMedia('(max-width:720px)').matches) return;
-        window.clearTimeout(desktopHeaderCloseTimerV295);
-        if (open) {
-          header.classList.add('desktop-header-open-v295');
-          return;
-        }
-        desktopHeaderCloseTimerV295 = window.setTimeout(() => {
-          if (!header.matches(':hover') && !header.contains(document.activeElement)) {
-            header.classList.remove('desktop-header-open-v295');
-          }
-        }, 180);
-      }
-
-      window.toggleDesktopHeaderMenuV359 = function(event) {
-        event.stopPropagation();
-        const header = event.currentTarget.closest('.header');
-        const open = header.classList.toggle('desktop-header-open-v295');
-        event.currentTarget.setAttribute('aria-expanded', String(open));
-        event.currentTarget.setAttribute('aria-label', open ? 'Zamknij menu' : 'Otwórz menu');
-      };
-      document.addEventListener('click', event => {
-        const header = document.querySelector('.app > .header.desktop-header-open-v295');
-        if (!header || header.contains(event.target)) return;
-        header.classList.remove('desktop-header-open-v295');
-        const button = header.querySelector('.desktop-header-logo-v359');
-        button?.setAttribute('aria-expanded','false');
-        button?.setAttribute('aria-label','Otwórz menu');
-      });
-      document.addEventListener('keydown', event => {
-        if (event.key !== 'Escape') return;
-        const button = document.querySelector('.app > .header.desktop-header-open-v295 .desktop-header-logo-v359');
-        if (button) { button.click(); button.focus(); }
-      });
-
       // Modal jest renderowany dynamicznie; przechwytujemy Enter na dokumencie,
       // dzięki czemu potwierdzenie działa także po natychmiastowym otwarciu okna.
       document.addEventListener('keydown', event => {

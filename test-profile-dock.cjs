@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const html=fs.readFileSync('public/tms.html','utf8');
+const start=html.indexOf('    function renderProfileDockV360()');
+const end=html.indexOf('    document.addEventListener(\'click\'',start);
+assert.ok(start>=0&&end>start);
+const ctx={state:{user:{login:'ADMIN',role:'admin',supabaseRole:'admin'},darkMode:false},mobileViewportActive:()=>false,sideToolIcon:()=>'',esc:s=>String(s)};
+vm.createContext(ctx);vm.runInContext(html.slice(start,end),ctx);
+let menu=ctx.renderProfileDockV360();
+for(const text of ['Profil i ustawienia','Administracja','Pomoc i samouczki','Tryb ciemny','Wyloguj']) assert.ok(menu.includes(text),text);
+ctx.state.user={login:'TEST',role:'spedytor',supabaseRole:'dispatcher'};
+menu=ctx.renderProfileDockV360();assert.ok(!menu.includes('Administracja'));
+let expanded='';const panel={hidden:true};const button={parentElement:{querySelector:()=>panel},setAttribute:(key,value)=>{if(key==='aria-expanded')expanded=value;}};
+ctx.toggleProfileDockV360({stopPropagation(){},currentTarget:button});assert.equal(panel.hidden,false);assert.equal(expanded,'true');
+ctx.toggleProfileDockV360({stopPropagation(){},currentTarget:button});assert.equal(panel.hidden,true);assert.equal(expanded,'false');
+ctx.mobileViewportActive=()=>true;assert.equal(ctx.renderProfileDockV360(),'');
+console.log('Profil: dostępne funkcje, rola, otwieranie i telefon OK');
