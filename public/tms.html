@@ -93163,18 +93163,26 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       return missing;
     }
 
-    function commercialWarningCutoffDate() {
-      return addDaysToIso(currentAppDate(), -COMMERCIAL_WARNING_GRACE_DAYS);
+    function commercialWarningCutoffDate(today = currentAppDate()) {
+      return addDaysToIso(today, -COMMERCIAL_WARNING_GRACE_DAYS);
     }
 
-    function routeCommercialWarningBadge(route, cutoffDate = boardRenderCache?.commercialWarningCutoff || commercialWarningCutoffDate()) {
+    function routeCommercialWarningLabel(route, cutoffDate = boardRenderCache?.commercialWarningCutoff || commercialWarningCutoffDate()) {
       if (!route) return "";
       const unloadDate = String(routeEndDate(route) || "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(unloadDate) || unloadDate >= cutoffDate) return "";
       const missing = routeMissingCommercialFields(route);
-      if (!missing.length) return "";
-      const label = `Uzupełnij: ${missing.join(", ")}`;
-      return `<span class="route-commercial-warning" title="${attr(label)}" aria-label="${attr(label)}">!</span>`;
+      return missing.length ? `Uzupełnij: ${missing.join(", ")}` : "";
+    }
+
+    function commercialWarningBadgeHtml(label) {
+      if (!label) return "";
+      const safeLabel = attr(label);
+      return `<span class="route-commercial-warning" title="${safeLabel}" aria-label="${safeLabel}">!</span>`;
+    }
+
+    function routeCommercialWarningBadge(route) {
+      return commercialWarningBadgeHtml(routeCommercialWarningLabel(route));
     }
 
     function routeSmsKm(value) {
@@ -93184,8 +93192,9 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     }
 
     function routeAutoCost(route) {
-      const ratePerKm = carrierRatePerKmForRoute(route);
-      return Math.round((totalKm(route) + Number(route?.baseKm || 0)) * ratePerKm + routeOversizeCost(route));
+      const km = totalKm(route) + Number(route?.baseKm || 0);
+      const extra = routeOversizeCost(route);
+      return km === 0 ? Math.round(extra) : Math.round(km * carrierRatePerKmForRoute(route) + extra);
     }
 
     function applyAutomaticCarrierCost(route) {
@@ -93636,22 +93645,41 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
     function syncRouteCommercialWarning(tile, route, cutoffDate) {
       const indicators = tile.querySelector(".route-title-indicators");
       if (!indicators) return;
+      const label = routeCommercialWarningLabel(route, cutoffDate);
       const current = indicators.querySelector(".route-commercial-warning");
-      const next = routeCommercialWarningBadge(route, cutoffDate);
-      if ((current?.outerHTML || "") === next) return;
-      current?.remove();
-      if (next) indicators.insertAdjacentHTML("beforeend", next);
+      if (!label) {
+        current?.remove();
+      } else if (!current) {
+        indicators.insertAdjacentHTML("beforeend", commercialWarningBadgeHtml(label));
+      } else if (current.getAttribute("aria-label") !== label) {
+        current.setAttribute("title", label);
+        current.setAttribute("aria-label", label);
+      }
     }
 
+    function syncRouteCommercialWarningForRoute(route) {
+      const tile = routeButtonElement(route.id);
+      if (tile) syncRouteCommercialWarning(tile, route);
+    }
+
+    let lastCommercialWarningDay = currentAppDate();
+
     function syncRecentRouteBadges() {
-      const cutoffDate = commercialWarningCutoffDate();
-      const routesById = new Map((state.routes || []).map(route => [String(route?.id || ""), route]));
-      document.querySelectorAll('.time-route[data-route-id]').forEach(element => {
-        const route = routesById.get(String(element.dataset.routeId || ""));
-        if (!route) return;
-        element.classList.toggle('route-recent', routeFreshMinutes(route) < 20);
-        syncRouteCommercialWarning(element, route, cutoffDate);
-      });
+      const today = currentAppDate();
+      const dayChanged = today !== lastCommercialWarningDay;
+      const tiles = document.querySelectorAll(dayChanged
+        ? ".board .time-route[data-route-id]"
+        : ".board .time-route.route-recent[data-route-id]");
+      if (!tiles.length) return;
+      const cutoffDate = dayChanged ? commercialWarningCutoffDate(today) : "";
+      const routesById = new Map(state.routes.map(route => [String(route.id), route]));
+      for (const tile of tiles) {
+        const route = routesById.get(tile.dataset.routeId);
+        if (!route) continue;
+        tile.classList.toggle("route-recent", routeFreshMinutes(route) < 20);
+        if (dayChanged) syncRouteCommercialWarning(tile, route, cutoffDate);
+      }
+      lastCommercialWarningDay = today;
     }
 
     function routeStatusClasses(route) {
@@ -99151,6 +99179,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
         || (state.clients || []).find(item => removePolishChars(item.name) === removePolishChars(name));
       route.client = client?.name || name;
       route.clientId = client?.id || "";
+      syncRouteCommercialWarningForRoute(route);
       scheduleRouteHistoryCapture(route);
       scheduleUiSync({ board: false, unload: false, details: true });
     }
@@ -108432,6 +108461,7 @@ create policy "tms driver assignments shared delete" on public.tms_driver_assign
       saveClientDatabaseToStorage();
       scheduleCentralClientsDiff(0);
       route.client = client.name; route.clientId = client.id;
+      syncRouteCommercialWarningForRoute(route);
       scheduleRouteHistoryCapture(route);
       syncDetailsPanel();
       showAppMessage("Dodano firmę", `${name} zapisano bez opiekuna. Bazę może później potwierdzić administrator.`);

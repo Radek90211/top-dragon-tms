@@ -86,5 +86,50 @@ function scenario(fail=false, storage=new Map()) {
   today='2026-12-02';
   assert.equal(warnings.routeCommercialWarningBadge({...route,endDate:'2026-11-29'}),'');
   assert.match(warnings.routeCommercialWarningBadge({...route,endDate:'2026-11-28'}),/koszt/);
+  const oldRoute={...route,id:'old',endDate:'2026-11-29'};
+  let indicator;
+  let writes=0;
+  const attrs=new Map();
+  const indicators={
+    querySelector:()=>indicator,
+    insertAdjacentHTML(_position,markup) {
+      writes++;
+      attrs.set('aria-label',markup.match(/aria-label="([^"]+)"/)[1]);
+      indicator={
+        getAttribute:key=>attrs.get(key),
+        setAttribute:(key,value)=>{ writes++; attrs.set(key,value); },
+        remove:()=>{ writes++; indicator=undefined; }
+      };
+    }
+  };
+  const tile={dataset:{routeId:'old'},querySelector:()=>indicators,classList:{toggle(){}}};
+  let routeReads=0;
+  Object.assign(warnings,{
+    state:{get routes(){routeReads++;return [oldRoute];}},
+    document:{querySelectorAll:selector=>selector.includes('.route-recent')?[]:[tile]},
+    routeFreshMinutes:()=>30,
+    routeButtonElement:()=>tile
+  });
+  vm.runInContext(section('    function syncRouteCommercialWarning(', '    function routeStatusClasses('),warnings);
+  for(let minute=0;minute<60;minute++) warnings.syncRecentRouteBadges();
+  assert.equal(routeReads,0,'Minutnik w tym samym dniu nie odczytuje relacji bez świeżych kafelków');
+  assert.equal(writes,0);
+  today='2026-12-03';
+  warnings.syncRecentRouteBadges();
+  assert.equal(routeReads,1);
+  assert.equal(writes,1);
+  assert.match(attrs.get('aria-label'),/koszt/);
+  warnings.syncRecentRouteBadges();
+  warnings.syncRouteCommercialWarningForRoute(oldRoute);
+  assert.equal(routeReads,1,'Kolejna minuta nie przelicza ostrzeżeń');
+  assert.equal(writes,1,'Aktualizacja bez zmiany nie przepisuje oznaczenia');
+  oldRoute.client='';
+  warnings.syncRouteCommercialWarningForRoute(oldRoute);
+  assert.equal(writes,3);
+  assert.match(attrs.get('aria-label'),/koszt, klient/);
+  warnings.carrierCost=()=>100;
+  oldRoute.client='Uzupełniony klient';
+  warnings.syncRouteCommercialWarningForRoute(oldRoute);
+  assert.equal(indicator,undefined);
   console.log('Przykłady, routing i ostrzeżenia po przekroczeniu trzech dni: OK');
 })().catch(error=>{console.error(error);process.exitCode=1;});
