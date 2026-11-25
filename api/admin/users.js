@@ -189,7 +189,7 @@ async function updateUser(body, actor) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
     // Zmiana samego koloru nie może kasować nazwy, roli ani statusu profilu.
-    body: JSON.stringify(profilePayload({ ...target, ...body, role }, role)),
+    body: JSON.stringify(profilePayload({ ...target, displayName: target.display_name, branchId: target.branch_id, uiColor: target.ui_color, ...body, role }, role)),
   })
   const updated = Array.isArray(rows) ? rows[0] : rows
   if (!updated) throw Object.assign(new Error('Profil użytkownika nie został zaktualizowany.'), { statusCode: 404 })

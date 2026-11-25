@@ -520,7 +520,7 @@ async function adminApi(path, options = {}) {
     throw new Error('Endpoint '+path+' nie zwrócił danych JSON (HTTP '+response.status+'). Sprawdź kompletność wdrożenia funkcji Administracji.'+(suffix?' '+suffix:''))
   }
   if (!response.ok || data.ok === false) {
-    throw new Error((data.message || `Błąd endpointu ${path} (HTTP ${response.status})`) + (data.phase ? ` [${data.phase}]` : ''))
+    throw new Error(data.message || `Błąd endpointu ${path} (HTTP ${response.status})`)
   }
   return data
 }
